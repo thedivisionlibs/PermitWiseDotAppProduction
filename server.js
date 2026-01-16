@@ -700,7 +700,7 @@ app.post('/api/auth/verify-email', async (req, res) => {
 });
 
 // Resend verification email
-app.post('/api/auth/resend-verification', auth, async (req, res) => {
+app.post('/api/auth/resend-verification', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
     if (!user) {
