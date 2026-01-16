@@ -5,7 +5,7 @@ import './App.css';
 // ===========================================
 // CONFIGURATION
 // ===========================================
-const API_URL = process.env.REACT_APP_API_URL || 'https://permitwisedotappproduction-production.up.railway.app/api';
+const API_URL = process.env.REACT_APP_API_URL || (process.env.NODE_ENV === 'production' ? '/api' : 'https://permitwisedotappproduction-production.up.railway.app/api');
 
 // ===========================================
 // CONTEXT
@@ -103,11 +103,6 @@ const daysUntil = (date) => {
   const now = new Date();
   const target = new Date(date);
   return Math.ceil((target - now) / (1000 * 60 * 60 * 24));
-};
-
-const getStatusColor = (status) => {
-  const colors = { active: 'status-active', expired: 'status-expired', pending_renewal: 'status-warning', missing: 'status-missing', in_progress: 'status-progress' };
-  return colors[status] || '';
 };
 
 const getStatusLabel = (status) => {
@@ -523,12 +518,6 @@ const Dashboard = () => {
     }
   }, []);
 
-  const getDaysUntilExpiry = (expiryDate) => {
-    if (!expiryDate) return null;
-    const days = Math.ceil((new Date(expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
-    return days;
-  };
-
   const getExpiryLabel = (daysUntil) => {
     if (daysUntil <= 0) return { text: 'Expired!', variant: 'danger' };
     if (daysUntil <= 7) return { text: `Expires in ${daysUntil} day${daysUntil > 1 ? 's' : ''} — inspectors often check this first!`, variant: 'danger' };
@@ -613,17 +602,6 @@ const PermitsPage = () => {
 
   const fetchPermits = async () => { try { const data = await api.get('/permits'); setPermits(data.permits); setSummary(data.summary); } catch (error) { console.error(error); } finally { setLoading(false); } };
   
-  useEffect(() => { 
-    fetchPermits(); 
-  }, []);
-
-  // Show suggestion modal when permits are empty and user has a business
-  useEffect(() => {
-    if (!loading && permits.length === 0 && business?.operatingCities?.length > 0) {
-      fetchSuggestedPermits();
-    }
-  }, [loading, permits.length, business]);
-
   const fetchSuggestedPermits = async () => {
     if (!business?.operatingCities?.[0]) return;
     setLoadingSuggestions(true);
@@ -638,6 +616,18 @@ const PermitsPage = () => {
     } catch (err) { console.error(err); }
     finally { setLoadingSuggestions(false); }
   };
+
+  useEffect(() => { 
+    fetchPermits(); 
+  }, []);
+
+  // Show suggestion modal when permits are empty and user has a business
+  useEffect(() => {
+    if (!loading && permits.length === 0 && business?.operatingCities?.length > 0) {
+      fetchSuggestedPermits();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, permits.length, business]);
 
   const toggleSuggestion = (id) => {
     setSelectedSuggestions(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
@@ -1485,6 +1475,7 @@ const AdminPage = ({ onBack }) => {
     finally { setLoading(false); }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (isAuthenticated) fetchData(activeTab); }, [activeTab, isAuthenticated]);
 
   const createJurisdiction = async () => {
