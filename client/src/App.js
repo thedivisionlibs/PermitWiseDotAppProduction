@@ -5,7 +5,7 @@ import './App.css';
 // ===========================================
 // CONFIGURATION
 // ===========================================
-const API_URL = process.env.REACT_APP_API_URL || 'permitwisedotappproduction-production.up.railway.app/api';
+const API_URL = process.env.REACT_APP_API_URL || 'https://permitwisedotappproduction-production.up.railway.app/api';
 
 // ===========================================
 // CONTEXT
