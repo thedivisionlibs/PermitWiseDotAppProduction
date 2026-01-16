@@ -1891,4 +1891,3 @@ const App = () => {
 
 const AppWithAuth = () => <AuthProvider><App /></AuthProvider>;
 export default AppWithAuth;
-export default AppWithAuth;
