@@ -3047,15 +3047,10 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Serve static files in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, 'client/build')));
-}
-
 // Serve public folder for landing page assets
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
-// Landing page route
+// Landing page route - MUST be before static middleware
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'landing.html'));
 });
@@ -3086,6 +3081,13 @@ app.get('/app/*', (req, res) => {
     res.redirect('http://localhost:3000');
   }
 });
+
+// Serve static files in production (AFTER explicit routes)
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, 'client/build'), {
+    index: false // Don't serve index.html for "/" - we handle that above
+  }));
+}
 
 // ===========================================
 // START SERVER
