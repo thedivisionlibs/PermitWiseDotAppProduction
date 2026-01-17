@@ -216,21 +216,21 @@ const AuthProvider = ({ children }) => {
 // ===========================================
 // PAGES
 // ===========================================
-const LandingPage = ({ onGetStarted, onLegalPage }) => (
-  <div className="landing-page">
-    <nav className="landing-nav"><div className="landing-nav-inner"><div className="logo"><Icons.Shield /><span>PermitWise</span></div><div className="nav-actions"><Button variant="ghost" onClick={() => onGetStarted('login')}>Log In</Button><Button onClick={() => onGetStarted('register')}>Get Started</Button></div></div></nav>
-    <section className="hero"><div className="hero-content"><h1>Never miss a permit renewal again.</h1><p className="hero-subtitle">PermitWise keeps your food truck or pop-up fully compliant with automatic alerts.</p><div className="hero-cta"><Button size="lg" onClick={() => onGetStarted('register')}>Get started free</Button><Button variant="outline" size="lg" onClick={() => onGetStarted('check')}>See what permits you need</Button></div></div></section>
-    <section className="section pricing"><h2>Simple pricing</h2><div className="pricing-grid"><div className="pricing-card"><h3>Starter</h3><div className="price">$19<span>/mo</span></div><ul><li><Icons.Check /> 1 city</li><li><Icons.Check /> Email reminders</li></ul><Button variant="outline" onClick={() => onGetStarted('register')}>Start free</Button></div><div className="pricing-card featured"><div className="popular-badge">Popular</div><h3>Pro</h3><div className="price">$49<span>/mo</span></div><ul><li><Icons.Check /> Unlimited cities</li><li><Icons.Check /> SMS reminders</li><li><Icons.Check /> Autofill</li></ul><Button onClick={() => onGetStarted('register')}>Start free</Button></div><div className="pricing-card"><h3>Elite</h3><div className="price">$99<span>/mo</span></div><ul><li><Icons.Check /> Team accounts</li><li><Icons.Check /> Event integration</li></ul><Button variant="outline" onClick={() => onGetStarted('register')}>Start free</Button></div></div></section>
-    <footer className="landing-footer">
-      <div className="footer-links">
-        <button onClick={() => onLegalPage('privacy')}>Privacy Policy</button>
-        <button onClick={() => onLegalPage('terms')}>Terms of Service</button>
-        <a href="mailto:support@permitwise.com">Contact</a>
-      </div>
-      <p>© 2025 PermitWise. All rights reserved.</p>
-    </footer>
-  </div>
-);
+// const LandingPage = ({ onGetStarted, onLegalPage }) => (
+  //<div className="landing-page">
+    //<nav className="landing-nav"><div className="landing-nav-inner"><div className="logo"><Icons.Shield /><span>PermitWise</span></div><div className="nav-actions"><Button variant="ghost" onClick={() => onGetStarted('login')}>Log In</Button><Button onClick={() => onGetStarted('register')}>Get Started</Button></div></div></nav>
+    //<section className="hero"><div className="hero-content"><h1>Never miss a permit renewal again.</h1><p className="hero-subtitle">PermitWise keeps your food truck or pop-up fully compliant with automatic alerts.</p><div className="hero-cta"><Button size="lg" onClick={() => onGetStarted('register')}>Get started free</Button><Button variant="outline" size="lg" onClick={() => onGetStarted('check')}>See what permits you need</Button></div></div></section>
+    //<section className="section pricing"><h2>Simple pricing</h2><div className="pricing-grid"><div className="pricing-card"><h3>Starter</h3><div className="price">$19<span>/mo</span></div><ul><li><Icons.Check /> 1 city</li><li><Icons.Check /> Email reminders</li></ul><Button variant="outline" onClick={() => onGetStarted('register')}>Start free</Button></div><div className="pricing-card featured"><div className="popular-badge">Popular</div><h3>Pro</h3><div className="price">$49<span>/mo</span></div><ul><li><Icons.Check /> Unlimited cities</li><li><Icons.Check /> SMS reminders</li><li><Icons.Check /> Autofill</li></ul><Button onClick={() => onGetStarted('register')}>Start free</Button></div><div className="pricing-card"><h3>Elite</h3><div className="price">$99<span>/mo</span></div><ul><li><Icons.Check /> Team accounts</li><li><Icons.Check /> Event integration</li></ul><Button variant="outline" onClick={() => onGetStarted('register')}>Start free</Button></div></div></section>
+    //<footer className="landing-footer">
+      //<div className="footer-links">
+        //<button onClick={() => onLegalPage('privacy')}>Privacy Policy</button>
+        //<button onClick={() => onLegalPage('terms')}>Terms of Service</button>
+        //<a href="mailto:support@permitwise.com">Contact</a>
+      //</div>
+      //<p>© 2025 PermitWise. All rights reserved.</p>
+    //</footer>
+  //</div>
+//);
 
 const LoginPage = ({ onSwitch, onSuccess }) => {
   const { login } = useAuth();
