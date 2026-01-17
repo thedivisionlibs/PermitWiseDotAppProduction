@@ -2642,18 +2642,12 @@ app.post('/api/admin/make-admin', async (req, res) => {
 });
 
 // ===========================================
-// ADMIN DASHBOARD API (Secret-based auth)
+// ADMIN DASHBOARD API (JWT-based auth)
 // ===========================================
-const adminSecretAuth = (req, res, next) => {
-  const adminSecret = req.headers['x-admin-secret'];
-  if (!adminSecret || adminSecret !== process.env.ADMIN_SECRET) {
-    return res.status(403).json({ error: 'Invalid admin secret' });
-  }
-  next();
-};
+// Admin routes now use authMiddleware + adminMiddleware (user must be logged in AND have admin role)
 
 // Admin Stats
-app.get('/api/admin/stats', adminSecretAuth, async (req, res) => {
+app.get('/api/admin/stats', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const now = new Date();
     const todayStart = new Date(now.setHours(0, 0, 0, 0));
@@ -2684,7 +2678,7 @@ app.get('/api/admin/stats', adminSecretAuth, async (req, res) => {
 });
 
 // Admin Users List
-app.get('/api/admin/users', adminSecretAuth, async (req, res) => {
+app.get('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const users = await User.find().select('-password -resetPasswordToken -verificationToken').sort({ createdAt: -1 }).limit(100);
     res.json({ users });
@@ -2694,7 +2688,7 @@ app.get('/api/admin/users', adminSecretAuth, async (req, res) => {
 });
 
 // Admin Delete User
-app.delete('/api/admin/users/:id', adminSecretAuth, async (req, res) => {
+app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     await User.findByIdAndDelete(req.params.id);
     res.json({ message: 'User deleted' });
@@ -2704,7 +2698,7 @@ app.delete('/api/admin/users/:id', adminSecretAuth, async (req, res) => {
 });
 
 // Admin Businesses List
-app.get('/api/admin/businesses', adminSecretAuth, async (req, res) => {
+app.get('/api/admin/businesses', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const businesses = await VendorBusiness.find().populate('ownerId', 'email firstName lastName').populate('subscriptionId').sort({ createdAt: -1 }).limit(100);
     res.json({ businesses });
@@ -2714,7 +2708,7 @@ app.get('/api/admin/businesses', adminSecretAuth, async (req, res) => {
 });
 
 // Admin Delete Business
-app.delete('/api/admin/businesses/:id', adminSecretAuth, async (req, res) => {
+app.delete('/api/admin/businesses/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     await VendorBusiness.findByIdAndDelete(req.params.id);
     res.json({ message: 'Business deleted' });
@@ -2724,7 +2718,7 @@ app.delete('/api/admin/businesses/:id', adminSecretAuth, async (req, res) => {
 });
 
 // Admin Jurisdictions List
-app.get('/api/admin/jurisdictions', adminSecretAuth, async (req, res) => {
+app.get('/api/admin/jurisdictions', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const jurisdictions = await Jurisdiction.find().sort({ state: 1, city: 1 });
     // Add permit type count
@@ -2739,7 +2733,7 @@ app.get('/api/admin/jurisdictions', adminSecretAuth, async (req, res) => {
 });
 
 // Admin Create Jurisdiction
-app.post('/api/admin/jurisdictions', adminSecretAuth, async (req, res) => {
+app.post('/api/admin/jurisdictions', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const jurisdiction = new Jurisdiction(req.body);
     await jurisdiction.save();
@@ -2750,7 +2744,7 @@ app.post('/api/admin/jurisdictions', adminSecretAuth, async (req, res) => {
 });
 
 // Admin Delete Jurisdiction
-app.delete('/api/admin/jurisdictions/:id', adminSecretAuth, async (req, res) => {
+app.delete('/api/admin/jurisdictions/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     await Jurisdiction.findByIdAndDelete(req.params.id);
     await PermitType.deleteMany({ jurisdictionId: req.params.id });
@@ -2761,7 +2755,7 @@ app.delete('/api/admin/jurisdictions/:id', adminSecretAuth, async (req, res) => 
 });
 
 // Admin Permit Types List
-app.get('/api/admin/permit-types', adminSecretAuth, async (req, res) => {
+app.get('/api/admin/permit-types', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const permitTypes = await PermitType.find().populate('jurisdictionId', 'name city state').sort({ name: 1 });
     res.json({ permitTypes });
@@ -2771,7 +2765,7 @@ app.get('/api/admin/permit-types', adminSecretAuth, async (req, res) => {
 });
 
 // Admin Create Permit Type
-app.post('/api/admin/permit-types', adminSecretAuth, async (req, res) => {
+app.post('/api/admin/permit-types', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const permitType = new PermitType(req.body);
     await permitType.save();
@@ -2782,7 +2776,7 @@ app.post('/api/admin/permit-types', adminSecretAuth, async (req, res) => {
 });
 
 // Admin Delete Permit Type
-app.delete('/api/admin/permit-types/:id', adminSecretAuth, async (req, res) => {
+app.delete('/api/admin/permit-types/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     await PermitType.findByIdAndDelete(req.params.id);
     res.json({ message: 'Permit type deleted' });
@@ -2792,7 +2786,7 @@ app.delete('/api/admin/permit-types/:id', adminSecretAuth, async (req, res) => {
 });
 
 // Admin Duplicate Permit Type
-app.post('/api/admin/permit-types/:id/duplicate', adminSecretAuth, async (req, res) => {
+app.post('/api/admin/permit-types/:id/duplicate', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { newJurisdictionId } = req.body;
     const original = await PermitType.findById(req.params.id);
@@ -3062,6 +3056,15 @@ app.get('/app', (req, res) => {
     res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
   } else {
     res.redirect('http://localhost:3000');
+  }
+});
+
+// Password reset route (serves React app to handle token)
+app.get('/reset-password', (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+  } else {
+    res.redirect(`http://localhost:3000/reset-password?token=${req.query.token || ''}`);
   }
 });
 
