@@ -3047,12 +3047,13 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Serve public folder for landing page assets
-app.use('/public', express.static(path.join(__dirname, 'public')));
-
 // Landing page route - MUST be before static middleware
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'landing.html'));
+  if (process.env.NODE_ENV === 'production') {
+    res.sendFile(path.join(__dirname, 'client/build', 'landing.html'));
+  } else {
+    res.sendFile(path.join(__dirname, 'client/public', 'landing.html'));
+  }
 });
 
 // App route (for React app in production)
