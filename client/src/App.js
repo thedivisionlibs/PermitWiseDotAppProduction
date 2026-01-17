@@ -5,7 +5,7 @@ import './App.css';
 // ===========================================
 // CONFIGURATION
 // ===========================================
-const API_URL = process.env.REACT_APP_API_URL || (process.env.NODE_ENV === 'production' ? '/api' : 'https://permitwisedotappproduction-production.up.railway.app/api');
+const API_URL = process.env.REACT_APP_API_URL || (process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:5000/api');
 
 // ===========================================
 // CONTEXT
@@ -70,6 +70,8 @@ const Icons = {
   Trash: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
   Edit: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
   Eye: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  EyeOff: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
+  Lock: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
   Bell: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
 };
 
@@ -233,6 +235,7 @@ const LandingPage = ({ onGetStarted, onLegalPage }) => (
 const LoginPage = ({ onSwitch, onSuccess }) => {
   const { login } = useAuth();
   const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -246,7 +249,11 @@ const LoginPage = ({ onSwitch, onSuccess }) => {
       <form onSubmit={handleSubmit} className="auth-form">
         {error && <Alert type="error">{error}</Alert>}
         <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <Input label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <div className="password-input-wrapper">
+          <Input label="Password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)}>{showPassword ? <Icons.EyeOff /> : <Icons.Eye />}</button>
+        </div>
+        <div className="forgot-password-link"><button type="button" onClick={() => onSwitch('forgot')}>Forgot password?</button></div>
         <Button type="submit" loading={loading} className="full-width">Log In</Button>
       </form>
       <div className="auth-footer"><p>Don't have an account? <button onClick={() => onSwitch('register')}>Sign up</button></p></div>
@@ -254,10 +261,44 @@ const LoginPage = ({ onSwitch, onSuccess }) => {
   );
 };
 
+const PasswordStrengthIndicator = ({ password }) => {
+  const checks = {
+    length: password.length >= 8,
+    uppercase: /[A-Z]/.test(password),
+    lowercase: /[a-z]/.test(password),
+    number: /[0-9]/.test(password),
+    special: /[!@#$%^&*(),.?":{}|<>]/.test(password)
+  };
+  const passedChecks = Object.values(checks).filter(Boolean).length;
+  const strength = passedChecks <= 2 ? 'weak' : passedChecks <= 4 ? 'medium' : 'strong';
+  const strengthLabel = passedChecks <= 2 ? 'Weak' : passedChecks <= 4 ? 'Medium' : 'Strong';
+
+  if (!password) return null;
+
+  return (
+    <div className="password-strength">
+      <div className="strength-bar"><div className={`strength-fill ${strength}`} style={{ width: `${(passedChecks / 5) * 100}%` }} /></div>
+      <span className={`strength-label ${strength}`}>{strengthLabel}</span>
+      <div className="strength-checks">
+        <div className={checks.length ? 'check passed' : 'check'}>{checks.length ? <Icons.Check /> : <Icons.X />} At least 8 characters</div>
+        <div className={checks.uppercase ? 'check passed' : 'check'}>{checks.uppercase ? <Icons.Check /> : <Icons.X />} Uppercase letter</div>
+        <div className={checks.lowercase ? 'check passed' : 'check'}>{checks.lowercase ? <Icons.Check /> : <Icons.X />} Lowercase letter</div>
+        <div className={checks.number ? 'check passed' : 'check'}>{checks.number ? <Icons.Check /> : <Icons.X />} Number</div>
+        <div className={checks.special ? 'check passed' : 'check'}>{checks.special ? <Icons.Check /> : <Icons.X />} Special character (!@#$%^&*)</div>
+      </div>
+    </div>
+  );
+};
+
 const RegisterPage = ({ onSwitch, onSuccess }) => {
   const { register } = useAuth();
   const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '', firstName: '', lastName: '', phone: '' });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
+
+  const passwordsMatch = formData.password && formData.confirmPassword && formData.password === formData.confirmPassword;
+  const passwordsDontMatch = formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword;
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setError('');
@@ -275,11 +316,100 @@ const RegisterPage = ({ onSwitch, onSuccess }) => {
         <div className="form-row"><Input label="First Name" value={formData.firstName} onChange={(e) => setFormData(f => ({ ...f, firstName: e.target.value }))} required /><Input label="Last Name" value={formData.lastName} onChange={(e) => setFormData(f => ({ ...f, lastName: e.target.value }))} required /></div>
         <Input label="Email" type="email" value={formData.email} onChange={(e) => setFormData(f => ({ ...f, email: e.target.value }))} required />
         <Input label="Phone" type="tel" value={formData.phone} onChange={(e) => setFormData(f => ({ ...f, phone: e.target.value }))} />
-        <Input label="Password" type="password" value={formData.password} onChange={(e) => setFormData(f => ({ ...f, password: e.target.value }))} required />
-        <Input label="Confirm Password" type="password" value={formData.confirmPassword} onChange={(e) => setFormData(f => ({ ...f, confirmPassword: e.target.value }))} required />
+        <div className="password-input-wrapper">
+          <Input label="Password" type={showPassword ? 'text' : 'password'} value={formData.password} onChange={(e) => setFormData(f => ({ ...f, password: e.target.value }))} required />
+          <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)}>{showPassword ? <Icons.EyeOff /> : <Icons.Eye />}</button>
+        </div>
+        <PasswordStrengthIndicator password={formData.password} />
+        <div className="password-input-wrapper">
+          <Input label="Confirm Password" type={showConfirmPassword ? 'text' : 'password'} value={formData.confirmPassword} onChange={(e) => setFormData(f => ({ ...f, confirmPassword: e.target.value }))} required className={passwordsMatch ? 'input-success' : passwordsDontMatch ? 'input-error' : ''} />
+          <button type="button" className="password-toggle" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>{showConfirmPassword ? <Icons.EyeOff /> : <Icons.Eye />}</button>
+        </div>
+        {passwordsMatch && <div className="password-match success"><Icons.Check /> Passwords match</div>}
+        {passwordsDontMatch && <div className="password-match error"><Icons.X /> Passwords do not match</div>}
         <Button type="submit" loading={loading} className="full-width">Create Account</Button>
       </form>
       <div className="auth-footer"><p>Have an account? <button onClick={() => onSwitch('login')}>Log in</button></p></div>
+    </div></div>
+  );
+};
+
+const ForgotPasswordPage = ({ onSwitch }) => {
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState(''); const [success, setSuccess] = useState(false); const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault(); setError(''); setLoading(true);
+    try {
+      await api.post('/auth/forgot-password', { email });
+      setSuccess(true);
+    } catch (err) { setError(err.message); } finally { setLoading(false); }
+  };
+
+  if (success) {
+    return (
+      <div className="auth-page"><div className="auth-container">
+        <div className="auth-header"><div className="logo"><Icons.Shield /><span>PermitWise</span></div><h1>Check your email</h1></div>
+        <div className="auth-success">
+          <div className="success-icon"><Icons.Check /></div>
+          <p>If an account exists for <strong>{email}</strong>, we've sent password reset instructions.</p>
+          <p className="muted">Check your spam folder if you don't see it within a few minutes.</p>
+        </div>
+        <div className="auth-footer"><button onClick={() => onSwitch('login')}>← Back to login</button></div>
+      </div></div>
+    );
+  }
+
+  return (
+    <div className="auth-page"><div className="auth-container">
+      <div className="auth-header"><div className="logo"><Icons.Shield /><span>PermitWise</span></div><h1>Reset password</h1><p>Enter your email and we'll send reset instructions</p></div>
+      <form onSubmit={handleSubmit} className="auth-form">
+        {error && <Alert type="error">{error}</Alert>}
+        <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <Button type="submit" loading={loading} className="full-width">Send Reset Link</Button>
+      </form>
+      <div className="auth-footer"><button onClick={() => onSwitch('login')}>← Back to login</button></div>
+    </div></div>
+  );
+};
+
+const ResetPasswordPage = ({ token, onSuccess }) => {
+  const [password, setPassword] = useState(''); const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false); const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
+
+  const passwordsMatch = password && confirmPassword && password === confirmPassword;
+  const passwordsDontMatch = password && confirmPassword && password !== confirmPassword;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault(); setError('');
+    if (password !== confirmPassword) { setError('Passwords do not match'); return; }
+    if (password.length < 8) { setError('Password must be at least 8 characters'); return; }
+    setLoading(true);
+    try {
+      await api.post('/auth/reset-password', { token, password });
+      onSuccess();
+    } catch (err) { setError(err.message); } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="auth-page"><div className="auth-container">
+      <div className="auth-header"><div className="logo"><Icons.Shield /><span>PermitWise</span></div><h1>Set new password</h1></div>
+      <form onSubmit={handleSubmit} className="auth-form">
+        {error && <Alert type="error">{error}</Alert>}
+        <div className="password-input-wrapper">
+          <Input label="New Password" type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)}>{showPassword ? <Icons.EyeOff /> : <Icons.Eye />}</button>
+        </div>
+        <PasswordStrengthIndicator password={password} />
+        <div className="password-input-wrapper">
+          <Input label="Confirm New Password" type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+          <button type="button" className="password-toggle" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>{showConfirmPassword ? <Icons.EyeOff /> : <Icons.Eye />}</button>
+        </div>
+        {passwordsMatch && <div className="password-match success"><Icons.Check /> Passwords match</div>}
+        {passwordsDontMatch && <div className="password-match error"><Icons.X /> Passwords do not match</div>}
+        <Button type="submit" loading={loading} className="full-width">Reset Password</Button>
+      </form>
     </div></div>
   );
 };
@@ -1431,9 +1561,8 @@ const PrivacyPage = ({ onBack }) => (
 // ADMIN PAGE
 // ===========================================
 const AdminPage = ({ onBack }) => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('users');
-  const [adminSecret, setAdminSecret] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState({ users: [], businesses: [], permits: [], jurisdictions: [], permitTypes: [], stats: null });
   const [message, setMessage] = useState('');
@@ -1443,24 +1572,17 @@ const AdminPage = ({ onBack }) => {
   const [duplicateTarget, setDuplicateTarget] = useState(null);
   const [duplicateJurisdiction, setDuplicateJurisdiction] = useState('');
 
+  // Check if user is admin
+  const isAdmin = user?.role === 'admin';
+
   const adminApi = async (endpoint, method = 'GET', body = null) => {
-    const options = { method, headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret } };
+    const token = localStorage.getItem('token');
+    const options = { method, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` } };
     if (body) options.body = JSON.stringify(body);
     const response = await fetch(`${API_URL}${endpoint}`, options);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Request failed');
     return result;
-  };
-
-  const handleLogin = async () => {
-    setLoading(true);
-    try {
-      const result = await adminApi('/admin/stats');
-      setData(d => ({ ...d, stats: result }));
-      setIsAuthenticated(true);
-      setMessage('Admin access granted');
-    } catch (err) { setMessage('Invalid admin secret'); }
-    finally { setLoading(false); }
   };
 
   const fetchData = async (type) => {
@@ -1476,7 +1598,10 @@ const AdminPage = ({ onBack }) => {
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (isAuthenticated) fetchData(activeTab); }, [activeTab, isAuthenticated]);
+  useEffect(() => { if (isAdmin) fetchData(activeTab); }, [activeTab, isAdmin]);
+  
+  // Initial stats fetch
+  useEffect(() => { if (isAdmin) fetchData('stats'); }, [isAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const createJurisdiction = async () => {
     try {
@@ -1527,16 +1652,15 @@ const AdminPage = ({ onBack }) => {
     return pt.name?.toLowerCase().includes(search) || pt.jurisdictionId?.name?.toLowerCase().includes(search) || pt.jurisdictionId?.city?.toLowerCase().includes(search);
   });
 
-  if (!isAuthenticated) {
+  if (!isAdmin) {
     return (
       <div className="admin-login">
         <button className="back-link" onClick={onBack}><Icons.X /> Back</button>
         <Card className="admin-login-card">
-          <h1>Admin Access</h1>
-          <p>Enter the admin secret to continue</p>
-          {message && <Alert type="error">{message}</Alert>}
-          <Input label="Admin Secret" type="password" value={adminSecret} onChange={(e) => setAdminSecret(e.target.value)} />
-          <Button onClick={handleLogin} loading={loading}>Access Admin</Button>
+          <div className="admin-denied-icon"><Icons.Lock /></div>
+          <h1>Admin Access Required</h1>
+          <p>You don't have admin privileges. Please contact an administrator if you need access.</p>
+          <Button onClick={onBack}>Go Back</Button>
         </Card>
       </div>
     );
@@ -1851,11 +1975,17 @@ const App = () => {
   const [authView, setAuthView] = useState(null);
   const [showPermitChecker, setShowPermitChecker] = useState(false);
   const [legalPage, setLegalPage] = useState(null); // 'privacy', 'terms', 'admin'
+  const [resetToken, setResetToken] = useState(null);
 
   useEffect(() => { 
     const params = new URLSearchParams(window.location.search);
     if (params.get('success')) { alert('Subscription activated!'); window.history.replaceState({}, '', window.location.pathname); }
     if (params.get('canceled')) { alert('Checkout canceled.'); window.history.replaceState({}, '', window.location.pathname); }
+    // Check for password reset token
+    if (params.get('token') && window.location.pathname.includes('reset-password')) {
+      setResetToken(params.get('token'));
+      return;
+    }
     // Auto-detect login/register from URL params (from landing page links)
     if (params.get('register') === 'true') { setAuthView('register'); window.history.replaceState({}, '', window.location.pathname); }
     else if (params.get('login') === 'true' || window.location.pathname === '/app') { setAuthView('login'); }
@@ -1863,20 +1993,32 @@ const App = () => {
     const path = window.location.pathname;
     if (path === '/privacy') setLegalPage('privacy');
     else if (path === '/terms') setLegalPage('terms');
-    else if (path === '/admin') setLegalPage('admin');
+    else if (path === '/admin' || path === '/app/admin') setLegalPage('admin');
   }, []);
 
+  // Password reset page (accessible without auth)
+  if (resetToken) {
+    return <ResetPasswordPage token={resetToken} onSuccess={() => { setResetToken(null); setAuthView('login'); window.history.replaceState({}, '', '/app'); alert('Password reset successful! Please log in.'); }} />;
+  }
+
   // Legal pages are accessible without authentication
-  if (legalPage === 'privacy') return <PrivacyPage onBack={() => { setLegalPage(null); window.history.pushState({}, '', '/'); }} />;
-  if (legalPage === 'terms') return <TermsPage onBack={() => { setLegalPage(null); window.history.pushState({}, '', '/'); }} />;
-  if (legalPage === 'admin') return <AdminPage onBack={() => { setLegalPage(null); window.history.pushState({}, '', '/'); }} />;
+  if (legalPage === 'privacy') return <PrivacyPage onBack={() => { setLegalPage(null); window.history.pushState({}, '', '/app'); }} />;
+  if (legalPage === 'terms') return <TermsPage onBack={() => { setLegalPage(null); window.history.pushState({}, '', '/app'); }} />;
+  // Admin page requires authentication
+  if (legalPage === 'admin') {
+    if (!isAuthenticated) {
+      return <LoginPage onSwitch={(v) => { if (v === 'register') { setLegalPage(null); setAuthView('register'); } else if (v === 'forgot') { setLegalPage(null); setAuthView('forgot'); } else { setAuthView(v); } }} onSuccess={() => {}} />;
+    }
+    return <AdminPage onBack={() => { setLegalPage(null); window.history.pushState({}, '', '/app'); }} />;
+  }
 
   if (loading) return <div className="loading-screen"><LoadingSpinner /><p>Loading...</p></div>;
   if (!isAuthenticated) {
     if (showPermitChecker) return <PermitChecker onClose={() => setShowPermitChecker(false)} onGetStarted={(v) => { setShowPermitChecker(false); setAuthView(v); }} />;
     if (authView === 'login') return <LoginPage onSwitch={setAuthView} onSuccess={() => setAuthView(null)} />;
     if (authView === 'register') return <RegisterPage onSwitch={setAuthView} onSuccess={() => setAuthView(null)} />;
-    return <LandingPage onGetStarted={(a) => a === 'check' ? setShowPermitChecker(true) : setAuthView(a)} onLegalPage={setLegalPage} />;
+    if (authView === 'forgot') return <ForgotPasswordPage onSwitch={setAuthView} />;
+    return <LoginPage onSwitch={setAuthView} onSuccess={() => setAuthView(null)} />;
   }
   if (!hasCompletedOnboarding) return <OnboardingPage onComplete={() => window.location.reload()} />;
   const renderPage = () => { switch (currentPage) { case 'dashboard': return <Dashboard />; case 'permits': return <PermitsPage />; case 'documents': return <DocumentsPage />; case 'inspections': return <InspectionsPage />; case 'events': return <EventsPage />; case 'settings': return <SettingsPage />; default: return <Dashboard />; } };
