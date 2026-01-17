@@ -10,7 +10,7 @@ import Svg, { Path, Circle, Rect, Polyline, Line } from 'react-native-svg';
 // ===========================================
 // CONFIGURATION
 // ===========================================
-const API_URL = 'http://localhost:5000/api'; // Change to your production URL
+const API_URL = 'https://permitwisedotappproduction-production.up.railway.app/api'; // Production URL
 
 // ===========================================
 // ICONS
@@ -102,6 +102,32 @@ const Icons = {
       <Path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><Path d="M13.73 21a2 2 0 0 1-3.46 0" />
     </Svg>
   ),
+  Eye: ({ size = 24, color = '#64748b' }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <Path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><Circle cx="12" cy="12" r="3" />
+    </Svg>
+  ),
+  EyeOff: ({ size = 24, color = '#64748b' }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <Path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+      <Line x1="1" y1="1" x2="23" y2="23" />
+    </Svg>
+  ),
+  Lock: ({ size = 24, color = '#64748b' }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <Rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><Path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </Svg>
+  ),
+  Upload: ({ size = 24, color = '#64748b' }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><Polyline points="17,8 12,3 7,8" /><Line x1="12" y1="3" x2="12" y2="15" />
+    </Svg>
+  ),
+  Trash: ({ size = 24, color = '#64748b' }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <Polyline points="3,6 5,6 21,6" /><Path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </Svg>
+  ),
 };
 
 // ===========================================
@@ -148,6 +174,95 @@ const formatDate = (date) => date ? new Date(date).toLocaleDateString('en-US', {
 const daysUntil = (date) => date ? Math.ceil((new Date(date) - new Date()) / (1000 * 60 * 60 * 24)) : null;
 const getStatusLabel = (status) => ({ active: 'Active', expired: 'Expired', pending_renewal: 'Expiring Soon', missing: 'Missing', in_progress: 'In Progress' }[status] || status);
 const getStatusColor = (status) => ({ active: COLORS.success, expired: COLORS.danger, pending_renewal: COLORS.warning, missing: COLORS.gray400 }[status] || COLORS.gray500);
+
+// ===========================================
+// GOOGLE PLAY BILLING (Android) / IN-APP PURCHASE
+// ===========================================
+// Note: For production, integrate with react-native-iap or expo-in-app-purchases
+// This provides the integration structure - actual billing requires native setup
+const SUBSCRIPTION_SKUS = {
+  basic: Platform.OS === 'android' ? 'permitwise_basic_monthly' : 'com.permitwise.basic.monthly',
+  pro: Platform.OS === 'android' ? 'permitwise_pro_monthly' : 'com.permitwise.pro.monthly',
+  elite: Platform.OS === 'android' ? 'permitwise_elite_monthly' : 'com.permitwise.elite.monthly',
+};
+
+const PLAN_DETAILS = {
+  basic: { name: 'Basic', price: '$19/month', priceValue: 19, features: ['Up to 5 permits', 'Email reminders', '1 operating city'] },
+  pro: { name: 'Pro', price: '$49/month', priceValue: 49, features: ['Up to 20 permits', 'SMS + Email reminders', '5 operating cities', 'Document storage', 'Inspection checklists'], popular: true },
+  elite: { name: 'Elite', price: '$99/month', priceValue: 99, features: ['Unlimited permits', 'Priority support', 'Unlimited cities', 'Event marketplace', 'Team access'] },
+};
+
+// Billing service abstraction - handles both Google Play and Stripe
+const BillingService = {
+  isGooglePlayAvailable: Platform.OS === 'android',
+  
+  // Initialize billing - call on app start
+  async initialize() {
+    if (this.isGooglePlayAvailable) {
+      // In production: Initialize Google Play Billing
+      // await RNIap.initConnection();
+      console.log('Google Play Billing would initialize here');
+    }
+    return true;
+  },
+
+  // Get available subscriptions
+  async getSubscriptions() {
+    if (this.isGooglePlayAvailable) {
+      // In production: Fetch from Google Play
+      // return await RNIap.getSubscriptions(Object.values(SUBSCRIPTION_SKUS));
+      return Object.entries(PLAN_DETAILS).map(([key, plan]) => ({
+        productId: SUBSCRIPTION_SKUS[key],
+        ...plan,
+        localizedPrice: plan.price,
+      }));
+    }
+    return Object.entries(PLAN_DETAILS).map(([key, plan]) => ({ productId: key, ...plan }));
+  },
+
+  // Purchase subscription
+  async purchaseSubscription(sku, plan) {
+    if (this.isGooglePlayAvailable) {
+      // In production: Use Google Play Billing
+      // const purchase = await RNIap.requestSubscription(sku);
+      // Then verify purchase with backend
+      console.log('Would purchase via Google Play:', sku);
+      // For now, fall back to Stripe
+    }
+    // Stripe checkout via backend
+    const data = await api.post('/subscription/checkout', { plan, platform: Platform.OS });
+    if (data.url) {
+      await Linking.openURL(data.url);
+    }
+    return data;
+  },
+
+  // Restore purchases (required for App Store/Play Store)
+  async restorePurchases() {
+    if (this.isGooglePlayAvailable) {
+      // In production: RNIap.getAvailablePurchases()
+      console.log('Would restore purchases from Google Play');
+    }
+    // Verify with backend
+    try {
+      await api.get('/subscription/status');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  // Manage subscription (opens platform subscription management)
+  async manageSubscription() {
+    if (this.isGooglePlayAvailable) {
+      // Opens Google Play subscription management
+      await Linking.openURL('https://play.google.com/store/account/subscriptions');
+    } else {
+      // Opens App Store subscription management
+      await Linking.openURL('https://apps.apple.com/account/subscriptions');
+    }
+  },
+};
 
 // ===========================================
 // AUTH CONTEXT
@@ -214,6 +329,74 @@ const Input = ({ label, error, ...props }) => (
   </View>
 );
 
+const PasswordInput = ({ label, value, onChangeText, error, ...props }) => {
+  const [showPassword, setShowPassword] = useState(false);
+  return (
+    <View style={styles.formGroup}>
+      {label && <Text style={styles.label}>{label}</Text>}
+      <View style={styles.passwordInputWrapper}>
+        <TextInput 
+          style={[styles.input, styles.passwordInput, error && styles.inputError]} 
+          placeholderTextColor={COLORS.gray400} 
+          secureTextEntry={!showPassword}
+          value={value}
+          onChangeText={onChangeText}
+          {...props} 
+        />
+        <TouchableOpacity style={styles.passwordToggle} onPress={() => setShowPassword(!showPassword)}>
+          {showPassword ? <Icons.EyeOff size={20} color={COLORS.gray400} /> : <Icons.Eye size={20} color={COLORS.gray400} />}
+        </TouchableOpacity>
+      </View>
+      {error && <Text style={styles.errorText}>{error}</Text>}
+    </View>
+  );
+};
+
+const PasswordStrengthIndicator = ({ password }) => {
+  const checks = {
+    length: password.length >= 8,
+    uppercase: /[A-Z]/.test(password),
+    lowercase: /[a-z]/.test(password),
+    number: /[0-9]/.test(password),
+    special: /[!@#$%^&*(),.?":{}|<>]/.test(password)
+  };
+  const passedChecks = Object.values(checks).filter(Boolean).length;
+  const strength = passedChecks <= 2 ? 'weak' : passedChecks <= 4 ? 'medium' : 'strong';
+  const strengthColors = { weak: COLORS.danger, medium: COLORS.warning, strong: COLORS.success };
+  const strengthLabels = { weak: 'Weak', medium: 'Medium', strong: 'Strong' };
+
+  if (!password) return null;
+
+  return (
+    <View style={styles.passwordStrength}>
+      <View style={styles.strengthBar}>
+        <View style={[styles.strengthFill, { width: `${(passedChecks / 5) * 100}%`, backgroundColor: strengthColors[strength] }]} />
+      </View>
+      <Text style={[styles.strengthLabel, { color: strengthColors[strength] }]}>{strengthLabels[strength]}</Text>
+      <View style={styles.strengthChecks}>
+        <View style={styles.checkRow}>{checks.length ? <Icons.Check size={14} color={COLORS.success} /> : <Icons.X size={14} color={COLORS.gray300} />}<Text style={[styles.checkText, checks.length && styles.checkPassed]}>At least 8 characters</Text></View>
+        <View style={styles.checkRow}>{checks.uppercase ? <Icons.Check size={14} color={COLORS.success} /> : <Icons.X size={14} color={COLORS.gray300} />}<Text style={[styles.checkText, checks.uppercase && styles.checkPassed]}>Uppercase letter</Text></View>
+        <View style={styles.checkRow}>{checks.lowercase ? <Icons.Check size={14} color={COLORS.success} /> : <Icons.X size={14} color={COLORS.gray300} />}<Text style={[styles.checkText, checks.lowercase && styles.checkPassed]}>Lowercase letter</Text></View>
+        <View style={styles.checkRow}>{checks.number ? <Icons.Check size={14} color={COLORS.success} /> : <Icons.X size={14} color={COLORS.gray300} />}<Text style={[styles.checkText, checks.number && styles.checkPassed]}>Number</Text></View>
+        <View style={styles.checkRow}>{checks.special ? <Icons.Check size={14} color={COLORS.success} /> : <Icons.X size={14} color={COLORS.gray300} />}<Text style={[styles.checkText, checks.special && styles.checkPassed]}>Special character</Text></View>
+      </View>
+    </View>
+  );
+};
+
+const PasswordMatchIndicator = ({ password, confirmPassword }) => {
+  if (!password || !confirmPassword) return null;
+  const match = password === confirmPassword;
+  return (
+    <View style={[styles.passwordMatch, match ? styles.passwordMatchSuccess : styles.passwordMatchError]}>
+      {match ? <Icons.Check size={16} color={COLORS.success} /> : <Icons.X size={16} color={COLORS.danger} />}
+      <Text style={{ color: match ? COLORS.success : COLORS.danger, marginLeft: 6, fontSize: 14 }}>
+        {match ? 'Passwords match' : 'Passwords do not match'}
+      </Text>
+    </View>
+  );
+};
+
 const Card = ({ children, style, onPress }) => (
   <TouchableOpacity style={[styles.card, style]} onPress={onPress} disabled={!onPress}>
     {children}
@@ -268,7 +451,10 @@ const LoginScreen = ({ navigation }) => {
         </View>
         {error ? <View style={styles.alertError}><Text style={styles.alertText}>{error}</Text></View> : null}
         <Input label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-        <Input label="Password" value={password} onChangeText={setPassword} secureTextEntry />
+        <PasswordInput label="Password" value={password} onChangeText={setPassword} />
+        <TouchableOpacity style={styles.forgotPasswordLink} onPress={() => navigation.navigate('ForgotPassword')}>
+          <Text style={styles.forgotPasswordText}>Forgot password?</Text>
+        </TouchableOpacity>
         <Button title="Log In" onPress={handleLogin} loading={loading} style={{ marginTop: 8 }} />
         <TouchableOpacity style={styles.authLink} onPress={() => navigation.navigate('Register')}>
           <Text style={styles.authLinkText}>Don't have an account? <Text style={styles.authLinkBold}>Sign up</Text></Text>
@@ -296,7 +482,9 @@ const RegisterScreen = ({ navigation }) => {
     <SafeAreaView style={styles.authContainer}>
       <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled">
         <View style={styles.authHeader}>
-          <Icons.Shield size={48} /><Text style={styles.authTitle}>PermitWise</Text><Text style={styles.authSubtitle}>Create your account</Text>
+          <Icons.Shield size={48} /><Text style={styles.authTitle}>PermitWise</Text>
+          <Text style={styles.authSubtitle}>Create your account</Text>
+          <Text style={styles.trialBadge}>Full access for 14 days before payment</Text>
         </View>
         {error ? <View style={styles.alertError}><Text style={styles.alertText}>{error}</Text></View> : null}
         <View style={styles.row}>
@@ -305,11 +493,61 @@ const RegisterScreen = ({ navigation }) => {
         </View>
         <Input label="Email" value={form.email} onChangeText={v => setForm(f => ({ ...f, email: v }))} keyboardType="email-address" autoCapitalize="none" />
         <Input label="Phone" value={form.phone} onChangeText={v => setForm(f => ({ ...f, phone: v }))} keyboardType="phone-pad" />
-        <Input label="Password" value={form.password} onChangeText={v => setForm(f => ({ ...f, password: v }))} secureTextEntry />
-        <Input label="Confirm Password" value={form.confirmPassword} onChangeText={v => setForm(f => ({ ...f, confirmPassword: v }))} secureTextEntry />
+        <PasswordInput label="Password" value={form.password} onChangeText={v => setForm(f => ({ ...f, password: v }))} />
+        <PasswordStrengthIndicator password={form.password} />
+        <PasswordInput label="Confirm Password" value={form.confirmPassword} onChangeText={v => setForm(f => ({ ...f, confirmPassword: v }))} />
+        <PasswordMatchIndicator password={form.password} confirmPassword={form.confirmPassword} />
         <Button title="Create Account" onPress={handleRegister} loading={loading} style={{ marginTop: 8 }} />
         <TouchableOpacity style={styles.authLink} onPress={() => navigation.navigate('Login')}>
           <Text style={styles.authLinkText}>Have an account? <Text style={styles.authLinkBold}>Log in</Text></Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+const ForgotPasswordScreen = ({ navigation }) => {
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [success, setSuccess] = useState(false);
+
+  const handleSubmit = async () => {
+    setError(''); setLoading(true);
+    try {
+      await api.post('/auth/forgot-password', { email });
+      setSuccess(true);
+    } catch (err) { setError(err.message); } finally { setLoading(false); }
+  };
+
+  if (success) {
+    return (
+      <SafeAreaView style={styles.authContainer}>
+        <ScrollView contentContainerStyle={styles.authScroll}>
+          <View style={styles.authHeader}>
+            <Icons.Shield size={48} /><Text style={styles.authTitle}>Check your email</Text>
+          </View>
+          <View style={styles.successContainer}>
+            <View style={styles.successIcon}><Icons.Check size={40} color={COLORS.success} /></View>
+            <Text style={styles.successText}>If an account exists for <Text style={{ fontWeight: '600' }}>{email}</Text>, we've sent password reset instructions.</Text>
+            <Text style={styles.successNote}>Check your spam folder if you don't see it within a few minutes.</Text>
+          </View>
+          <Button title="Back to Login" variant="outline" onPress={() => navigation.navigate('Login')} style={{ marginTop: 24 }} />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.authContainer}>
+      <ScrollView contentContainerStyle={styles.authScroll} keyboardShouldPersistTaps="handled">
+        <View style={styles.authHeader}>
+          <Icons.Shield size={48} /><Text style={styles.authTitle}>Reset Password</Text>
+          <Text style={styles.authSubtitle}>Enter your email and we'll send reset instructions</Text>
+        </View>
+        {error ? <View style={styles.alertError}><Text style={styles.alertText}>{error}</Text></View> : null}
+        <Input label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+        <Button title="Send Reset Link" onPress={handleSubmit} loading={loading} style={{ marginTop: 8 }} />
+        <TouchableOpacity style={styles.authLink} onPress={() => navigation.navigate('Login')}>
+          <Text style={styles.authLinkText}>← Back to login</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -535,7 +773,7 @@ const DashboardScreen = ({ navigation }) => {
           <Text style={styles.headerSubtitle}>Compliance overview</Text>
         </View>
         {subscription?.status === 'trial' && (
-          <View style={styles.trialBanner}><Text style={styles.trialText}>Trial ends {formatDate(subscription.trialEndsAt)}</Text></View>
+          <View style={styles.trialBanner}><Text style={styles.trialText}>Full access ends {formatDate(subscription.trialEndsAt)} • Then payment begins</Text></View>
         )}
         {needsAttention > 0 && (
           <Card style={styles.ahaBanner}>
@@ -600,6 +838,7 @@ const PermitsScreen = ({ navigation }) => {
   };
 
   useEffect(() => { fetchPermits(); }, []);
+  useEffect(() => { const unsubscribe = navigation.addListener('focus', fetchPermits); return unsubscribe; }, [navigation]);
 
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
@@ -607,7 +846,7 @@ const PermitsScreen = ({ navigation }) => {
     <SafeAreaView style={styles.container}>
       <View style={styles.pageHeader}>
         <Text style={styles.pageTitle}>Permits</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => Alert.alert('Add Permit', 'Use the web app to add permits')}>
+        <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate('AddPermit')}>
           <Icons.Plus size={20} color={COLORS.white} />
         </TouchableOpacity>
       </View>
@@ -635,7 +874,7 @@ const PermitsScreen = ({ navigation }) => {
             )}
           </Card>
         )}
-        ListEmptyComponent={<View style={styles.emptyContainer}><Icons.Permit size={48} color={COLORS.gray300} /><Text style={styles.emptyTitle}>No permits yet</Text><Text style={styles.emptyText}>Add a city to get started</Text></View>}
+        ListEmptyComponent={<View style={styles.emptyContainer}><Icons.Permit size={48} color={COLORS.gray300} /><Text style={styles.emptyTitle}>No permits yet</Text><Text style={styles.emptyText}>Tap + to add a permit</Text></View>}
         contentContainerStyle={styles.listContent}
       />
     </SafeAreaView>
@@ -727,14 +966,175 @@ const PermitDetailScreen = ({ route, navigation }) => {
             </View>
           )}
         </Card>
-        <Button title="Edit in Web App" variant="outline" onPress={() => Alert.alert('Edit Permit', 'Use the web app for full editing capabilities')} />
+        <Button title="Edit Permit" onPress={() => navigation.navigate('EditPermit', { permit })} style={{ marginBottom: 12 }} />
       </ScrollView>
     </SafeAreaView>
   );
 };
 
-const DocumentsScreen = () => {
-  const [documents, setDocuments] = useState([]); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false);
+const AddPermitScreen = ({ navigation }) => {
+  const { business } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [permitTypes, setPermitTypes] = useState([]);
+  const [jurisdictions, setJurisdictions] = useState([]);
+  const [selectedJurisdiction, setSelectedJurisdiction] = useState(null);
+  const [selectedPermitType, setSelectedPermitType] = useState(null);
+  const [showJurisdictionPicker, setShowJurisdictionPicker] = useState(false);
+  const [showPermitTypePicker, setShowPermitTypePicker] = useState(false);
+  const [form, setForm] = useState({ permitNumber: '', issueDate: '', expiryDate: '' });
+
+  useEffect(() => {
+    const fetchJurisdictions = async () => {
+      try {
+        const data = await api.get('/jurisdictions');
+        setJurisdictions(data.jurisdictions || []);
+      } catch (e) { console.error(e); }
+    };
+    fetchJurisdictions();
+  }, []);
+
+  const fetchPermitTypes = async (jurisdictionId) => {
+    try {
+      const data = await api.get(`/permit-types?jurisdictionId=${jurisdictionId}`);
+      setPermitTypes(data.permitTypes || []);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleJurisdictionSelect = (jId) => {
+    const j = jurisdictions.find(j => j._id === jId);
+    setSelectedJurisdiction(j);
+    setSelectedPermitType(null);
+    fetchPermitTypes(jId);
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedJurisdiction || !selectedPermitType) {
+      Alert.alert('Error', 'Please select jurisdiction and permit type');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.post('/permits', {
+        permitTypeId: selectedPermitType._id,
+        jurisdictionId: selectedJurisdiction._id,
+        vendorBusinessId: business._id,
+        permitNumber: form.permitNumber,
+        issueDate: form.issueDate || null,
+        expiryDate: form.expiryDate || null,
+        status: form.expiryDate ? 'active' : 'missing'
+      });
+      Alert.alert('Success', 'Permit added');
+      navigation.goBack();
+    } catch (e) { Alert.alert('Error', e.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.formScroll}>
+        <Text style={styles.label}>Jurisdiction *</Text>
+        <TouchableOpacity style={styles.pickerButton} onPress={() => setShowJurisdictionPicker(true)}>
+          <Text style={selectedJurisdiction ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
+            {selectedJurisdiction ? `${selectedJurisdiction.name}, ${selectedJurisdiction.state}` : 'Select jurisdiction'}
+          </Text>
+        </TouchableOpacity>
+
+        <Text style={[styles.label, { marginTop: 16 }]}>Permit Type *</Text>
+        <TouchableOpacity style={styles.pickerButton} onPress={() => setShowPermitTypePicker(true)} disabled={!selectedJurisdiction}>
+          <Text style={selectedPermitType ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
+            {selectedPermitType ? selectedPermitType.name : (selectedJurisdiction ? 'Select permit type' : 'Select jurisdiction first')}
+          </Text>
+        </TouchableOpacity>
+
+        <Input label="Permit Number (optional)" value={form.permitNumber} onChangeText={v => setForm(f => ({ ...f, permitNumber: v }))} placeholder="e.g., HP-2024-12345" />
+        <Input label="Issue Date (optional)" value={form.issueDate} onChangeText={v => setForm(f => ({ ...f, issueDate: v }))} placeholder="YYYY-MM-DD" />
+        <Input label="Expiry Date (optional)" value={form.expiryDate} onChangeText={v => setForm(f => ({ ...f, expiryDate: v }))} placeholder="YYYY-MM-DD" />
+
+        <Button title="Add Permit" onPress={handleSubmit} loading={loading} style={{ marginTop: 24 }} />
+
+        <PickerModal visible={showJurisdictionPicker} onClose={() => setShowJurisdictionPicker(false)} title="Select Jurisdiction"
+          options={jurisdictions.map(j => ({ value: j._id, label: `${j.name}, ${j.state}` }))}
+          value={selectedJurisdiction?._id} onSelect={handleJurisdictionSelect} />
+        
+        <PickerModal visible={showPermitTypePicker} onClose={() => setShowPermitTypePicker(false)} title="Select Permit Type"
+          options={permitTypes.map(pt => ({ value: pt._id, label: pt.name }))}
+          value={selectedPermitType?._id} onSelect={v => setSelectedPermitType(permitTypes.find(pt => pt._id === v))} />
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+const EditPermitScreen = ({ route, navigation }) => {
+  const { permit } = route.params;
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({
+    permitNumber: permit.permitNumber || '',
+    issueDate: permit.issueDate ? new Date(permit.issueDate).toISOString().split('T')[0] : '',
+    expiryDate: permit.expiryDate ? new Date(permit.expiryDate).toISOString().split('T')[0] : '',
+    status: permit.status || 'active'
+  });
+
+  const handleSubmit = async () => {
+    setLoading(true);
+    try {
+      await api.put(`/permits/${permit._id}`, {
+        permitNumber: form.permitNumber,
+        issueDate: form.issueDate || null,
+        expiryDate: form.expiryDate || null,
+        status: form.status
+      });
+      Alert.alert('Success', 'Permit updated');
+      navigation.goBack();
+    } catch (e) { Alert.alert('Error', e.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleDelete = () => {
+    Alert.alert('Delete Permit', 'Are you sure you want to delete this permit?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try {
+          await api.delete(`/permits/${permit._id}`);
+          navigation.navigate('PermitsList');
+        } catch (e) { Alert.alert('Error', e.message); }
+      }}
+    ]);
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.formScroll}>
+        <Card style={styles.infoCard}>
+          <Text style={styles.infoCardTitle}>{permit.permitTypeId?.name}</Text>
+          <Text style={styles.infoCardSubtitle}>{permit.jurisdictionId?.name}, {permit.jurisdictionId?.state}</Text>
+        </Card>
+
+        <Input label="Permit Number" value={form.permitNumber} onChangeText={v => setForm(f => ({ ...f, permitNumber: v }))} placeholder="e.g., HP-2024-12345" />
+        <Input label="Issue Date" value={form.issueDate} onChangeText={v => setForm(f => ({ ...f, issueDate: v }))} placeholder="YYYY-MM-DD" />
+        <Input label="Expiry Date" value={form.expiryDate} onChangeText={v => setForm(f => ({ ...f, expiryDate: v }))} placeholder="YYYY-MM-DD" />
+
+        <Text style={[styles.label, { marginTop: 16 }]}>Status</Text>
+        <View style={styles.statusOptions}>
+          {['active', 'pending_renewal', 'expired', 'missing'].map(status => (
+            <TouchableOpacity key={status} style={[styles.statusOption, form.status === status && styles.statusOptionActive]}
+              onPress={() => setForm(f => ({ ...f, status }))}>
+              <Text style={[styles.statusOptionText, form.status === status && styles.statusOptionTextActive]}>{getStatusLabel(status)}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Button title="Save Changes" onPress={handleSubmit} loading={loading} style={{ marginTop: 24 }} />
+        <Button title="Delete Permit" variant="outline" onPress={handleDelete} style={{ marginTop: 12, borderColor: COLORS.danger }} />
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+const DocumentsScreen = ({ navigation }) => {
+  const [documents, setDocuments] = useState([]); 
+  const [loading, setLoading] = useState(true); 
+  const [refreshing, setRefreshing] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   const fetchDocuments = async () => {
     try { const data = await api.get('/documents'); setDocuments(data.documents); }
@@ -743,30 +1143,131 @@ const DocumentsScreen = () => {
 
   useEffect(() => { fetchDocuments(); }, []);
 
+  const handleDelete = (id) => {
+    Alert.alert('Delete Document', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try { await api.delete(`/documents/${id}`); fetchDocuments(); } catch (e) { Alert.alert('Error', e.message); }
+      }}
+    ]);
+  };
+
+  const handleView = async (doc) => {
+    if (doc.fileUrl) {
+      await Linking.openURL(doc.fileUrl);
+    }
+  };
+
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.pageHeader}><Text style={styles.pageTitle}>Documents</Text></View>
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageTitle}>Documents</Text>
+        <TouchableOpacity style={styles.addButton} onPress={() => setShowUploadModal(true)}>
+          <Icons.Upload size={20} color={COLORS.white} />
+        </TouchableOpacity>
+      </View>
       <FlatList
         data={documents}
         keyExtractor={item => item._id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchDocuments(); }} />}
         renderItem={({ item }) => (
-          <Card style={styles.documentCard}>
+          <Card style={styles.documentCard} onPress={() => handleView(item)}>
             <View style={styles.documentIcon}><Icons.Document size={24} color={COLORS.gray500} /></View>
-            <View style={styles.documentInfo}><Text style={styles.documentName} numberOfLines={1}>{item.originalName}</Text><Text style={styles.documentMeta}>{item.category} • {formatDate(item.createdAt)}</Text></View>
-            <Icons.ChevronRight size={20} color={COLORS.gray400} />
+            <View style={styles.documentInfo}>
+              <Text style={styles.documentName} numberOfLines={1}>{item.originalName}</Text>
+              <Text style={styles.documentMeta}>{item.category} • {formatDate(item.createdAt)}</Text>
+            </View>
+            <TouchableOpacity onPress={() => handleDelete(item._id)} style={styles.deleteButton}>
+              <Icons.Trash size={18} color={COLORS.danger} />
+            </TouchableOpacity>
           </Card>
         )}
-        ListEmptyComponent={<View style={styles.emptyContainer}><Icons.Document size={48} color={COLORS.gray300} /><Text style={styles.emptyTitle}>No documents yet</Text></View>}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Icons.Document size={48} color={COLORS.gray300} />
+            <Text style={styles.emptyTitle}>No documents yet</Text>
+            <Text style={styles.emptyText}>Tap + to upload your first document</Text>
+          </View>
+        }
         contentContainerStyle={styles.listContent}
+      />
+      <UploadDocumentModal 
+        visible={showUploadModal} 
+        onClose={() => setShowUploadModal(false)} 
+        onSuccess={() => { setShowUploadModal(false); fetchDocuments(); }} 
       />
     </SafeAreaView>
   );
 };
 
-const FEATURE_FLAGS = { inspections: false, events: false }; // Set to true to enable
+// Upload Document Modal
+const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
+  const [category, setCategory] = useState('other');
+  const [loading, setLoading] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+
+  const DOCUMENT_CATEGORIES = [
+    { value: 'permit', label: 'Permit' },
+    { value: 'insurance', label: 'Insurance' },
+    { value: 'inspection', label: 'Inspection' },
+    { value: 'food_handler', label: 'Food Handler' },
+    { value: 'vehicle', label: 'Vehicle' },
+    { value: 'license', label: 'License' },
+    { value: 'other', label: 'Other' },
+  ];
+
+  const handleUpload = async () => {
+    // Note: For full file upload, you'd need react-native-document-picker or expo-document-picker
+    // This shows the UI structure - actual implementation requires native file picker
+    Alert.alert(
+      'Upload Document',
+      'To upload documents, you can:\n\n1. Use the web app at permitwise.app\n2. Take a photo and upload from camera roll\n\nFull native file picking coming soon!',
+      [
+        { text: 'Open Web App', onPress: () => Linking.openURL('https://permitwise.app/app') },
+        { text: 'Cancel', style: 'cancel' }
+      ]
+    );
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide">
+      <View style={styles.modalOverlay}>
+        <View style={styles.uploadModal}>
+          <View style={styles.uploadModalHeader}>
+            <Text style={styles.uploadModalTitle}>Upload Document</Text>
+            <TouchableOpacity onPress={onClose}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
+          </View>
+          
+          <View style={styles.uploadContent}>
+            <Text style={styles.label}>Document Category</Text>
+            <TouchableOpacity style={styles.pickerButton} onPress={() => setShowCategoryPicker(true)}>
+              <Text style={styles.pickerButtonText}>{DOCUMENT_CATEGORIES.find(c => c.value === category)?.label || 'Select category'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.uploadArea} onPress={handleUpload}>
+              <Icons.Upload size={40} color={COLORS.gray400} />
+              <Text style={styles.uploadAreaText}>Tap to select file</Text>
+              <Text style={styles.uploadAreaHint}>PDF, JPG, PNG up to 10MB</Text>
+            </TouchableOpacity>
+
+            <Button title="Upload" onPress={handleUpload} loading={loading} style={{ marginTop: 16 }} />
+          </View>
+
+          <PickerModal 
+            visible={showCategoryPicker} 
+            onClose={() => setShowCategoryPicker(false)} 
+            title="Category" 
+            options={DOCUMENT_CATEGORIES} 
+            value={category} 
+            onSelect={setCategory} 
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 const SettingsScreen = ({ navigation }) => {
   const { user, business, subscription, logout, fetchUser, updateBusiness } = useAuth();
@@ -779,14 +1280,30 @@ const SettingsScreen = ({ navigation }) => {
     address: business?.address || { street: '', city: '', state: '', zip: '' },
     operatingCities: business?.operatingCities || [{ city: '', state: '', isPrimary: true }]
   });
+  const [notificationPrefs, setNotificationPrefs] = useState({
+    email: user?.notificationPreferences?.email ?? true,
+    sms: user?.notificationPreferences?.sms ?? false,
+    reminderDays: user?.notificationPreferences?.reminderDays || [30, 14, 7]
+  });
   const [showStatePicker, setShowStatePicker] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
 
   const handleLogout = () => { Alert.alert('Log Out', 'Are you sure?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Log Out', style: 'destructive', onPress: logout }]); };
   const handleProfileSave = async () => { setLoading(true); try { await api.put('/auth/profile', profileData); await fetchUser(); Alert.alert('Success', 'Profile updated'); setActiveSection(null); } catch (err) { Alert.alert('Error', err.message); } finally { setLoading(false); } };
   const handleBusinessSave = async () => { setLoading(true); try { const data = await api.put('/business', businessData); updateBusiness(data.business); Alert.alert('Success', 'Business updated'); setActiveSection(null); } catch (err) { Alert.alert('Error', err.message); } finally { setLoading(false); } };
+  const handleNotificationSave = async () => { setLoading(true); try { await api.put('/auth/profile', { notificationPreferences: notificationPrefs }); await fetchUser(); Alert.alert('Success', 'Notification preferences updated'); setActiveSection(null); } catch (err) { Alert.alert('Error', err.message); } finally { setLoading(false); } };
   const addCity = () => setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
   const removeCity = (i) => { if (businessData.operatingCities.length > 1) setBusinessData(d => ({ ...d, operatingCities: d.operatingCities.filter((_, idx) => idx !== i) })); };
+
+  const getSubscriptionStatusText = () => {
+    if (subscription?.status === 'trial') {
+      const daysLeft = daysUntil(subscription.trialEndsAt);
+      return `Full access for ${daysLeft} more days before payment`;
+    }
+    if (subscription?.status === 'active') return 'Active subscription';
+    return 'Inactive';
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -859,24 +1376,53 @@ const SettingsScreen = ({ navigation }) => {
           </Card>
         )}
 
-        <Card style={styles.settingsCard}>
-          <Text style={styles.settingsSection}>Subscription</Text>
-          <View style={styles.settingsRow}><Text style={styles.settingsLabel}>Plan</Text><Badge label={subscription?.plan?.toUpperCase() || 'TRIAL'} variant="primary" /></View>
-          <View style={styles.settingsRow}><Text style={styles.settingsLabel}>Status</Text><Text style={styles.settingsValue}>{subscription?.status}</Text></View>
-          {subscription?.status === 'trial' && <Text style={styles.trialNote}>Trial ends {formatDate(subscription.trialEndsAt)}</Text>}
-        </Card>
+        <TouchableOpacity onPress={() => setActiveSection(activeSection === 'notifications' ? null : 'notifications')}>
+          <Card style={styles.settingsCard}><Text style={styles.settingsSection}>Notification Preferences</Text><Icons.Bell size={18} color={COLORS.gray400} /></Card>
+        </TouchableOpacity>
+        {activeSection === 'notifications' && (
+          <Card style={styles.editCard}>
+            <TouchableOpacity style={styles.switchRow} onPress={() => setNotificationPrefs(p => ({ ...p, email: !p.email }))}>
+              <Text style={styles.switchLabel}>Email Reminders</Text>
+              <View style={[styles.switch, notificationPrefs.email && styles.switchOn]}><View style={[styles.switchThumb, notificationPrefs.email && styles.switchThumbOn]} /></View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.switchRow} onPress={() => setNotificationPrefs(p => ({ ...p, sms: !p.sms }))}>
+              <Text style={styles.switchLabel}>SMS Reminders</Text>
+              <View style={[styles.switch, notificationPrefs.sms && styles.switchOn]}><View style={[styles.switchThumb, notificationPrefs.sms && styles.switchThumbOn]} /></View>
+            </TouchableOpacity>
+            <Text style={[styles.label, { marginTop: 16, marginBottom: 8 }]}>Remind me before expiration:</Text>
+            <View style={styles.reminderOptions}>
+              {[30, 14, 7, 3, 1].map(days => (
+                <TouchableOpacity key={days} style={[styles.reminderChip, notificationPrefs.reminderDays?.includes(days) && styles.reminderChipActive]}
+                  onPress={() => setNotificationPrefs(p => ({ ...p, reminderDays: p.reminderDays?.includes(days) ? p.reminderDays.filter(d => d !== days) : [...(p.reminderDays || []), days].sort((a,b) => b-a) }))}>
+                  <Text style={[styles.reminderChipText, notificationPrefs.reminderDays?.includes(days) && styles.reminderChipTextActive]}>{days}d</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Button title="Save Preferences" onPress={handleNotificationSave} loading={loading} style={{ marginTop: 16 }} />
+          </Card>
+        )}
+
+        <TouchableOpacity onPress={() => setShowSubscriptionModal(true)}>
+          <Card style={styles.settingsCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingsSection}>Subscription</Text>
+              <Text style={styles.subscriptionStatus}>{getSubscriptionStatusText()}</Text>
+            </View>
+            <Badge label={subscription?.plan?.toUpperCase() || 'FULL ACCESS'} variant="primary" />
+          </Card>
+        </TouchableOpacity>
 
         <Card style={styles.settingsCard}>
           <Text style={styles.settingsSection}>Legal</Text>
-          <TouchableOpacity style={styles.settingsRow} onPress={() => Linking.openURL('https://permitwise.com/privacy')}>
+          <TouchableOpacity style={styles.settingsRow} onPress={() => Linking.openURL('https://permitwise.app/privacy')}>
             <Text style={styles.settingsLabel}>Privacy Policy</Text>
             <Icons.ChevronRight size={18} color={COLORS.gray400} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingsRow} onPress={() => Linking.openURL('https://permitwise.com/terms')}>
+          <TouchableOpacity style={styles.settingsRow} onPress={() => Linking.openURL('https://permitwise.app/terms')}>
             <Text style={styles.settingsLabel}>Terms of Service</Text>
             <Icons.ChevronRight size={18} color={COLORS.gray400} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingsRow} onPress={() => Linking.openURL('mailto:support@permitwise.com')}>
+          <TouchableOpacity style={styles.settingsRow} onPress={() => Linking.openURL('mailto:support@permitwise.app')}>
             <Text style={styles.settingsLabel}>Contact Support</Text>
             <Icons.ChevronRight size={18} color={COLORS.gray400} />
           </TouchableOpacity>
@@ -889,57 +1435,296 @@ const SettingsScreen = ({ navigation }) => {
         <PickerModal visible={showStatePicker !== false} onClose={() => setShowStatePicker(false)} title="State" options={US_STATES.map(s => ({ value: s, label: s }))} 
           value={showStatePicker === 'address' ? businessData.address.state : businessData.operatingCities[showStatePicker]?.state}
           onSelect={v => { if (showStatePicker === 'address') setBusinessData(d => ({ ...d, address: { ...d.address, state: v } })); else updateCity(showStatePicker, 'state', v); }} />
+        
+        <SubscriptionModal visible={showSubscriptionModal} onClose={() => setShowSubscriptionModal(false)} currentPlan={subscription?.plan} onSubscribe={fetchUser} />
       </ScrollView>
     </SafeAreaView>
   );
 };
 
+// ===========================================
+// SUBSCRIPTION MODAL (Google Play / Stripe)
+// ===========================================
+const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
+  const [loading, setLoading] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [restoring, setRestoring] = useState(false);
+
+  const handlePurchase = async (plan) => {
+    setLoading(true);
+    setSelectedPlan(plan);
+    try {
+      await BillingService.purchaseSubscription(SUBSCRIPTION_SKUS[plan], plan);
+      Alert.alert('Success', 'Redirecting to checkout...');
+      onSubscribe();
+    } catch (error) {
+      Alert.alert('Error', error.message);
+    } finally {
+      setLoading(false);
+      setSelectedPlan(null);
+    }
+  };
+
+  const handleRestore = async () => {
+    setRestoring(true);
+    try {
+      const restored = await BillingService.restorePurchases();
+      if (restored) {
+        Alert.alert('Success', 'Purchases restored');
+        onSubscribe();
+        onClose();
+      } else {
+        Alert.alert('Info', 'No purchases to restore');
+      }
+    } catch (error) {
+      Alert.alert('Error', error.message);
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  const handleManage = async () => {
+    await BillingService.manageSubscription();
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide">
+      <View style={styles.modalOverlay}>
+        <View style={styles.subscriptionModal}>
+          <View style={styles.subscriptionHeader}>
+            <Text style={styles.subscriptionTitle}>Choose Your Plan</Text>
+            <TouchableOpacity onPress={onClose}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
+          </View>
+          
+          <ScrollView style={styles.plansContainer}>
+            <Text style={styles.subscriptionSubtitle}>Full access for 14 days before payment begins</Text>
+            
+            {Object.entries(PLAN_DETAILS).map(([key, plan]) => (
+              <TouchableOpacity 
+                key={key} 
+                style={[styles.planCard, currentPlan === key && styles.planCardCurrent, plan.popular && styles.planCardPopular]}
+                onPress={() => handlePurchase(key)}
+                disabled={loading || currentPlan === key}
+              >
+                {plan.popular && <View style={styles.popularBadge}><Text style={styles.popularBadgeText}>Most Popular</Text></View>}
+                <View style={styles.planHeader}>
+                  <Text style={styles.planName}>{plan.name}</Text>
+                  <Text style={styles.planPrice}>{plan.price}</Text>
+                </View>
+                <View style={styles.planFeatures}>
+                  {plan.features.map((feature, i) => (
+                    <View key={i} style={styles.planFeature}>
+                      <Icons.Check size={14} color={COLORS.success} />
+                      <Text style={styles.planFeatureText}>{feature}</Text>
+                    </View>
+                  ))}
+                </View>
+                {currentPlan === key ? (
+                  <View style={styles.currentPlanBadge}><Text style={styles.currentPlanText}>Current Plan</Text></View>
+                ) : (
+                  <Button 
+                    title={loading && selectedPlan === key ? 'Processing...' : `Subscribe to ${plan.name}`} 
+                    loading={loading && selectedPlan === key}
+                    style={{ marginTop: 12 }}
+                  />
+                )}
+              </TouchableOpacity>
+            ))}
+
+            <View style={styles.subscriptionActions}>
+              {currentPlan && (
+                <Button title="Manage Subscription" variant="outline" onPress={handleManage} style={{ marginBottom: 12 }} />
+              )}
+              <Button title={restoring ? 'Restoring...' : 'Restore Purchases'} variant="outline" onPress={handleRestore} loading={restoring} />
+            </View>
+
+            <Text style={styles.subscriptionDisclaimer}>
+              {Platform.OS === 'android' 
+                ? 'Payment will be charged to your Google Play account. Subscription automatically renews unless cancelled at least 24 hours before the end of the current period.'
+                : 'Payment will be charged to your Apple ID account. Subscription automatically renews unless cancelled at least 24 hours before the end of the current period.'
+              }
+            </Text>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 const InspectionsScreen = () => {
-  if (!FEATURE_FLAGS.inspections) {
+  const [checklists, setChecklists] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeChecklist, setActiveChecklist] = useState(null);
+  const [checklistItems, setChecklistItems] = useState({});
+
+  const fetchChecklists = async () => {
+    try {
+      const data = await api.get('/checklists');
+      setChecklists(data.checklists || []);
+    } catch (error) { console.error(error); }
+    finally { setLoading(false); setRefreshing(false); }
+  };
+
+  useEffect(() => { fetchChecklists(); }, []);
+
+  const toggleItem = (checklistId, sectionIdx, itemIdx) => {
+    setChecklistItems(prev => {
+      const key = `${checklistId}-${sectionIdx}-${itemIdx}`;
+      return { ...prev, [key]: !prev[key] };
+    });
+  };
+
+  const getProgress = (checklist) => {
+    if (!checklist.sections) return 0;
+    let total = 0, completed = 0;
+    checklist.sections.forEach((section, sIdx) => {
+      section.items.forEach((_, iIdx) => {
+        total++;
+        if (checklistItems[`${checklist._id}-${sIdx}-${iIdx}`]) completed++;
+      });
+    });
+    return total > 0 ? Math.round((completed / total) * 100) : 0;
+  };
+
+  if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
+
+  if (activeChecklist) {
+    const progress = getProgress(activeChecklist);
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView contentContainerStyle={styles.comingSoonContainer}>
-          <View style={styles.comingSoonIcon}><Icons.Checklist size={48} color={COLORS.primary} /></View>
-          <Text style={styles.comingSoonTitle}>Inspection Checklists</Text>
-          <Badge label="Coming Soon" variant="primary" />
-          <Text style={styles.comingSoonText}>Walk through health inspections step-by-step before the inspector arrives.</Text>
-          <View style={styles.comingSoonFeatures}>
-            <Text style={styles.featureItem}>✓ Pre-inspection checklists by city</Text>
-            <Text style={styles.featureItem}>✓ Offline mode for on-site prep</Text>
-            <Text style={styles.featureItem}>✓ Photo documentation</Text>
-            <Text style={styles.featureItem}>✓ Common violation alerts</Text>
-          </View>
-          <Text style={styles.comingSoonNote}>Available with Pro plan when launched</Text>
+        <View style={styles.pageHeader}>
+          <TouchableOpacity onPress={() => setActiveChecklist(null)}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
+          <Text style={styles.pageTitleSmall}>{activeChecklist.name}</Text>
+          <Text style={styles.progressText}>{progress}%</Text>
+        </View>
+        <View style={styles.progressBarContainer}><View style={[styles.progressBarFill, { width: `${progress}%` }]} /></View>
+        <ScrollView contentContainerStyle={styles.checklistScroll}>
+          {activeChecklist.sections?.map((section, sIdx) => (
+            <View key={sIdx} style={styles.checklistSection}>
+              <Text style={styles.checklistSectionTitle}>{section.title}</Text>
+              {section.items.map((item, iIdx) => {
+                const isChecked = checklistItems[`${activeChecklist._id}-${sIdx}-${iIdx}`];
+                return (
+                  <TouchableOpacity key={iIdx} style={styles.checklistItem} onPress={() => toggleItem(activeChecklist._id, sIdx, iIdx)}>
+                    <View style={[styles.checkbox, isChecked && styles.checkboxChecked]}>
+                      {isChecked && <Icons.Check size={14} color={COLORS.white} />}
+                    </View>
+                    <View style={styles.checklistItemContent}>
+                      <Text style={[styles.checklistItemText, isChecked && styles.checklistItemChecked]}>{item.description}</Text>
+                      {item.tip && <Text style={styles.checklistTip}>💡 {item.tip}</Text>}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))}
         </ScrollView>
       </SafeAreaView>
     );
   }
-  // Full implementation would go here when enabled
-  return <SafeAreaView style={styles.container}><Text>Inspections feature enabled</Text></SafeAreaView>;
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.pageHeader}><Text style={styles.pageTitle}>Inspection Prep</Text></View>
+      <FlatList
+        data={checklists}
+        keyExtractor={item => item._id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchChecklists(); }} />}
+        renderItem={({ item }) => (
+          <Card style={styles.checklistCard} onPress={() => setActiveChecklist(item)}>
+            <View style={styles.checklistHeader}>
+              <Icons.Checklist size={24} color={COLORS.primary} />
+              <View style={styles.checklistInfo}>
+                <Text style={styles.checklistName}>{item.name}</Text>
+                <Text style={styles.checklistMeta}>{item.sections?.length || 0} sections • {item.jurisdictionId?.name || 'General'}</Text>
+              </View>
+              <Badge label={`${getProgress(item)}%`} variant={getProgress(item) === 100 ? 'success' : 'primary'} />
+            </View>
+          </Card>
+        )}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Icons.Checklist size={48} color={COLORS.gray300} />
+            <Text style={styles.emptyTitle}>No checklists yet</Text>
+            <Text style={styles.emptyText}>Checklists will appear based on your operating cities</Text>
+          </View>
+        }
+        contentContainerStyle={styles.listContent}
+      />
+    </SafeAreaView>
+  );
 };
 
 const EventsScreen = () => {
-  if (!FEATURE_FLAGS.events) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <ScrollView contentContainerStyle={styles.comingSoonContainer}>
-          <View style={styles.comingSoonIcon}><Icons.Event size={48} color={COLORS.primary} /></View>
-          <Text style={styles.comingSoonTitle}>Event Marketplace</Text>
-          <Badge label="Coming Soon" variant="primary" />
-          <Text style={styles.comingSoonText}>Find festivals, farmers markets, and pop-up opportunities in your area.</Text>
-          <View style={styles.comingSoonFeatures}>
-            <Text style={styles.featureItem}>✓ Browse local events</Text>
-            <Text style={styles.featureItem}>✓ One-click permit readiness check</Text>
-            <Text style={styles.featureItem}>✓ Apply directly through PermitWise</Text>
-            <Text style={styles.featureItem}>✓ Get notified of opportunities</Text>
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState('upcoming');
+
+  const fetchEvents = async () => {
+    try {
+      const data = await api.get('/events?status=' + filter);
+      setEvents(data.events || []);
+    } catch (error) { console.error(error); }
+    finally { setLoading(false); setRefreshing(false); }
+  };
+
+  useEffect(() => { fetchEvents(); }, [filter]);
+
+  const handleApply = async (eventId) => {
+    try {
+      await api.post(`/events/${eventId}/apply`);
+      Alert.alert('Success', 'Application submitted!');
+      fetchEvents();
+    } catch (error) { Alert.alert('Error', error.message); }
+  };
+
+  if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.pageHeader}><Text style={styles.pageTitle}>Events</Text></View>
+      <View style={styles.filterTabs}>
+        {['upcoming', 'applied', 'past'].map(f => (
+          <TouchableOpacity key={f} style={[styles.filterTab, filter === f && styles.filterTabActive]} onPress={() => { setFilter(f); setLoading(true); }}>
+            <Text style={[styles.filterTabText, filter === f && styles.filterTabTextActive]}>{f.charAt(0).toUpperCase() + f.slice(1)}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <FlatList
+        data={events}
+        keyExtractor={item => item._id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchEvents(); }} />}
+        renderItem={({ item }) => (
+          <Card style={styles.eventCard}>
+            <Text style={styles.eventName}>{item.name}</Text>
+            <Text style={styles.eventOrganizer}>{item.organizer}</Text>
+            <View style={styles.eventDetails}>
+              <View style={styles.eventDetail}><Icons.Event size={14} color={COLORS.gray500} /><Text style={styles.eventDetailText}>{formatDate(item.startDate)}</Text></View>
+              <View style={styles.eventDetail}><Icons.MapPin size={14} color={COLORS.gray500} /><Text style={styles.eventDetailText}>{item.location?.city}, {item.location?.state}</Text></View>
+            </View>
+            {item.vendorFee && <Text style={styles.eventFee}>Vendor Fee: ${item.vendorFee}</Text>}
+            {item.applicationStatus === 'pending' ? (
+              <Badge label="Application Pending" variant="warning" />
+            ) : item.applicationStatus === 'approved' ? (
+              <Badge label="Approved" variant="success" />
+            ) : filter === 'upcoming' && (
+              <Button title="Apply Now" onPress={() => handleApply(item._id)} style={{ marginTop: 12 }} />
+            )}
+          </Card>
+        )}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Icons.Event size={48} color={COLORS.gray300} />
+            <Text style={styles.emptyTitle}>No events found</Text>
+            <Text style={styles.emptyText}>{filter === 'upcoming' ? 'Check back soon for new opportunities' : 'No events in this category'}</Text>
           </View>
-          <Text style={styles.comingSoonNote}>Available with Elite plan when launched</Text>
-        </ScrollView>
-      </SafeAreaView>
-    );
-  }
-  // Full implementation would go here when enabled
-  return <SafeAreaView style={styles.container}><Text>Events feature enabled</Text></SafeAreaView>;
+        }
+        contentContainerStyle={styles.listContent}
+      />
+    </SafeAreaView>
+  );
 };
 
 // ===========================================
@@ -953,6 +1738,7 @@ const AuthNavigator = () => (
   <AuthStack.Navigator screenOptions={{ headerShown: false }}>
     <AuthStack.Screen name="Login" component={LoginScreen} />
     <AuthStack.Screen name="Register" component={RegisterScreen} />
+    <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
   </AuthStack.Navigator>
 );
 
@@ -960,6 +1746,8 @@ const PermitsStack = () => (
   <Stack.Navigator>
     <Stack.Screen name="PermitsList" component={PermitsScreen} options={{ headerShown: false }} />
     <Stack.Screen name="PermitDetail" component={PermitDetailScreen} options={{ title: 'Permit Details', headerStyle: { backgroundColor: COLORS.white }, headerTintColor: COLORS.gray800 }} />
+    <Stack.Screen name="AddPermit" component={AddPermitScreen} options={{ title: 'Add Permit', headerStyle: { backgroundColor: COLORS.white }, headerTintColor: COLORS.gray800 }} />
+    <Stack.Screen name="EditPermit" component={EditPermitScreen} options={{ title: 'Edit Permit', headerStyle: { backgroundColor: COLORS.white }, headerTintColor: COLORS.gray800 }} />
   </Stack.Navigator>
 );
 
@@ -970,7 +1758,7 @@ const MainTabs = () => (
     tabBarInactiveTintColor: COLORS.gray400,
     tabBarStyle: { backgroundColor: COLORS.white, borderTopColor: COLORS.gray200, paddingBottom: Platform.OS === 'ios' ? 20 : 8, height: Platform.OS === 'ios' ? 85 : 65 },
     tabBarIcon: ({ color, size }) => {
-      const icons = { Dashboard: Icons.Dashboard, Permits: Icons.Permit, Documents: Icons.Document, Settings: Icons.Settings };
+      const icons = { Dashboard: Icons.Dashboard, Permits: Icons.Permit, Documents: Icons.Document, Inspections: Icons.Checklist, Events: Icons.Event, Settings: Icons.Settings };
       const Icon = icons[route.name];
       return Icon ? <Icon size={size} color={color} /> : null;
     },
@@ -978,6 +1766,8 @@ const MainTabs = () => (
     <Tab.Screen name="Dashboard" component={DashboardScreen} />
     <Tab.Screen name="Permits" component={PermitsStack} />
     <Tab.Screen name="Documents" component={DocumentsScreen} />
+    <Tab.Screen name="Inspections" component={InspectionsScreen} />
+    <Tab.Screen name="Events" component={EventsScreen} />
     <Tab.Screen name="Settings" component={SettingsScreen} />
   </Tab.Navigator>
 );
@@ -1213,4 +2003,112 @@ const styles = StyleSheet.create({
   permitInfoValue: { fontSize: 14, color: COLORS.gray800 },
   requiredDocs: { paddingTop: 12, marginTop: 12, borderTopWidth: 1, borderTopColor: COLORS.gray200 },
   detailRowHighlight: { backgroundColor: '#fef3c7', marginHorizontal: -16, paddingHorizontal: 16, marginTop: 8 },
+  // Password Strength
+  passwordInputWrapper: { position: 'relative' },
+  passwordInput: { paddingRight: 48 },
+  passwordToggle: { position: 'absolute', right: 12, top: 12, padding: 4 },
+  passwordStrength: { marginTop: 8, marginBottom: 12 },
+  strengthBar: { height: 4, backgroundColor: COLORS.gray200, borderRadius: 2, overflow: 'hidden', marginBottom: 6 },
+  strengthFill: { height: '100%', borderRadius: 2 },
+  strengthLabel: { fontSize: 12, fontWeight: '600', marginBottom: 8 },
+  strengthChecks: { gap: 4 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  checkText: { fontSize: 12, color: COLORS.gray400 },
+  checkPassed: { color: COLORS.success },
+  passwordMatch: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
+  passwordMatchSuccess: { color: COLORS.success },
+  passwordMatchError: { color: COLORS.danger },
+  // Forgot Password
+  forgotPasswordLink: { alignItems: 'flex-end', marginTop: -8, marginBottom: 16 },
+  forgotPasswordText: { fontSize: 14, color: COLORS.primary },
+  trialBadge: { backgroundColor: '#dbeafe', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginTop: 12 },
+  trialBadgeText: { fontSize: 13, color: COLORS.primary, fontWeight: '500' },
+  successContainer: { alignItems: 'center', padding: 24 },
+  successIcon: { width: 80, height: 80, backgroundColor: '#dcfce7', borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+  successText: { fontSize: 15, color: COLORS.gray700, textAlign: 'center', lineHeight: 22, marginBottom: 8 },
+  successNote: { fontSize: 13, color: COLORS.gray500, textAlign: 'center' },
+  // Form Screen
+  formScroll: { padding: 20 },
+  infoCard: { marginBottom: 20, padding: 16 },
+  infoCardTitle: { fontSize: 18, fontWeight: '600', color: COLORS.gray800 },
+  infoCardSubtitle: { fontSize: 14, color: COLORS.gray500, marginTop: 4 },
+  statusOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  statusOption: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, backgroundColor: COLORS.gray100, borderWidth: 1, borderColor: COLORS.gray200 },
+  statusOptionActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  statusOptionText: { fontSize: 14, color: COLORS.gray600 },
+  statusOptionTextActive: { color: COLORS.white, fontWeight: '500' },
+  deleteButton: { padding: 8 },
+  // Upload Modal
+  uploadModal: { backgroundColor: COLORS.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%' },
+  uploadModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: COLORS.gray200 },
+  uploadModalTitle: { fontSize: 18, fontWeight: '600', color: COLORS.gray800 },
+  uploadContent: { padding: 20 },
+  uploadArea: { alignItems: 'center', padding: 40, borderWidth: 2, borderStyle: 'dashed', borderColor: COLORS.gray300, borderRadius: 12, marginTop: 16 },
+  uploadAreaText: { fontSize: 16, color: COLORS.gray600, marginTop: 12 },
+  uploadAreaHint: { fontSize: 13, color: COLORS.gray400, marginTop: 4 },
+  // Notification Settings
+  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
+  switchLabel: { fontSize: 16, color: COLORS.gray700 },
+  switch: { width: 50, height: 28, borderRadius: 14, backgroundColor: COLORS.gray200, padding: 2 },
+  switchOn: { backgroundColor: COLORS.primary },
+  switchThumb: { width: 24, height: 24, borderRadius: 12, backgroundColor: COLORS.white },
+  switchThumbOn: { transform: [{ translateX: 22 }] },
+  reminderOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  reminderChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: COLORS.gray100, borderWidth: 1, borderColor: COLORS.gray200 },
+  reminderChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  reminderChipText: { fontSize: 14, color: COLORS.gray600 },
+  reminderChipTextActive: { color: COLORS.white },
+  subscriptionStatus: { fontSize: 13, color: COLORS.gray500, marginTop: 4 },
+  // Subscription Modal
+  subscriptionModal: { backgroundColor: COLORS.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%' },
+  subscriptionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: COLORS.gray200 },
+  subscriptionTitle: { fontSize: 20, fontWeight: '700', color: COLORS.gray800 },
+  subscriptionSubtitle: { fontSize: 14, color: COLORS.gray500, textAlign: 'center', marginBottom: 20, paddingHorizontal: 20 },
+  plansContainer: { padding: 20 },
+  planCard: { backgroundColor: COLORS.white, borderRadius: 12, padding: 20, marginBottom: 16, borderWidth: 2, borderColor: COLORS.gray200 },
+  planCardPopular: { borderColor: COLORS.primary },
+  planCardCurrent: { borderColor: COLORS.success, backgroundColor: '#f0fdf4' },
+  popularBadge: { position: 'absolute', top: -10, right: 20, backgroundColor: COLORS.primary, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
+  popularBadgeText: { fontSize: 11, fontWeight: '600', color: COLORS.white },
+  planHeader: { marginBottom: 12 },
+  planName: { fontSize: 18, fontWeight: '600', color: COLORS.gray800 },
+  planPrice: { fontSize: 24, fontWeight: '700', color: COLORS.primary, marginTop: 4 },
+  planFeatures: { marginBottom: 12 },
+  planFeature: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  planFeatureText: { fontSize: 14, color: COLORS.gray600 },
+  currentPlanBadge: { backgroundColor: '#dcfce7', padding: 12, borderRadius: 8, alignItems: 'center', marginTop: 12 },
+  currentPlanText: { fontSize: 14, fontWeight: '600', color: '#166534' },
+  subscriptionActions: { marginTop: 8, paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.gray200 },
+  subscriptionDisclaimer: { fontSize: 11, color: COLORS.gray400, textAlign: 'center', marginTop: 16, lineHeight: 16 },
+  // Checklist styles
+  checklistScroll: { padding: 20 },
+  checklistSection: { marginBottom: 24 },
+  checklistSectionTitle: { fontSize: 16, fontWeight: '600', color: COLORS.gray800, marginBottom: 12 },
+  checklistItem: { flexDirection: 'row', gap: 12, padding: 12, backgroundColor: COLORS.white, borderRadius: 8, marginBottom: 8 },
+  checklistItemContent: { flex: 1 },
+  checklistItemText: { fontSize: 14, color: COLORS.gray700, lineHeight: 20 },
+  checklistItemChecked: { textDecorationLine: 'line-through', color: COLORS.gray400 },
+  checklistTip: { fontSize: 12, color: COLORS.primary, marginTop: 4 },
+  checklistCard: { marginHorizontal: 20 },
+  checklistHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  checklistInfo: { flex: 1 },
+  checklistName: { fontSize: 16, fontWeight: '600', color: COLORS.gray800 },
+  checklistMeta: { fontSize: 13, color: COLORS.gray500, marginTop: 2 },
+  progressBarContainer: { height: 4, backgroundColor: COLORS.gray200, marginHorizontal: 20 },
+  progressBarFill: { height: '100%', backgroundColor: COLORS.primary },
+  progressText: { fontSize: 14, fontWeight: '600', color: COLORS.primary },
+  pageTitleSmall: { fontSize: 16, fontWeight: '600', color: COLORS.gray800, flex: 1, textAlign: 'center' },
+  // Event styles
+  filterTabs: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 16, gap: 8 },
+  filterTab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8, backgroundColor: COLORS.gray100 },
+  filterTabActive: { backgroundColor: COLORS.primary },
+  filterTabText: { fontSize: 14, fontWeight: '500', color: COLORS.gray600 },
+  filterTabTextActive: { color: COLORS.white },
+  eventCard: { marginHorizontal: 20 },
+  eventName: { fontSize: 16, fontWeight: '600', color: COLORS.gray800 },
+  eventOrganizer: { fontSize: 14, color: COLORS.gray500, marginTop: 2 },
+  eventDetails: { flexDirection: 'row', gap: 16, marginTop: 12 },
+  eventDetail: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  eventDetailText: { fontSize: 13, color: COLORS.gray600 },
+  eventFee: { fontSize: 14, fontWeight: '500', color: COLORS.gray700, marginTop: 8 },
 });
