@@ -1856,6 +1856,9 @@ const App = () => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('success')) { alert('Subscription activated!'); window.history.replaceState({}, '', window.location.pathname); }
     if (params.get('canceled')) { alert('Checkout canceled.'); window.history.replaceState({}, '', window.location.pathname); }
+    // Auto-detect login/register from URL params (from landing page links)
+    if (params.get('register') === 'true') { setAuthView('register'); window.history.replaceState({}, '', window.location.pathname); }
+    else if (params.get('login') === 'true' || window.location.pathname === '/app') { setAuthView('login'); }
     // Handle direct URL access to legal/admin pages
     const path = window.location.pathname;
     if (path === '/privacy') setLegalPage('privacy');
