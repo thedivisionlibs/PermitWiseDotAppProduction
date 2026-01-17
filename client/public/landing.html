@@ -1,0 +1,2119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PermitWise - Never Miss a Permit Deadline Again | Food Vendor Compliance Made Easy</title>
+  <meta name="description" content="PermitWise helps food trucks, trailers, and mobile vendors stay compliant with automatic permit tracking, smart reminders, and city-specific guidance. Start free today.">
+  <meta name="keywords" content="food truck permits, mobile vendor license, food vendor compliance, permit tracking software, health permit renewal">
+  <meta property="og:title" content="PermitWise - Food Vendor Permit Management">
+  <meta property="og:description" content="Never miss a permit deadline again. Automatic tracking, smart reminders, and city-specific guidance for food vendors.">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --primary-light: #dbeafe;
+      --primary-50: #eff6ff;
+      --secondary: #7c3aed;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-300: #d1d5db;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-600: #4b5563;
+      --gray-700: #374151;
+      --gray-800: #1f2937;
+      --gray-900: #111827;
+      --danger: #ef4444;
+      --danger-light: #fee2e2;
+      --warning: #f59e0b;
+      --warning-light: #fef3c7;
+      --success: #22c55e;
+      --success-light: #dcfce7;
+    }
+    
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; color: var(--gray-800); line-height: 1.6; overflow-x: hidden; }
+    
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+    
+    /* ========== NAVIGATION ========== */
+    .nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(10px);
+      z-index: 1000;
+      border-bottom: 1px solid var(--gray-100);
+      transition: all 0.3s;
+    }
+    .nav.scrolled { box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    .nav-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 22px;
+      color: var(--primary);
+      text-decoration: none;
+    }
+    .logo svg { width: 36px; height: 36px; }
+    .nav-links { display: flex; align-items: center; gap: 36px; }
+    .nav-links a {
+      color: var(--gray-600);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 15px;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--primary); }
+    .nav-actions { display: flex; gap: 12px; }
+    
+    /* ========== BUTTONS ========== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 15px;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+    }
+    .btn-primary:hover {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+    }
+    .btn-outline {
+      background: transparent;
+      color: var(--gray-700);
+      border: 2px solid var(--gray-200);
+    }
+    .btn-outline:hover { background: var(--gray-50); border-color: var(--gray-300); }
+    .btn-white { background: white; color: var(--primary); }
+    .btn-white:hover { background: var(--gray-100); }
+    .btn-lg { padding: 16px 32px; font-size: 17px; border-radius: 10px; }
+    .btn-sm { padding: 10px 18px; font-size: 14px; }
+    .btn-icon { width: 20px; height: 20px; }
+    
+    /* ========== HERO SECTION ========== */
+    .hero {
+      padding: 140px 0 80px;
+      background: linear-gradient(180deg, var(--primary-50) 0%, white 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 800px;
+      height: 800px;
+      background: radial-gradient(circle, var(--primary-light) 0%, transparent 70%);
+      opacity: 0.5;
+    }
+    .hero-inner {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+      position: relative;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--success-light);
+      color: #166534;
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 24px;
+    }
+    .hero-badge svg { width: 16px; height: 16px; }
+    .hero h1 {
+      font-size: 52px;
+      font-weight: 800;
+      line-height: 1.1;
+      color: var(--gray-900);
+      margin-bottom: 24px;
+    }
+    .hero h1 span { color: var(--primary); }
+    .hero-subtitle {
+      font-size: 20px;
+      color: var(--gray-600);
+      margin-bottom: 32px;
+      max-width: 520px;
+      line-height: 1.7;
+    }
+    .hero-cta { display: flex; gap: 16px; margin-bottom: 40px; }
+    .hero-stats {
+      display: flex;
+      gap: 40px;
+    }
+    .hero-stat { text-align: left; }
+    .hero-stat-value {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--gray-900);
+    }
+    .hero-stat-label {
+      font-size: 14px;
+      color: var(--gray-500);
+    }
+    
+    /* Hero Demo Preview */
+    .hero-demo {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.12);
+      overflow: hidden;
+      border: 1px solid var(--gray-200);
+    }
+    .demo-header {
+      background: var(--gray-800);
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .demo-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .demo-dot.red { background: #ff5f57; }
+    .demo-dot.yellow { background: #febc2e; }
+    .demo-dot.green { background: #28c840; }
+    .demo-content { padding: 24px; }
+    .demo-dashboard {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .demo-stat-card {
+      padding: 16px;
+      border-radius: 10px;
+      text-align: center;
+    }
+    .demo-stat-card.green { background: var(--success-light); }
+    .demo-stat-card.yellow { background: var(--warning-light); }
+    .demo-stat-card.red { background: var(--danger-light); }
+    .demo-stat-card.gray { background: var(--gray-100); }
+    .demo-stat-num {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--gray-800);
+    }
+    .demo-stat-label {
+      font-size: 11px;
+      color: var(--gray-600);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .demo-permits { display: flex; flex-direction: column; gap: 8px; }
+    .demo-permit {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: var(--gray-50);
+      border-radius: 8px;
+      border-left: 4px solid var(--success);
+    }
+    .demo-permit.warning { border-left-color: var(--warning); }
+    .demo-permit.danger { border-left-color: var(--danger); }
+    .demo-permit-name {
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--gray-800);
+    }
+    .demo-permit-city {
+      font-size: 12px;
+      color: var(--gray-500);
+    }
+    .demo-badge {
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .demo-badge.success { background: var(--success-light); color: #166534; }
+    .demo-badge.warning { background: var(--warning-light); color: #92400e; }
+    .demo-badge.danger { background: var(--danger-light); color: #991b1b; }
+    
+    /* ========== TRUST BAR ========== */
+    .trust-bar {
+      padding: 60px 0;
+      background: white;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .trust-bar-inner { text-align: center; }
+    .trust-bar p {
+      color: var(--gray-400);
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 24px;
+    }
+    .trust-logos {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 48px;
+      flex-wrap: wrap;
+    }
+    .trust-logo {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--gray-300);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    /* ========== PROBLEM SECTION ========== */
+    .problem {
+      padding: 100px 0;
+      background: var(--gray-900);
+      color: white;
+      position: relative;
+    }
+    .problem-inner {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      align-items: center;
+    }
+    .problem h2 {
+      font-size: 42px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      line-height: 1.2;
+    }
+    .problem h2 span { color: var(--danger); }
+    .problem-text {
+      font-size: 18px;
+      color: var(--gray-300);
+      line-height: 1.8;
+      margin-bottom: 32px;
+    }
+    .problem-stats {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+    .problem-stat {
+      background: rgba(255,255,255,0.05);
+      padding: 24px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .problem-stat-value {
+      font-size: 36px;
+      font-weight: 800;
+      color: var(--danger);
+      margin-bottom: 4px;
+    }
+    .problem-stat-label {
+      font-size: 14px;
+      color: var(--gray-400);
+    }
+    .problem-pains { list-style: none; }
+    .problem-pain {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 20px;
+      background: rgba(239, 68, 68, 0.1);
+      border-radius: 12px;
+      margin-bottom: 16px;
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+    .problem-pain-icon {
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
+      color: var(--danger);
+    }
+    .problem-pain-text { color: var(--gray-200); font-size: 15px; }
+    
+    /* ========== SOLUTION/FEATURES ========== */
+    .features {
+      padding: 100px 0;
+      background: white;
+    }
+    .section-header {
+      text-align: center;
+      margin-bottom: 64px;
+    }
+    .section-badge {
+      display: inline-flex;
+      padding: 6px 14px;
+      background: var(--primary-light);
+      color: var(--primary);
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    .section-header h2 {
+      font-size: 42px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin-bottom: 16px;
+    }
+    .section-header p {
+      font-size: 18px;
+      color: var(--gray-500);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+    }
+    .feature-card {
+      padding: 32px;
+      background: var(--gray-50);
+      border-radius: 16px;
+      transition: all 0.3s;
+      border: 1px solid transparent;
+    }
+    .feature-card:hover {
+      background: white;
+      border-color: var(--gray-200);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.08);
+      transform: translateY(-4px);
+    }
+    .feature-icon {
+      width: 56px;
+      height: 56px;
+      background: var(--primary-light);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .feature-icon svg {
+      width: 28px;
+      height: 28px;
+      color: var(--primary);
+    }
+    .feature-card h3 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin-bottom: 12px;
+    }
+    .feature-card p {
+      color: var(--gray-600);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+    
+    /* ========== INTERACTIVE DEMO SECTION ========== */
+    .demo-section {
+      padding: 100px 0;
+      background: linear-gradient(180deg, var(--gray-50) 0%, white 100%);
+    }
+    .demo-container {
+      background: white;
+      border-radius: 24px;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.1);
+      overflow: hidden;
+      border: 1px solid var(--gray-200);
+    }
+    .demo-tabs {
+      display: flex;
+      background: var(--gray-100);
+      padding: 8px;
+      gap: 4px;
+    }
+    .demo-tab {
+      flex: 1;
+      padding: 14px 20px;
+      background: transparent;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--gray-500);
+      cursor: pointer;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .demo-tab:hover { color: var(--gray-700); }
+    .demo-tab.active {
+      background: white;
+      color: var(--primary);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .demo-panel { display: none; padding: 40px; min-height: 500px; }
+    .demo-panel.active { display: block; }
+    
+    /* Demo: Dashboard */
+    .interactive-dashboard {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 32px;
+    }
+    .dash-main { }
+    .dash-sidebar { }
+    .dash-welcome {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+      border-radius: 16px;
+      padding: 28px;
+      color: white;
+      margin-bottom: 24px;
+    }
+    .dash-welcome h3 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .dash-welcome p {
+      opacity: 0.9;
+      font-size: 15px;
+    }
+    .dash-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .dash-stat {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .dash-stat:hover {
+      border-color: var(--primary);
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+    }
+    .dash-stat.active {
+      border-color: var(--primary);
+      background: var(--primary-50);
+    }
+    .dash-stat-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 12px;
+    }
+    .dash-stat-icon.green { background: var(--success-light); color: var(--success); }
+    .dash-stat-icon.yellow { background: var(--warning-light); color: var(--warning); }
+    .dash-stat-icon.red { background: var(--danger-light); color: var(--danger); }
+    .dash-stat-icon.gray { background: var(--gray-100); color: var(--gray-500); }
+    .dash-stat-icon svg { width: 20px; height: 20px; }
+    .dash-stat-value { font-size: 28px; font-weight: 700; color: var(--gray-900); }
+    .dash-stat-label { font-size: 12px; color: var(--gray-500); }
+    
+    .dash-permits-section h4 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--gray-700);
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .dash-permits-list { display: flex; flex-direction: column; gap: 12px; }
+    .dash-permit {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .dash-permit:hover {
+      border-color: var(--primary);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    .dash-permit-status {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .dash-permit-status.green { background: var(--success); }
+    .dash-permit-status.yellow { background: var(--warning); }
+    .dash-permit-status.red { background: var(--danger); }
+    .dash-permit-info { flex: 1; }
+    .dash-permit-name { font-weight: 600; color: var(--gray-800); font-size: 15px; }
+    .dash-permit-meta { font-size: 13px; color: var(--gray-500); }
+    .dash-permit-badge {
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .dash-permit-badge.green { background: var(--success-light); color: #166534; }
+    .dash-permit-badge.yellow { background: var(--warning-light); color: #92400e; }
+    .dash-permit-badge.red { background: var(--danger-light); color: #991b1b; }
+    
+    .dash-compliance {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .dash-compliance h4 {
+      font-size: 14px;
+      color: var(--gray-600);
+      margin-bottom: 16px;
+    }
+    .compliance-score {
+      width: 140px;
+      height: 140px;
+      margin: 0 auto;
+      position: relative;
+    }
+    .compliance-circle {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: conic-gradient(var(--success) 0deg, var(--success) calc(3.6deg * var(--score)), var(--gray-200) calc(3.6deg * var(--score)));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .compliance-inner {
+      width: 110px;
+      height: 110px;
+      background: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+    .compliance-value { font-size: 32px; font-weight: 800; color: var(--gray-900); }
+    .compliance-label { font-size: 12px; color: var(--gray-500); }
+    
+    .dash-alerts {
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 16px;
+      padding: 24px;
+    }
+    .dash-alerts h4 {
+      font-size: 14px;
+      color: var(--gray-600);
+      margin-bottom: 16px;
+    }
+    .alert-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px;
+      background: var(--warning-light);
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    .alert-item.danger { background: var(--danger-light); }
+    .alert-icon { flex-shrink: 0; }
+    .alert-icon.warning { color: var(--warning); }
+    .alert-icon.danger { color: var(--danger); }
+    .alert-text { font-size: 13px; color: var(--gray-700); }
+    .alert-time { font-size: 11px; color: var(--gray-500); margin-top: 4px; }
+    
+    /* Demo: Permit Checker */
+    .checker-container { max-width: 800px; margin: 0 auto; }
+    .checker-form-wrapper {
+      background: var(--gray-50);
+      border-radius: 16px;
+      padding: 32px;
+      margin-bottom: 32px;
+    }
+    .checker-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr auto;
+      gap: 16px;
+      align-items: end;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 8px; }
+    .form-group label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--gray-700);
+    }
+    .form-group input,
+    .form-group select {
+      padding: 14px 16px;
+      border: 1px solid var(--gray-300);
+      border-radius: 10px;
+      font-size: 15px;
+      transition: all 0.2s;
+    }
+    .form-group input:focus,
+    .form-group select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px var(--primary-light);
+    }
+    .checker-results { display: none; }
+    .checker-results.show { display: block; }
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .results-header h3 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--gray-900);
+    }
+    .results-count {
+      background: var(--primary-light);
+      color: var(--primary);
+      padding: 6px 14px;
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .permit-results-list { display: flex; flex-direction: column; gap: 12px; }
+    .permit-result-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px;
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 12px;
+      transition: all 0.2s;
+    }
+    .permit-result-card:hover {
+      border-color: var(--primary);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    .permit-result-info h4 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--gray-800);
+      margin-bottom: 4px;
+    }
+    .permit-result-meta {
+      display: flex;
+      gap: 16px;
+      font-size: 13px;
+      color: var(--gray-500);
+    }
+    .permit-importance {
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .permit-importance.critical { background: var(--danger-light); color: #991b1b; }
+    .permit-importance.warning { background: var(--warning-light); color: #92400e; }
+    .permit-importance.info { background: var(--primary-light); color: var(--primary); }
+    .checker-cta {
+      margin-top: 32px;
+      text-align: center;
+      padding: 32px;
+      background: var(--primary-50);
+      border-radius: 16px;
+    }
+    .checker-cta h4 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin-bottom: 8px;
+    }
+    .checker-cta p {
+      color: var(--gray-600);
+      margin-bottom: 20px;
+    }
+    
+    /* Demo: Reminders Preview */
+    .reminders-preview { max-width: 600px; margin: 0 auto; }
+    .reminder-phone {
+      background: var(--gray-900);
+      border-radius: 40px;
+      padding: 16px;
+      max-width: 320px;
+      margin: 0 auto;
+    }
+    .reminder-phone-inner {
+      background: white;
+      border-radius: 28px;
+      overflow: hidden;
+    }
+    .phone-header {
+      background: var(--gray-100);
+      padding: 12px 20px;
+      text-align: center;
+    }
+    .phone-notch {
+      width: 80px;
+      height: 24px;
+      background: var(--gray-900);
+      border-radius: 12px;
+      margin: 0 auto;
+    }
+    .phone-content { padding: 20px; }
+    .sms-message {
+      background: var(--primary-light);
+      padding: 16px;
+      border-radius: 16px 16px 16px 4px;
+      margin-bottom: 16px;
+    }
+    .sms-message p {
+      font-size: 14px;
+      color: var(--gray-800);
+      line-height: 1.5;
+    }
+    .sms-time {
+      font-size: 11px;
+      color: var(--gray-500);
+      margin-top: 8px;
+    }
+    .email-preview {
+      background: var(--gray-50);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 40px;
+    }
+    .email-preview-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .email-icon {
+      width: 40px;
+      height: 40px;
+      background: var(--primary);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+    }
+    .email-from { font-weight: 600; color: var(--gray-800); font-size: 14px; }
+    .email-subject { font-size: 12px; color: var(--gray-500); }
+    .email-body { font-size: 14px; color: var(--gray-600); line-height: 1.6; }
+    
+    /* ========== HOW IT WORKS ========== */
+    .how-it-works {
+      padding: 100px 0;
+      background: white;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 32px;
+      margin-top: 64px;
+      position: relative;
+    }
+    .steps::before {
+      content: '';
+      position: absolute;
+      top: 40px;
+      left: 12.5%;
+      right: 12.5%;
+      height: 2px;
+      background: var(--gray-200);
+      z-index: 0;
+    }
+    .step {
+      text-align: center;
+      position: relative;
+    }
+    .step-number {
+      width: 80px;
+      height: 80px;
+      background: var(--primary);
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 32px;
+      margin: 0 auto 24px;
+      position: relative;
+      z-index: 1;
+      box-shadow: 0 8px 24px rgba(37, 99, 235, 0.3);
+    }
+    .step h3 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin-bottom: 8px;
+    }
+    .step p {
+      color: var(--gray-500);
+      font-size: 15px;
+    }
+    
+    /* ========== PRICING ========== */
+    .pricing {
+      padding: 100px 0;
+      background: var(--gray-50);
+    }
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .plan-card {
+      background: white;
+      border-radius: 20px;
+      padding: 40px;
+      border: 2px solid var(--gray-200);
+      transition: all 0.3s;
+      position: relative;
+    }
+    .plan-card.featured {
+      border-color: var(--primary);
+      transform: scale(1.05);
+      box-shadow: 0 20px 60px rgba(37, 99, 235, 0.15);
+    }
+    .plan-popular {
+      position: absolute;
+      top: -14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--primary);
+      color: white;
+      padding: 6px 20px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .plan-name {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin-bottom: 8px;
+    }
+    .plan-desc {
+      font-size: 14px;
+      color: var(--gray-500);
+      margin-bottom: 24px;
+    }
+    .plan-price {
+      margin-bottom: 24px;
+    }
+    .plan-price .amount {
+      font-size: 48px;
+      font-weight: 800;
+      color: var(--gray-900);
+    }
+    .plan-price .period {
+      font-size: 16px;
+      color: var(--gray-500);
+    }
+    .plan-features {
+      list-style: none;
+      margin-bottom: 32px;
+    }
+    .plan-features li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      color: var(--gray-600);
+      font-size: 15px;
+    }
+    .plan-features li svg {
+      width: 20px;
+      height: 20px;
+      color: var(--success);
+      flex-shrink: 0;
+    }
+    .plan-btn { width: 100%; }
+    
+    /* ========== TESTIMONIALS ========== */
+    .testimonials {
+      padding: 100px 0;
+      background: white;
+    }
+    .testimonials-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+    }
+    .testimonial-card {
+      background: var(--gray-50);
+      border-radius: 20px;
+      padding: 32px;
+    }
+    .testimonial-rating {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+    }
+    .testimonial-rating svg {
+      width: 20px;
+      height: 20px;
+      fill: #fbbf24;
+      color: #fbbf24;
+    }
+    .testimonial-quote {
+      font-size: 16px;
+      color: var(--gray-700);
+      line-height: 1.7;
+      margin-bottom: 24px;
+    }
+    .testimonial-author {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .testimonial-avatar {
+      width: 56px;
+      height: 56px;
+      background: var(--primary-light);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 20px;
+      color: var(--primary);
+    }
+    .testimonial-name {
+      font-weight: 700;
+      color: var(--gray-900);
+    }
+    .testimonial-role {
+      font-size: 14px;
+      color: var(--gray-500);
+    }
+    
+    /* ========== FAQ ========== */
+    .faq {
+      padding: 100px 0;
+      background: var(--gray-50);
+    }
+    .faq-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .faq-item {
+      background: white;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--gray-200);
+    }
+    .faq-question {
+      padding: 24px;
+      font-weight: 600;
+      font-size: 16px;
+      color: var(--gray-900);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.2s;
+    }
+    .faq-question:hover { background: var(--gray-50); }
+    .faq-icon {
+      width: 24px;
+      height: 24px;
+      color: var(--gray-400);
+      transition: transform 0.3s;
+    }
+    .faq-item.open .faq-icon { transform: rotate(45deg); }
+    .faq-answer {
+      padding: 0 24px 24px;
+      color: var(--gray-600);
+      font-size: 15px;
+      line-height: 1.7;
+      display: none;
+    }
+    .faq-item.open .faq-answer { display: block; }
+    
+    /* ========== FINAL CTA ========== */
+    .final-cta {
+      padding: 120px 0;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .final-cta::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -20%;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+    }
+    .final-cta h2 {
+      font-size: 44px;
+      font-weight: 800;
+      color: white;
+      margin-bottom: 16px;
+      position: relative;
+    }
+    .final-cta p {
+      font-size: 20px;
+      color: rgba(255,255,255,0.8);
+      margin-bottom: 40px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+      position: relative;
+    }
+    .final-cta-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      position: relative;
+    }
+    .final-cta .btn-white { box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+    .final-cta .btn-outline {
+      color: white;
+      border-color: rgba(255,255,255,0.3);
+    }
+    .final-cta .btn-outline:hover { background: rgba(255,255,255,0.1); }
+    
+    /* ========== FOOTER ========== */
+    .footer {
+      padding: 60px 0 30px;
+      background: var(--gray-900);
+      color: var(--gray-400);
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 60px;
+      margin-bottom: 60px;
+    }
+    .footer-brand .logo {
+      color: white;
+      margin-bottom: 16px;
+    }
+    .footer-brand p {
+      font-size: 14px;
+      line-height: 1.7;
+      max-width: 280px;
+    }
+    .footer-col h4 {
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .footer-col a {
+      display: block;
+      color: var(--gray-400);
+      text-decoration: none;
+      font-size: 14px;
+      padding: 8px 0;
+      transition: color 0.2s;
+    }
+    .footer-col a:hover { color: white; }
+    .footer-bottom {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 30px;
+      border-top: 1px solid var(--gray-800);
+      font-size: 14px;
+    }
+    .footer-social {
+      display: flex;
+      gap: 16px;
+    }
+    .footer-social a {
+      width: 40px;
+      height: 40px;
+      background: var(--gray-800);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--gray-400);
+      transition: all 0.2s;
+    }
+    .footer-social a:hover {
+      background: var(--primary);
+      color: white;
+    }
+    
+    /* ========== RESPONSIVE ========== */
+    @media (max-width: 1024px) {
+      .hero-inner,
+      .problem-inner { grid-template-columns: 1fr; }
+      .hero { text-align: center; padding-top: 120px; }
+      .hero-subtitle { margin-left: auto; margin-right: auto; }
+      .hero-cta { justify-content: center; }
+      .hero-stats { justify-content: center; }
+      .hero-demo { max-width: 500px; margin: 40px auto 0; }
+      .features-grid,
+      .testimonials-grid { grid-template-columns: repeat(2, 1fr); }
+      .steps { grid-template-columns: repeat(2, 1fr); }
+      .steps::before { display: none; }
+      .pricing-grid { grid-template-columns: 1fr; max-width: 400px; }
+      .plan-card.featured { transform: none; }
+      .interactive-dashboard { grid-template-columns: 1fr; }
+      .checker-form { grid-template-columns: 1fr; }
+      .footer-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .hero h1 { font-size: 36px; }
+      .section-header h2 { font-size: 32px; }
+      .problem h2 { font-size: 32px; }
+      .features-grid,
+      .testimonials-grid,
+      .steps,
+      .faq-grid { grid-template-columns: 1fr; }
+      .dash-stats { grid-template-columns: repeat(2, 1fr); }
+      .demo-dashboard { grid-template-columns: 1fr; }
+      .final-cta h2 { font-size: 32px; }
+      .final-cta-buttons { flex-direction: column; align-items: center; }
+      .footer-grid { grid-template-columns: 1fr; gap: 40px; }
+      .footer-bottom { flex-direction: column; gap: 20px; text-align: center; }
+    }
+    @media (max-width: 480px) {
+      .hero-cta { flex-direction: column; }
+      .hero-stats { flex-direction: column; gap: 20px; }
+      .demo-tabs { overflow-x: auto; }
+      .demo-tab { white-space: nowrap; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="/" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="M9 12l2 2 4-4"/>
+        </svg>
+        PermitWise
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#demo">Demo</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+      </div>
+      <div class="nav-actions">
+        <a href="/app" class="btn btn-outline btn-sm">Log In</a>
+        <a href="/app?register=true" class="btn btn-primary btn-sm">Start Free Trial</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-inner">
+        <div class="hero-content">
+          <div class="hero-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            Trusted by 500+ food vendors
+          </div>
+          <h1>Never Miss a <span>Permit Deadline</span> Again</h1>
+          <p class="hero-subtitle">PermitWise automatically tracks all your food vendor permits, sends smart reminders, and tells you exactly what you need for each city you operate in.</p>
+          <div class="hero-cta">
+            <a href="/app?register=true" class="btn btn-primary btn-lg">Start Free Trial</a>
+            <a href="#demo" class="btn btn-outline btn-lg">Try Interactive Demo</a>
+          </div>
+          <div class="hero-stats">
+            <div class="hero-stat">
+              <div class="hero-stat-value">98%</div>
+              <div class="hero-stat-label">Renewal Success Rate</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat-value">$2,500</div>
+              <div class="hero-stat-label">Avg. Fines Prevented</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat-value">4.9★</div>
+              <div class="hero-stat-label">User Rating</div>
+            </div>
+          </div>
+        </div>
+        <div class="hero-visual">
+          <div class="hero-demo">
+            <div class="demo-header">
+              <div class="demo-dot red"></div>
+              <div class="demo-dot yellow"></div>
+              <div class="demo-dot green"></div>
+            </div>
+            <div class="demo-content">
+              <div class="demo-dashboard">
+                <div class="demo-stat-card green">
+                  <div class="demo-stat-num">5</div>
+                  <div class="demo-stat-label">Active</div>
+                </div>
+                <div class="demo-stat-card yellow">
+                  <div class="demo-stat-num">2</div>
+                  <div class="demo-stat-label">Expiring</div>
+                </div>
+                <div class="demo-stat-card red">
+                  <div class="demo-stat-num">0</div>
+                  <div class="demo-stat-label">Expired</div>
+                </div>
+                <div class="demo-stat-card gray">
+                  <div class="demo-stat-num">1</div>
+                  <div class="demo-stat-label">Missing</div>
+                </div>
+              </div>
+              <div class="demo-permits">
+                <div class="demo-permit">
+                  <div>
+                    <div class="demo-permit-name">Health Permit</div>
+                    <div class="demo-permit-city">Austin, TX</div>
+                  </div>
+                  <div class="demo-badge success">Active</div>
+                </div>
+                <div class="demo-permit warning">
+                  <div>
+                    <div class="demo-permit-name">Fire Safety Certificate</div>
+                    <div class="demo-permit-city">Austin, TX</div>
+                  </div>
+                  <div class="demo-badge warning">14 days</div>
+                </div>
+                <div class="demo-permit">
+                  <div>
+                    <div class="demo-permit-name">Business License</div>
+                    <div class="demo-permit-city">Houston, TX</div>
+                  </div>
+                  <div class="demo-badge success">Active</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Trust Bar -->
+  <section class="trust-bar">
+    <div class="container">
+      <div class="trust-bar-inner">
+        <p>Helping food vendors stay compliant in</p>
+        <div class="trust-logos">
+          <div class="trust-logo">🏙️ Austin</div>
+          <div class="trust-logo">🌴 Los Angeles</div>
+          <div class="trust-logo">🗽 New York</div>
+          <div class="trust-logo">🌆 Houston</div>
+          <div class="trust-logo">🌉 San Francisco</div>
+          <div class="trust-logo">+ 50 more cities</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Problem Section -->
+  <section class="problem">
+    <div class="container">
+      <div class="problem-inner">
+        <div>
+          <h2>Permit Problems <span>Cost Real Money</span></h2>
+          <p class="problem-text">Running a food truck is hard enough. Between health permits, fire inspections, business licenses, and city-specific requirements, it's easy to miss a deadline. And when you do, the consequences are brutal.</p>
+          <div class="problem-stats">
+            <div class="problem-stat">
+              <div class="problem-stat-value">$1,000+</div>
+              <div class="problem-stat-label">Average fine for expired permit</div>
+            </div>
+            <div class="problem-stat">
+              <div class="problem-stat-value">3 Days</div>
+              <div class="problem-stat-label">Lost revenue while shut down</div>
+            </div>
+            <div class="problem-stat">
+              <div class="problem-stat-value">67%</div>
+              <div class="problem-stat-label">Vendors miss at least 1 renewal/year</div>
+            </div>
+            <div class="problem-stat">
+              <div class="problem-stat-value">8+</div>
+              <div class="problem-stat-label">Permits needed per city on average</div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <ul class="problem-pains">
+            <li class="problem-pain">
+              <svg class="problem-pain-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <span class="problem-pain-text"><strong>Surprise shutdowns</strong> when inspectors find your expired health permit</span>
+            </li>
+            <li class="problem-pain">
+              <svg class="problem-pain-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <span class="problem-pain-text"><strong>Spreadsheet chaos</strong> tracking different expiration dates across multiple cities</span>
+            </li>
+            <li class="problem-pain">
+              <svg class="problem-pain-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <span class="problem-pain-text"><strong>Missing requirements</strong> because you didn't know a city needed a specific permit</span>
+            </li>
+            <li class="problem-pain">
+              <svg class="problem-pain-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <span class="problem-pain-text"><strong>Last-minute scrambles</strong> to renew permits before busy events</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section class="features" id="features">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge">Features</div>
+        <h2>Everything You Need to Stay Compliant</h2>
+        <p>PermitWise handles the complexity of permit management so you can focus on what matters: serving great food.</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <h3>Smart Permit Tracking</h3>
+          <p>All your permits in one dashboard. See what's active, expiring, or missing at a glance. Never lose track again.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          </div>
+          <h3>Automated Reminders</h3>
+          <p>Get SMS and email alerts 30, 14, and 7 days before expiration. Inspectors won't catch you off guard.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          </div>
+          <h3>City-Specific Guidance</h3>
+          <p>Know exactly which permits you need in each city. We track requirements for 50+ cities and counting.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </div>
+          <h3>Document Vault</h3>
+          <p>Store all your permits, certificates, and inspection reports in one secure place. Access them anytime, anywhere.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <h3>Inspection Checklists</h3>
+          <p>Pre-inspection checklists ensure you're always ready when the health inspector shows up.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <h3>Team Access</h3>
+          <p>Invite team members to help manage compliance. Everyone stays on the same page.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Demo Section -->
+  <section class="demo-section" id="demo">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge">Interactive Demo</div>
+        <h2>See PermitWise in Action</h2>
+        <p>Try out the key features right here. No signup required.</p>
+      </div>
+      <div class="demo-container">
+        <div class="demo-tabs">
+          <button class="demo-tab active" onclick="showDemoTab('dashboard')">📊 Dashboard</button>
+          <button class="demo-tab" onclick="showDemoTab('checker')">🔍 Permit Checker</button>
+          <button class="demo-tab" onclick="showDemoTab('reminders')">🔔 Smart Reminders</button>
+        </div>
+        
+        <!-- Dashboard Demo -->
+        <div class="demo-panel active" id="demo-dashboard">
+          <div class="interactive-dashboard">
+            <div class="dash-main">
+              <div class="dash-welcome">
+                <h3>Welcome back, Maria's Tacos! 🌮</h3>
+                <p>You have 2 permits expiring soon. Let's keep you compliant.</p>
+              </div>
+              <div class="dash-stats">
+                <div class="dash-stat active" onclick="filterPermits('all')">
+                  <div class="dash-stat-icon green">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  </div>
+                  <div class="dash-stat-value">5</div>
+                  <div class="dash-stat-label">Active</div>
+                </div>
+                <div class="dash-stat" onclick="filterPermits('expiring')">
+                  <div class="dash-stat-icon yellow">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  </div>
+                  <div class="dash-stat-value">2</div>
+                  <div class="dash-stat-label">Expiring</div>
+                </div>
+                <div class="dash-stat" onclick="filterPermits('expired')">
+                  <div class="dash-stat-icon red">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                  </div>
+                  <div class="dash-stat-value">0</div>
+                  <div class="dash-stat-label">Expired</div>
+                </div>
+                <div class="dash-stat" onclick="filterPermits('missing')">
+                  <div class="dash-stat-icon gray">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  </div>
+                  <div class="dash-stat-value">1</div>
+                  <div class="dash-stat-label">Missing</div>
+                </div>
+              </div>
+              <div class="dash-permits-section">
+                <h4>Your Permits <span style="font-weight:400;color:var(--gray-400);font-size:14px;">Click to view details</span></h4>
+                <div class="dash-permits-list" id="permits-list">
+                  <div class="dash-permit" data-status="active">
+                    <div class="dash-permit-status green"></div>
+                    <div class="dash-permit-info">
+                      <div class="dash-permit-name">Mobile Food Vendor Permit</div>
+                      <div class="dash-permit-meta">Austin, TX • Expires Dec 15, 2026</div>
+                    </div>
+                    <div class="dash-permit-badge green">Active</div>
+                  </div>
+                  <div class="dash-permit" data-status="expiring">
+                    <div class="dash-permit-status yellow"></div>
+                    <div class="dash-permit-info">
+                      <div class="dash-permit-name">Fire Safety Certificate</div>
+                      <div class="dash-permit-meta">Austin, TX • Expires Feb 1, 2026</div>
+                    </div>
+                    <div class="dash-permit-badge yellow">14 days left</div>
+                  </div>
+                  <div class="dash-permit" data-status="expiring">
+                    <div class="dash-permit-status yellow"></div>
+                    <div class="dash-permit-info">
+                      <div class="dash-permit-name">Health Department Permit</div>
+                      <div class="dash-permit-meta">Houston, TX • Expires Feb 8, 2026</div>
+                    </div>
+                    <div class="dash-permit-badge yellow">21 days left</div>
+                  </div>
+                  <div class="dash-permit" data-status="active">
+                    <div class="dash-permit-status green"></div>
+                    <div class="dash-permit-info">
+                      <div class="dash-permit-name">Business License</div>
+                      <div class="dash-permit-meta">Houston, TX • Expires Aug 30, 2026</div>
+                    </div>
+                    <div class="dash-permit-badge green">Active</div>
+                  </div>
+                  <div class="dash-permit" data-status="active">
+                    <div class="dash-permit-status green"></div>
+                    <div class="dash-permit-info">
+                      <div class="dash-permit-name">Food Handler Certificate</div>
+                      <div class="dash-permit-meta">Texas State • Expires Nov 1, 2026</div>
+                    </div>
+                    <div class="dash-permit-badge green">Active</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="dash-sidebar">
+              <div class="dash-compliance">
+                <h4>Compliance Score</h4>
+                <div class="compliance-score">
+                  <div class="compliance-circle" style="--score: 87">
+                    <div class="compliance-inner">
+                      <div class="compliance-value">87%</div>
+                      <div class="compliance-label">Compliant</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="dash-alerts">
+                <h4>Recent Alerts</h4>
+                <div class="alert-item">
+                  <svg class="alert-icon warning" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  <div>
+                    <div class="alert-text">Fire Safety Certificate expires in 14 days</div>
+                    <div class="alert-time">Today at 9:00 AM</div>
+                  </div>
+                </div>
+                <div class="alert-item">
+                  <svg class="alert-icon warning" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  <div>
+                    <div class="alert-text">Health Permit expires in 21 days</div>
+                    <div class="alert-time">Yesterday at 9:00 AM</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Permit Checker Demo -->
+        <div class="demo-panel" id="demo-checker">
+          <div class="checker-container">
+            <div class="checker-form-wrapper">
+              <div class="checker-form">
+                <div class="form-group">
+                  <label>City</label>
+                  <input type="text" id="checker-city" placeholder="e.g., Austin" value="Austin">
+                </div>
+                <div class="form-group">
+                  <label>State</label>
+                  <select id="checker-state">
+                    <option value="">Select State</option>
+                    <option value="TX" selected>Texas</option>
+                    <option value="CA">California</option>
+                    <option value="NY">New York</option>
+                    <option value="FL">Florida</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Business Type</label>
+                  <select id="checker-type">
+                    <option value="">Select Type</option>
+                    <option value="food_truck" selected>Food Truck</option>
+                    <option value="food_trailer">Food Trailer</option>
+                    <option value="cart">Food Cart</option>
+                    <option value="popup">Pop-up Restaurant</option>
+                  </select>
+                </div>
+                <button class="btn btn-primary" onclick="checkPermits()">Check Permits</button>
+              </div>
+            </div>
+            <div class="checker-results" id="checker-results">
+              <div class="results-header">
+                <h3>Required Permits for Austin, TX</h3>
+                <span class="results-count">6 permits</span>
+              </div>
+              <div class="permit-results-list">
+                <div class="permit-result-card">
+                  <div class="permit-result-info">
+                    <h4>Mobile Food Vendor Permit</h4>
+                    <div class="permit-result-meta">
+                      <span>📍 Austin Public Health</span>
+                      <span>🔄 Renews yearly</span>
+                      <span>💰 $300-$500</span>
+                    </div>
+                  </div>
+                  <span class="permit-importance critical">Critical</span>
+                </div>
+                <div class="permit-result-card">
+                  <div class="permit-result-info">
+                    <h4>Health Department Permit</h4>
+                    <div class="permit-result-meta">
+                      <span>📍 TX Dept of Health</span>
+                      <span>🔄 Renews yearly</span>
+                      <span>💰 $200-$400</span>
+                    </div>
+                  </div>
+                  <span class="permit-importance critical">Critical</span>
+                </div>
+                <div class="permit-result-card">
+                  <div class="permit-result-info">
+                    <h4>Fire Safety Certificate</h4>
+                    <div class="permit-result-meta">
+                      <span>📍 Austin Fire Dept</span>
+                      <span>🔄 Renews yearly</span>
+                      <span>💰 $100-$200</span>
+                    </div>
+                  </div>
+                  <span class="permit-importance warning">Often Forgotten</span>
+                </div>
+                <div class="permit-result-card">
+                  <div class="permit-result-info">
+                    <h4>Food Handler Certificate</h4>
+                    <div class="permit-result-meta">
+                      <span>📍 TX DSHS</span>
+                      <span>🔄 Every 2 years</span>
+                      <span>💰 $10-$25</span>
+                    </div>
+                  </div>
+                  <span class="permit-importance critical">Critical</span>
+                </div>
+                <div class="permit-result-card">
+                  <div class="permit-result-info">
+                    <h4>Business License</h4>
+                    <div class="permit-result-meta">
+                      <span>📍 City of Austin</span>
+                      <span>🔄 Renews yearly</span>
+                      <span>💰 $50-$150</span>
+                    </div>
+                  </div>
+                  <span class="permit-importance warning">Often Forgotten</span>
+                </div>
+                <div class="permit-result-card">
+                  <div class="permit-result-info">
+                    <h4>Special Event Permit</h4>
+                    <div class="permit-result-meta">
+                      <span>📍 City of Austin</span>
+                      <span>🔄 Per event</span>
+                      <span>💰 $25-$100</span>
+                    </div>
+                  </div>
+                  <span class="permit-importance info">Event Required</span>
+                </div>
+              </div>
+              <div class="checker-cta">
+                <h4>Ready to track these permits?</h4>
+                <p>Start your free trial and never miss a deadline again.</p>
+                <a href="/app?register=true" class="btn btn-primary">Start Tracking Free →</a>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Reminders Demo -->
+        <div class="demo-panel" id="demo-reminders">
+          <div class="reminders-preview">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start;">
+              <div>
+                <h3 style="font-size: 18px; margin-bottom: 16px; color: var(--gray-700);">📱 SMS Reminders</h3>
+                <div class="reminder-phone">
+                  <div class="reminder-phone-inner">
+                    <div class="phone-header">
+                      <div class="phone-notch"></div>
+                    </div>
+                    <div class="phone-content">
+                      <div class="sms-message">
+                        <p><strong>PermitWise:</strong> ⚠️ Your Fire Safety Certificate expires in 14 days. Renew now to avoid fines. Visit permitwise.app to start renewal.</p>
+                        <div class="sms-time">Today, 9:00 AM</div>
+                      </div>
+                      <div class="sms-message">
+                        <p><strong>PermitWise:</strong> 📋 Reminder: Your Health Permit expires in 30 days. We've prepared your renewal checklist.</p>
+                        <div class="sms-time">Jan 8, 9:00 AM</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <h3 style="font-size: 18px; margin-bottom: 16px; color: var(--gray-700);">📧 Email Alerts</h3>
+                <div class="email-preview">
+                  <div class="email-preview-header">
+                    <div class="email-icon">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    </div>
+                    <div>
+                      <div class="email-from">PermitWise Alerts</div>
+                      <div class="email-subject">🔔 Action Required: Fire Safety Certificate expires in 14 days</div>
+                    </div>
+                  </div>
+                  <div class="email-body">
+                    <p>Hi Maria,</p>
+                    <p style="margin-top: 12px;">Your <strong>Fire Safety Certificate</strong> for Austin, TX expires on <strong>February 1, 2026</strong>.</p>
+                    <p style="margin-top: 12px;">Here's what you need to do:</p>
+                    <ul style="margin: 12px 0; padding-left: 20px;">
+                      <li>Schedule fire extinguisher inspection</li>
+                      <li>Complete renewal application</li>
+                      <li>Pay renewal fee ($150)</li>
+                    </ul>
+                    <p style="margin-top: 12px;">Need help? Reply to this email or visit your dashboard.</p>
+                  </div>
+                </div>
+                <div style="margin-top: 24px; padding: 20px; background: var(--success-light); border-radius: 12px;">
+                  <h4 style="color: #166534; font-size: 15px; margin-bottom: 8px;">✓ Smart Timing</h4>
+                  <p style="font-size: 14px; color: #166534;">Reminders sent at 30, 14, and 7 days before expiration — the perfect cadence to never miss a deadline.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section class="how-it-works">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge">How It Works</div>
+        <h2>Get Started in Minutes</h2>
+        <p>No complex setup. No lengthy onboarding. Just simple permit peace of mind.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <h3>Tell Us Your City</h3>
+          <p>Enter where you operate and your business type. Takes 30 seconds.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <h3>See Required Permits</h3>
+          <p>We show you exactly which permits you need, sorted by importance.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <h3>Add Your Permits</h3>
+          <p>Enter your current permit details or mark what you're missing.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">4</div>
+          <h3>Stay Compliant</h3>
+          <p>Get automatic reminders. Never miss a deadline again.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing -->
+  <section class="pricing" id="pricing">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge">Pricing</div>
+        <h2>Simple, Transparent Pricing</h2>
+        <p>Start free. Upgrade when you're ready. No hidden fees.</p>
+      </div>
+      <div class="pricing-grid">
+        <div class="plan-card">
+          <h3 class="plan-name">Starter</h3>
+          <p class="plan-desc">For single-location vendors</p>
+          <div class="plan-price">
+            <span class="amount">$19</span>
+            <span class="period">/month</span>
+          </div>
+          <ul class="plan-features">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> 1 operating city</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Email reminders</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Document vault (50 docs)</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Basic permit tracking</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Email support</li>
+          </ul>
+          <a href="/app?register=true" class="btn btn-outline plan-btn">Start Free Trial</a>
+        </div>
+        <div class="plan-card featured">
+          <div class="plan-popular">Most Popular</div>
+          <h3 class="plan-name">Pro</h3>
+          <p class="plan-desc">For growing food businesses</p>
+          <div class="plan-price">
+            <span class="amount">$49</span>
+            <span class="period">/month</span>
+          </div>
+          <ul class="plan-features">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Unlimited cities</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> SMS + Email reminders</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Unlimited documents</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> PDF autofill</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Inspection checklists</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Priority support</li>
+          </ul>
+          <a href="/app?register=true" class="btn btn-primary plan-btn">Start Free Trial</a>
+        </div>
+        <div class="plan-card">
+          <h3 class="plan-name">Elite</h3>
+          <p class="plan-desc">For multi-location operations</p>
+          <div class="plan-price">
+            <span class="amount">$99</span>
+            <span class="period">/month</span>
+          </div>
+          <ul class="plan-features">
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Everything in Pro</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Team accounts (5 users)</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Event marketplace</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> API access</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Dedicated support</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Custom integrations</li>
+          </ul>
+          <a href="/app?register=true" class="btn btn-outline plan-btn">Start Free Trial</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Testimonials -->
+  <section class="testimonials">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge">Testimonials</div>
+        <h2>Loved by Food Vendors</h2>
+        <p>See why hundreds of food businesses trust PermitWise.</p>
+      </div>
+      <div class="testimonials-grid">
+        <div class="testimonial-card">
+          <div class="testimonial-rating">
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          </div>
+          <p class="testimonial-quote">"Before PermitWise, I got shut down twice for expired permits. Now I get reminders weeks in advance and my compliance score is 100%. Wish I found this years ago."</p>
+          <div class="testimonial-author">
+            <div class="testimonial-avatar">MR</div>
+            <div>
+              <div class="testimonial-name">Maria Rodriguez</div>
+              <div class="testimonial-role">Maria's Tacos • Austin, TX</div>
+            </div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="testimonial-rating">
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          </div>
+          <p class="testimonial-quote">"I operate in 3 different cities and keeping track of all the different requirements was a nightmare. PermitWise shows me exactly what I need for each location. Game changer."</p>
+          <div class="testimonial-author">
+            <div class="testimonial-avatar">JK</div>
+            <div>
+              <div class="testimonial-name">James Kim</div>
+              <div class="testimonial-role">Seoul Street Kitchen • Los Angeles, CA</div>
+            </div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="testimonial-rating">
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <svg viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          </div>
+          <p class="testimonial-quote">"The inspection checklists alone are worth the price. Last health inspection, I scored a 98 because I was totally prepared. The inspector was impressed!"</p>
+          <div class="testimonial-author">
+            <div class="testimonial-avatar">ST</div>
+            <div>
+              <div class="testimonial-name">Sarah Thompson</div>
+              <div class="testimonial-role">Sweet Treats Cart • New York, NY</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="faq" id="faq">
+    <div class="container">
+      <div class="section-header">
+        <div class="section-badge">FAQ</div>
+        <h2>Frequently Asked Questions</h2>
+        <p>Everything you need to know about PermitWise.</p>
+      </div>
+      <div class="faq-grid">
+        <div class="faq-item" onclick="toggleFaq(this)">
+          <div class="faq-question">
+            What is PermitWise?
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </div>
+          <div class="faq-answer">PermitWise is a permit management platform designed specifically for food vendors. We help you track all your permits, get automatic renewal reminders, and know exactly which permits you need for each city you operate in.</div>
+        </div>
+        <div class="faq-item" onclick="toggleFaq(this)">
+          <div class="faq-question">
+            How does the free trial work?
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </div>
+          <div class="faq-answer">You get 14 days of full Pro plan access, no credit card required. After the trial, you can choose a plan that fits your needs or continue with limited free features.</div>
+        </div>
+        <div class="faq-item" onclick="toggleFaq(this)">
+          <div class="faq-question">
+            Which cities do you cover?
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </div>
+          <div class="faq-answer">We currently have permit data for 50+ major cities across the US, including Austin, Los Angeles, New York, Houston, San Francisco, and more. We're adding new cities every week. Even if your city isn't fully covered, you can still use our tracking and reminder features.</div>
+        </div>
+        <div class="faq-item" onclick="toggleFaq(this)">
+          <div class="faq-question">
+            Do you file permits for me?
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </div>
+          <div class="faq-answer">We don't file permits on your behalf, but we make the process much easier. We tell you exactly which permits you need, provide renewal checklists, auto-fill application forms (Pro plan), and remind you when it's time to renew.</div>
+        </div>
+        <div class="faq-item" onclick="toggleFaq(this)">
+          <div class="faq-question">
+            Can I cancel anytime?
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </div>
+          <div class="faq-answer">Yes! No long-term contracts. Cancel anytime from your account settings. You'll have access until the end of your billing period.</div>
+        </div>
+        <div class="faq-item" onclick="toggleFaq(this)">
+          <div class="faq-question">
+            Is my data secure?
+            <svg class="faq-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </div>
+          <div class="faq-answer">Absolutely. We use bank-level encryption for all data. Your documents are stored securely in the cloud with automatic backups. We never share your information with third parties.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Final CTA -->
+  <section class="final-cta">
+    <div class="container">
+      <h2>Ready to Simplify Your Permit Management?</h2>
+      <p>Join 500+ food vendors who trust PermitWise to stay compliant. Start your free trial today.</p>
+      <div class="final-cta-buttons">
+        <a href="/app?register=true" class="btn btn-white btn-lg">Start Free Trial</a>
+        <a href="#demo" class="btn btn-outline btn-lg">See Demo First</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="/" class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+            PermitWise
+          </a>
+          <p>Helping food vendors stay compliant with automatic permit tracking and smart reminders.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Product</h4>
+          <a href="#features">Features</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#demo">Demo</a>
+          <a href="#faq">FAQ</a>
+        </div>
+        <div class="footer-col">
+          <h4>Company</h4>
+          <a href="/app#about">About</a>
+          <a href="mailto:support@permitwise.app">Contact</a>
+          <a href="/app#privacy">Privacy Policy</a>
+          <a href="/app#terms">Terms of Service</a>
+        </div>
+        <div class="footer-col">
+          <h4>Support</h4>
+          <a href="mailto:support@permitwise.app">Email Support</a>
+          <a href="#faq">Help Center</a>
+          <a href="#">API Docs</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2025 PermitWise. All rights reserved.</p>
+        <div class="footer-social">
+          <a href="#" aria-label="Twitter">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+          </a>
+          <a href="#" aria-label="LinkedIn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+          </a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Navbar scroll effect
+    window.addEventListener('scroll', () => {
+      const nav = document.getElementById('nav');
+      if (window.scrollY > 50) {
+        nav.classList.add('scrolled');
+      } else {
+        nav.classList.remove('scrolled');
+      }
+    });
+
+    // Demo tabs
+    function showDemoTab(tabName) {
+      document.querySelectorAll('.demo-tab').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('.demo-panel').forEach(panel => panel.classList.remove('active'));
+      
+      document.querySelector(`[onclick="showDemoTab('${tabName}')"]`).classList.add('active');
+      document.getElementById(`demo-${tabName}`).classList.add('active');
+    }
+
+    // Filter permits in dashboard demo
+    function filterPermits(status) {
+      document.querySelectorAll('.dash-stat').forEach(stat => stat.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+      
+      const permits = document.querySelectorAll('.dash-permit');
+      permits.forEach(permit => {
+        const permitStatus = permit.getAttribute('data-status');
+        if (status === 'all' || permitStatus === status) {
+          permit.style.display = 'flex';
+        } else {
+          permit.style.display = 'none';
+        }
+      });
+    }
+
+    // Permit checker
+    function checkPermits() {
+      const city = document.getElementById('checker-city').value;
+      const state = document.getElementById('checker-state').value;
+      const type = document.getElementById('checker-type').value;
+      
+      if (!city || !state || !type) {
+        alert('Please fill in all fields');
+        return;
+      }
+      
+      // Show results
+      document.getElementById('checker-results').classList.add('show');
+      
+      // Update header
+      document.querySelector('.results-header h3').textContent = `Required Permits for ${city}, ${state}`;
+    }
+
+    // FAQ toggle
+    function toggleFaq(item) {
+      item.classList.toggle('open');
+    }
+
+    // Smooth scroll for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
+</body>
+</html>
