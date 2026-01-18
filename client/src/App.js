@@ -979,8 +979,6 @@ const UploadDocumentModal = ({ isOpen, onClose, onSuccess }) => {
 };
 const UploadModal = UploadDocumentModal; // Alias for Dashboard use
 
-const FEATURE_FLAGS = { inspections: true, events: true }; // Enabled - plan gating below
-
 const InspectionsPage = () => {
   const { subscription } = useAuth();
   const [checklists, setChecklists] = useState([]); const [inspections, setInspections] = useState([]);
@@ -1019,19 +1017,44 @@ const InspectionsPage = () => {
 
   if (!hasAccess) {
     return (
-      <div className="coming-soon-page">
-        <div className="coming-soon-content">
-          <div className="coming-soon-icon"><Icons.Checklist /></div>
+      <div className="upgrade-feature-page">
+        <div className="upgrade-feature-content">
+          <div className="upgrade-feature-icon"><Icons.Checklist /></div>
           <h1>Inspection Checklists</h1>
           <Badge variant="warning">Pro Plan Required</Badge>
-          <p>Walk through health department inspections step-by-step before the inspector arrives. Never get caught off guard again.</p>
-          <ul className="coming-soon-features">
-            <li><Icons.Check /> Pre-inspection checklists by city</li>
-            <li><Icons.Check /> Offline mode for on-site prep</li>
-            <li><Icons.Check /> Photo documentation</li>
-            <li><Icons.Check /> Common violation alerts</li>
-          </ul>
-          <Button onClick={() => window.location.hash = 'settings'}>Upgrade to Pro</Button>
+          <p className="upgrade-feature-description">Never fail a health inspection again. Walk through every requirement step-by-step before the inspector arrives.</p>
+          
+          <div className="upgrade-feature-grid">
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>City-Specific Checklists</h3>
+              <p>Pre-built checklists based on your operating cities' health department requirements</p>
+            </div>
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>Offline Mode</h3>
+              <p>Access checklists anywhere, even without internet connection on your mobile device</p>
+            </div>
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>Photo Documentation</h3>
+              <p>Capture photos as proof of compliance for each inspection item</p>
+            </div>
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>Violation Alerts</h3>
+              <p>Get warnings about commonly failed inspection items so you can prepare</p>
+            </div>
+          </div>
+
+          <div className="upgrade-pricing-card">
+            <span className="upgrade-plan-label">Pro Plan</span>
+            <div className="upgrade-price">$49<span>/month</span></div>
+            <p>Also includes SMS alerts, PDF autofill & multi-city support</p>
+          </div>
+
+          <Button size="lg" onClick={() => window.location.hash = 'settings'}>Upgrade to Pro</Button>
+          <p className="upgrade-note">14-day free trial • Cancel anytime</p>
         </div>
       </div>
     );
@@ -1137,19 +1160,44 @@ const EventsPage = () => {
 
   if (!hasAccess) {
     return (
-      <div className="coming-soon-page">
-        <div className="coming-soon-content">
-          <div className="coming-soon-icon"><Icons.Event /></div>
+      <div className="upgrade-feature-page">
+        <div className="upgrade-feature-content">
+          <div className="upgrade-feature-icon"><Icons.Event /></div>
           <h1>Event Marketplace</h1>
           <Badge variant="warning">Elite Plan Required</Badge>
-          <p>Find festivals, farmers markets, and pop-up opportunities. Check your permit readiness before you apply.</p>
-          <ul className="coming-soon-features">
-            <li><Icons.Check /> Browse local events</li>
-            <li><Icons.Check /> One-click permit readiness check</li>
-            <li><Icons.Check /> Apply directly through PermitWise</li>
-            <li><Icons.Check /> Get notified of new opportunities</li>
-          </ul>
-          <Button onClick={() => window.location.hash = 'settings'}>Upgrade to Elite</Button>
+          <p className="upgrade-feature-description">Discover festivals, farmers markets, and pop-up opportunities. Check your permit readiness instantly and apply with one click.</p>
+          
+          <div className="upgrade-feature-grid">
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>Local Event Discovery</h3>
+              <p>Browse upcoming events in all your operating cities in one centralized place</p>
+            </div>
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>Permit Readiness Check</h3>
+              <p>Instantly see which permits you need before applying to any event</p>
+            </div>
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>One-Click Applications</h3>
+              <p>Apply directly through PermitWise with your business info pre-filled</p>
+            </div>
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>New Event Alerts</h3>
+              <p>Get notified when new events open for vendor applications in your area</p>
+            </div>
+          </div>
+
+          <div className="upgrade-pricing-card elite">
+            <span className="upgrade-plan-label">Elite Plan</span>
+            <div className="upgrade-price">$99<span>/month</span></div>
+            <p>Includes everything in Pro + team accounts & priority support</p>
+          </div>
+
+          <Button size="lg" onClick={() => window.location.hash = 'settings'}>Upgrade to Elite</Button>
+          <p className="upgrade-note">14-day free trial • Cancel anytime</p>
         </div>
       </div>
     );
