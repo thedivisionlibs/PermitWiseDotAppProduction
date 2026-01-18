@@ -5,7 +5,7 @@ import './App.css';
 // ===========================================
 // CONFIGURATION
 // ===========================================
-const API_URL = process.env.REACT_APP_API_URL || (process.env.NODE_ENV === 'production' ? '/api' : 'https://permitwisedotappproduction-production.up.railway.app/api');
+const API_URL = process.env.REACT_APP_API_URL || (process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:5000/api');
 
 // ===========================================
 // CONTEXT
@@ -216,22 +216,6 @@ const AuthProvider = ({ children }) => {
 // ===========================================
 // PAGES
 // ===========================================
-// const LandingPage = ({ onGetStarted, onLegalPage }) => (
-  //<div className="landing-page">
-    //<nav className="landing-nav"><div className="landing-nav-inner"><div className="logo"><Icons.Shield /><span>PermitWise</span></div><div className="nav-actions"><Button variant="ghost" onClick={() => onGetStarted('login')}>Log In</Button><Button onClick={() => onGetStarted('register')}>Get Started</Button></div></div></nav>
-    //<section className="hero"><div className="hero-content"><h1>Never miss a permit renewal again.</h1><p className="hero-subtitle">PermitWise keeps your food truck or pop-up fully compliant with automatic alerts.</p><div className="hero-cta"><Button size="lg" onClick={() => onGetStarted('register')}>Get started free</Button><Button variant="outline" size="lg" onClick={() => onGetStarted('check')}>See what permits you need</Button></div></div></section>
-    //<section className="section pricing"><h2>Simple pricing</h2><div className="pricing-grid"><div className="pricing-card"><h3>Starter</h3><div className="price">$19<span>/mo</span></div><ul><li><Icons.Check /> 1 city</li><li><Icons.Check /> Email reminders</li></ul><Button variant="outline" onClick={() => onGetStarted('register')}>Start free</Button></div><div className="pricing-card featured"><div className="popular-badge">Popular</div><h3>Pro</h3><div className="price">$49<span>/mo</span></div><ul><li><Icons.Check /> Unlimited cities</li><li><Icons.Check /> SMS reminders</li><li><Icons.Check /> Autofill</li></ul><Button onClick={() => onGetStarted('register')}>Start free</Button></div><div className="pricing-card"><h3>Elite</h3><div className="price">$99<span>/mo</span></div><ul><li><Icons.Check /> Team accounts</li><li><Icons.Check /> Event integration</li></ul><Button variant="outline" onClick={() => onGetStarted('register')}>Start free</Button></div></div></section>
-    //<footer className="landing-footer">
-      //<div className="footer-links">
-        //<button onClick={() => onLegalPage('privacy')}>Privacy Policy</button>
-        //<button onClick={() => onLegalPage('terms')}>Terms of Service</button>
-        //<a href="mailto:support@permitwise.com">Contact</a>
-      //</div>
-      //<p>© 2025 PermitWise. All rights reserved.</p>
-    //</footer>
-  //</div>
-//);
-
 const LoginPage = ({ onSwitch, onSuccess }) => {
   const { login } = useAuth();
   const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
@@ -995,7 +979,7 @@ const UploadDocumentModal = ({ isOpen, onClose, onSuccess }) => {
 };
 const UploadModal = UploadDocumentModal; // Alias for Dashboard use
 
-const FEATURE_FLAGS = { inspections: false, events: false }; // Set to true to enable
+const FEATURE_FLAGS = { inspections: true, events: true }; // Enabled - plan gating below
 
 const InspectionsPage = () => {
   const { subscription } = useAuth();
@@ -1003,13 +987,16 @@ const InspectionsPage = () => {
   const [loading, setLoading] = useState(true); const [activeChecklist, setActiveChecklist] = useState(null);
   const [inspectionData, setInspectionData] = useState({ items: [], notes: '' });
 
+  // Plan check: Pro or Elite required
+  const hasAccess = subscription?.plan === 'pro' || subscription?.plan === 'elite' || subscription?.features?.inspectionChecklists;
+
   useEffect(() => {
-    if (!FEATURE_FLAGS.inspections) { setLoading(false); return; }
+    if (!hasAccess) { setLoading(false); return; }
     const fetchData = async () => {
       try { const [cl, insp] = await Promise.all([api.get('/checklists'), api.get('/inspections')]); setChecklists(cl.checklists || []); setInspections(insp.inspections || []); }
       catch (error) { console.error(error); } finally { setLoading(false); }
     }; fetchData();
-  }, []);
+  }, [hasAccess]);
 
   const startInspection = (checklist) => {
     setActiveChecklist(checklist);
@@ -1030,13 +1017,13 @@ const InspectionsPage = () => {
     } catch (err) { alert(err.message); }
   };
 
-  if (!FEATURE_FLAGS.inspections) {
+  if (!hasAccess) {
     return (
       <div className="coming-soon-page">
         <div className="coming-soon-content">
           <div className="coming-soon-icon"><Icons.Checklist /></div>
           <h1>Inspection Checklists</h1>
-          <Badge variant="info">Coming Soon</Badge>
+          <Badge variant="warning">Pro Plan Required</Badge>
           <p>Walk through health department inspections step-by-step before the inspector arrives. Never get caught off guard again.</p>
           <ul className="coming-soon-features">
             <li><Icons.Check /> Pre-inspection checklists by city</li>
@@ -1044,14 +1031,10 @@ const InspectionsPage = () => {
             <li><Icons.Check /> Photo documentation</li>
             <li><Icons.Check /> Common violation alerts</li>
           </ul>
-          <p className="coming-soon-note">Available with Pro plan when launched</p>
+          <Button onClick={() => window.location.hash = 'settings'}>Upgrade to Pro</Button>
         </div>
       </div>
     );
-  }
-
-  if (!subscription?.features?.inspectionChecklists) {
-    return (<div className="upgrade-prompt"><Icons.Checklist /><h2>Inspection Checklists</h2><p>Upgrade to Pro for pre-inspection checklists to help you pass health inspections.</p><Button onClick={() => window.location.hash = 'settings'}>Upgrade to Pro</Button></div>);
   }
 
   if (loading) return <LoadingSpinner />;
@@ -1125,13 +1108,16 @@ const EventsPage = () => {
   const [selectedEvent, setSelectedEvent] = useState(null); const [readiness, setReadiness] = useState(null);
   const [applying, setApplying] = useState(false);
 
+  // Plan check: Elite only
+  const hasAccess = subscription?.plan === 'elite' || subscription?.features?.eventIntegration;
+
   useEffect(() => {
-    if (!FEATURE_FLAGS.events) { setLoading(false); return; }
+    if (!hasAccess) { setLoading(false); return; }
     const fetchEvents = async () => {
       try { const data = await api.get('/events'); setEvents(data.events || []); }
       catch (error) { console.error(error); } finally { setLoading(false); }
     }; fetchEvents();
-  }, []);
+  }, [hasAccess]);
 
   const checkReadiness = async (event) => {
     setSelectedEvent(event);
@@ -1149,13 +1135,13 @@ const EventsPage = () => {
     finally { setApplying(false); }
   };
 
-  if (!FEATURE_FLAGS.events) {
+  if (!hasAccess) {
     return (
       <div className="coming-soon-page">
         <div className="coming-soon-content">
           <div className="coming-soon-icon"><Icons.Event /></div>
           <h1>Event Marketplace</h1>
-          <Badge variant="info">Coming Soon</Badge>
+          <Badge variant="warning">Elite Plan Required</Badge>
           <p>Find festivals, farmers markets, and pop-up opportunities. Check your permit readiness before you apply.</p>
           <ul className="coming-soon-features">
             <li><Icons.Check /> Browse local events</li>
@@ -1163,7 +1149,7 @@ const EventsPage = () => {
             <li><Icons.Check /> Apply directly through PermitWise</li>
             <li><Icons.Check /> Get notified of new opportunities</li>
           </ul>
-          <p className="coming-soon-note">Available with Elite plan when launched</p>
+          <Button onClick={() => window.location.hash = 'settings'}>Upgrade to Elite</Button>
         </div>
       </div>
     );
@@ -1193,11 +1179,7 @@ const EventsPage = () => {
                 </div>
               </div>
               <div className="event-actions">
-                {subscription?.features?.eventIntegration ? (
-                  <Button onClick={() => checkReadiness(event)}>Check Readiness</Button>
-                ) : (
-                  <Button variant="outline" onClick={() => window.location.hash = 'settings'}>Upgrade for Access</Button>
-                )}
+                <Button onClick={() => checkReadiness(event)}>Check Readiness</Button>
               </div>
             </Card>
           ))}
