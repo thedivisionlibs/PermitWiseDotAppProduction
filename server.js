@@ -455,12 +455,47 @@ const checkFeature = (feature) => async (req, res, next) => {
   }
 };
 
-// Admin middleware
+// Admin middleware - supports both user admin role and master admin token
 const adminMiddleware = (req, res, next) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
+  // Check for master admin token in header
+  const adminToken = req.headers['x-admin-token'];
+  if (adminToken) {
+    try {
+      const decoded = jwt.verify(adminToken, JWT_SECRET);
+      if (decoded.isMasterAdmin) {
+        req.isMasterAdmin = true;
+        return next();
+      }
+    } catch (err) {
+      // Invalid token, continue to check user role
+    }
   }
-  next();
+  
+  // Fall back to user role check
+  if (req.user && req.user.role === 'admin') {
+    return next();
+  }
+  
+  return res.status(403).json({ error: 'Admin access required' });
+};
+
+// Master admin auth middleware (doesn't require user auth)
+const masterAdminMiddleware = (req, res, next) => {
+  const adminToken = req.headers['x-admin-token'];
+  if (!adminToken) {
+    return res.status(401).json({ error: 'Admin token required' });
+  }
+  
+  try {
+    const decoded = jwt.verify(adminToken, JWT_SECRET);
+    if (decoded.isMasterAdmin) {
+      req.isMasterAdmin = true;
+      return next();
+    }
+    return res.status(403).json({ error: 'Invalid admin token' });
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired admin token' });
+  }
 };
 
 // ===========================================
@@ -1200,7 +1235,7 @@ app.get('/api/jurisdictions/:id', async (req, res) => {
 });
 
 // Create jurisdiction (admin)
-app.post('/api/jurisdictions', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/jurisdictions', masterAdminMiddleware, async (req, res) => {
   try {
     const jurisdiction = new Jurisdiction(req.body);
     await jurisdiction.save();
@@ -1211,7 +1246,7 @@ app.post('/api/jurisdictions', authMiddleware, adminMiddleware, async (req, res)
 });
 
 // Update jurisdiction (admin)
-app.put('/api/jurisdictions/:id', authMiddleware, adminMiddleware, async (req, res) => {
+app.put('/api/jurisdictions/:id', masterAdminMiddleware, async (req, res) => {
   try {
     const jurisdiction = await Jurisdiction.findByIdAndUpdate(
       req.params.id,
@@ -1287,7 +1322,7 @@ app.get('/api/permit-types/required', async (req, res) => {
 });
 
 // Create permit type (admin)
-app.post('/api/permit-types', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/permit-types', masterAdminMiddleware, async (req, res) => {
   try {
     const permitType = new PermitType(req.body);
     await permitType.save();
@@ -1298,7 +1333,7 @@ app.post('/api/permit-types', authMiddleware, adminMiddleware, async (req, res) 
 });
 
 // Update permit type (admin)
-app.put('/api/permit-types/:id', authMiddleware, adminMiddleware, async (req, res) => {
+app.put('/api/permit-types/:id', masterAdminMiddleware, async (req, res) => {
   try {
     const permitType = await PermitType.findByIdAndUpdate(
       req.params.id,
@@ -1890,7 +1925,7 @@ app.get('/api/checklists/:id', authMiddleware, async (req, res) => {
 });
 
 // Create checklist (admin)
-app.post('/api/checklists', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/checklists', masterAdminMiddleware, async (req, res) => {
   try {
     const checklist = new InspectionChecklist(req.body);
     await checklist.save();
@@ -2381,7 +2416,7 @@ app.post('/webhook', async (req, res) => {
 // ===========================================
 
 // Seed initial data (for demo)
-app.post('/api/admin/seed', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/admin/seed', masterAdminMiddleware, async (req, res) => {
   try {
     // Sample jurisdictions
     const jurisdictions = [
@@ -2615,15 +2650,48 @@ app.post('/api/admin/seed', authMiddleware, adminMiddleware, async (req, res) =>
   }
 });
 
-// Make user admin
-app.post('/api/admin/make-admin', async (req, res) => {
+// ===========================================
+// MASTER ADMIN AUTHENTICATION
+// ===========================================
+
+// Admin Login - uses master credentials from .env
+app.post('/api/admin/login', (req, res) => {
   try {
-    const { email, adminSecret } = req.body;
+    const { username, password } = req.body;
     
-    // Simple admin creation with secret key
-    if (adminSecret !== process.env.ADMIN_SECRET) {
-      return res.status(403).json({ error: 'Invalid admin secret' });
+    const adminUsername = process.env.ADMIN_USERNAME;
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    
+    if (!adminUsername || !adminPassword) {
+      return res.status(500).json({ error: 'Admin credentials not configured on server' });
     }
+    
+    if (username !== adminUsername || password !== adminPassword) {
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    }
+    
+    // Generate admin token
+    const adminToken = jwt.sign({ isMasterAdmin: true, username }, JWT_SECRET, { expiresIn: '24h' });
+    
+    res.json({ 
+      success: true, 
+      adminToken,
+      message: 'Admin login successful'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Verify admin token
+app.get('/api/admin/verify', masterAdminMiddleware, (req, res) => {
+  res.json({ valid: true, isMasterAdmin: true });
+});
+
+// Make user admin (requires master admin)
+app.post('/api/admin/make-admin', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { email } = req.body;
     
     const user = await User.findOneAndUpdate(
       { email: email.toLowerCase() },
@@ -2641,13 +2709,34 @@ app.post('/api/admin/make-admin', async (req, res) => {
   }
 });
 
+// Remove admin role (requires master admin)
+app.post('/api/admin/remove-admin', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    const user = await User.findOneAndUpdate(
+      { email: email.toLowerCase() },
+      { role: 'owner' },
+      { new: true }
+    );
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({ message: 'Admin role removed', user: { email: user.email, role: user.role } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ===========================================
 // ADMIN DASHBOARD API (JWT-based auth)
 // ===========================================
 // Admin routes now use authMiddleware + adminMiddleware (user must be logged in AND have admin role)
 
 // Admin Stats
-app.get('/api/admin/stats', authMiddleware, adminMiddleware, async (req, res) => {
+app.get('/api/admin/stats', masterAdminMiddleware, async (req, res) => {
   try {
     const now = new Date();
     const todayStart = new Date(now.setHours(0, 0, 0, 0));
@@ -2678,7 +2767,7 @@ app.get('/api/admin/stats', authMiddleware, adminMiddleware, async (req, res) =>
 });
 
 // Admin Users List
-app.get('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) => {
+app.get('/api/admin/users', masterAdminMiddleware, async (req, res) => {
   try {
     const users = await User.find().select('-password -resetPasswordToken -verificationToken').sort({ createdAt: -1 }).limit(100);
     res.json({ users });
@@ -2688,7 +2777,7 @@ app.get('/api/admin/users', authMiddleware, adminMiddleware, async (req, res) =>
 });
 
 // Admin Delete User
-app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, res) => {
+app.delete('/api/admin/users/:id', masterAdminMiddleware, async (req, res) => {
   try {
     await User.findByIdAndDelete(req.params.id);
     res.json({ message: 'User deleted' });
@@ -2698,7 +2787,7 @@ app.delete('/api/admin/users/:id', authMiddleware, adminMiddleware, async (req, 
 });
 
 // Admin Businesses List
-app.get('/api/admin/businesses', authMiddleware, adminMiddleware, async (req, res) => {
+app.get('/api/admin/businesses', masterAdminMiddleware, async (req, res) => {
   try {
     const businesses = await VendorBusiness.find().populate('ownerId', 'email firstName lastName').populate('subscriptionId').sort({ createdAt: -1 }).limit(100);
     res.json({ businesses });
@@ -2708,7 +2797,7 @@ app.get('/api/admin/businesses', authMiddleware, adminMiddleware, async (req, re
 });
 
 // Admin Delete Business
-app.delete('/api/admin/businesses/:id', authMiddleware, adminMiddleware, async (req, res) => {
+app.delete('/api/admin/businesses/:id', masterAdminMiddleware, async (req, res) => {
   try {
     await VendorBusiness.findByIdAndDelete(req.params.id);
     res.json({ message: 'Business deleted' });
@@ -2718,7 +2807,7 @@ app.delete('/api/admin/businesses/:id', authMiddleware, adminMiddleware, async (
 });
 
 // Admin Jurisdictions List
-app.get('/api/admin/jurisdictions', authMiddleware, adminMiddleware, async (req, res) => {
+app.get('/api/admin/jurisdictions', masterAdminMiddleware, async (req, res) => {
   try {
     const jurisdictions = await Jurisdiction.find().sort({ state: 1, city: 1 });
     // Add permit type count
@@ -2733,7 +2822,7 @@ app.get('/api/admin/jurisdictions', authMiddleware, adminMiddleware, async (req,
 });
 
 // Admin Create Jurisdiction
-app.post('/api/admin/jurisdictions', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/admin/jurisdictions', masterAdminMiddleware, async (req, res) => {
   try {
     const jurisdiction = new Jurisdiction(req.body);
     await jurisdiction.save();
@@ -2744,7 +2833,7 @@ app.post('/api/admin/jurisdictions', authMiddleware, adminMiddleware, async (req
 });
 
 // Admin Delete Jurisdiction
-app.delete('/api/admin/jurisdictions/:id', authMiddleware, adminMiddleware, async (req, res) => {
+app.delete('/api/admin/jurisdictions/:id', masterAdminMiddleware, async (req, res) => {
   try {
     await Jurisdiction.findByIdAndDelete(req.params.id);
     await PermitType.deleteMany({ jurisdictionId: req.params.id });
@@ -2755,7 +2844,7 @@ app.delete('/api/admin/jurisdictions/:id', authMiddleware, adminMiddleware, asyn
 });
 
 // Admin Permit Types List
-app.get('/api/admin/permit-types', authMiddleware, adminMiddleware, async (req, res) => {
+app.get('/api/admin/permit-types', masterAdminMiddleware, async (req, res) => {
   try {
     const permitTypes = await PermitType.find().populate('jurisdictionId', 'name city state').sort({ name: 1 });
     res.json({ permitTypes });
@@ -2765,7 +2854,7 @@ app.get('/api/admin/permit-types', authMiddleware, adminMiddleware, async (req, 
 });
 
 // Admin Create Permit Type
-app.post('/api/admin/permit-types', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/admin/permit-types', masterAdminMiddleware, async (req, res) => {
   try {
     const permitType = new PermitType(req.body);
     await permitType.save();
@@ -2776,7 +2865,7 @@ app.post('/api/admin/permit-types', authMiddleware, adminMiddleware, async (req,
 });
 
 // Admin Delete Permit Type
-app.delete('/api/admin/permit-types/:id', authMiddleware, adminMiddleware, async (req, res) => {
+app.delete('/api/admin/permit-types/:id', masterAdminMiddleware, async (req, res) => {
   try {
     await PermitType.findByIdAndDelete(req.params.id);
     res.json({ message: 'Permit type deleted' });
@@ -2786,7 +2875,7 @@ app.delete('/api/admin/permit-types/:id', authMiddleware, adminMiddleware, async
 });
 
 // Admin Duplicate Permit Type
-app.post('/api/admin/permit-types/:id/duplicate', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/admin/permit-types/:id/duplicate', masterAdminMiddleware, async (req, res) => {
   try {
     const { newJurisdictionId } = req.body;
     const original = await PermitType.findById(req.params.id);
