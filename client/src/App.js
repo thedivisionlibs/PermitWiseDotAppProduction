@@ -1591,8 +1591,15 @@ const PrivacyPage = ({ onBack }) => (
 // ADMIN PAGE
 // ===========================================
 const AdminPage = ({ onBack }) => {
-  const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('users');
+  // Admin authentication state
+  const [adminAuthenticated, setAdminAuthenticated] = useState(false);
+  const [adminLoading, setAdminLoading] = useState(true);
+  const [loginData, setLoginData] = useState({ username: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // Admin panel state
+  const [activeTab, setActiveTab] = useState('stats');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState({ users: [], businesses: [], permits: [], jurisdictions: [], permitTypes: [], stats: null });
   const [message, setMessage] = useState('');
@@ -1601,13 +1608,66 @@ const AdminPage = ({ onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [duplicateTarget, setDuplicateTarget] = useState(null);
   const [duplicateJurisdiction, setDuplicateJurisdiction] = useState('');
+  const [makeAdminEmail, setMakeAdminEmail] = useState('');
 
-  // Check if user is admin
-  const isAdmin = user?.role === 'admin';
+  // Verify existing admin token on mount
+  useEffect(() => {
+    const verifyToken = async () => {
+      const adminToken = localStorage.getItem('adminToken');
+      if (!adminToken) {
+        setAdminLoading(false);
+        return;
+      }
+      try {
+        const response = await fetch(`${API_URL}/admin/verify`, {
+          headers: { 'X-Admin-Token': adminToken }
+        });
+        if (response.ok) {
+          setAdminAuthenticated(true);
+        } else {
+          localStorage.removeItem('adminToken');
+        }
+      } catch (err) {
+        localStorage.removeItem('adminToken');
+      }
+      setAdminLoading(false);
+    };
+    verifyToken();
+  }, []);
 
+  // Admin login
+  const handleAdminLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    setLoginLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginData)
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Login failed');
+      localStorage.setItem('adminToken', result.adminToken);
+      setAdminAuthenticated(true);
+    } catch (err) {
+      setLoginError(err.message);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  // Admin logout
+  const handleAdminLogout = () => {
+    localStorage.removeItem('adminToken');
+    setAdminAuthenticated(false);
+    setLoginData({ username: '', password: '' });
+  };
+
+  // Admin API helper
   const adminApi = async (endpoint, method = 'GET', body = null) => {
-    const token = localStorage.getItem('token');
-    const options = { method, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` } };
+    const adminToken = localStorage.getItem('adminToken');
+    const options = { method, headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken } };
     if (body) options.body = JSON.stringify(body);
     const response = await fetch(`${API_URL}${endpoint}`, options);
     const result = await response.json();
@@ -1628,10 +1688,10 @@ const AdminPage = ({ onBack }) => {
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (isAdmin) fetchData(activeTab); }, [activeTab, isAdmin]);
+  useEffect(() => { if (adminAuthenticated) fetchData(activeTab); }, [activeTab, adminAuthenticated]);
   
   // Initial stats fetch
-  useEffect(() => { if (isAdmin) fetchData('stats'); }, [isAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (adminAuthenticated) fetchData('stats'); }, [adminAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const createJurisdiction = async () => {
     try {
@@ -1663,6 +1723,25 @@ const AdminPage = ({ onBack }) => {
     } catch (err) { setMessage(err.message); }
   };
 
+  const makeUserAdmin = async () => {
+    if (!makeAdminEmail) return;
+    try {
+      await adminApi('/admin/make-admin', 'POST', { email: makeAdminEmail });
+      setMakeAdminEmail('');
+      fetchData('users');
+      setMessage('User is now an admin');
+    } catch (err) { setMessage(err.message); }
+  };
+
+  const removeUserAdmin = async (email) => {
+    if (!window.confirm(`Remove admin privileges from ${email}?`)) return;
+    try {
+      await adminApi('/admin/remove-admin', 'POST', { email });
+      fetchData('users');
+      setMessage('Admin privileges removed');
+    } catch (err) { setMessage(err.message); }
+  };
+
   const deleteUser = async (id) => { if (window.confirm('Delete this user?')) { try { await adminApi(`/admin/users/${id}`, 'DELETE'); fetchData('users'); setMessage('User deleted'); } catch (err) { setMessage(err.message); } } };
   const deleteBusiness = async (id) => { if (window.confirm('Delete this business?')) { try { await adminApi(`/admin/businesses/${id}`, 'DELETE'); fetchData('businesses'); setMessage('Business deleted'); } catch (err) { setMessage(err.message); } } };
   const deleteJurisdiction = async (id) => { if (window.confirm('Delete this jurisdiction?')) { try { await adminApi(`/admin/jurisdictions/${id}`, 'DELETE'); fetchData('jurisdictions'); setMessage('Jurisdiction deleted'); } catch (err) { setMessage(err.message); } } };
@@ -1682,15 +1761,43 @@ const AdminPage = ({ onBack }) => {
     return pt.name?.toLowerCase().includes(search) || pt.jurisdictionId?.name?.toLowerCase().includes(search) || pt.jurisdictionId?.city?.toLowerCase().includes(search);
   });
 
-  if (!isAdmin) {
+  // Show loading while checking auth
+  if (adminLoading) {
     return (
       <div className="admin-login">
-        <button className="back-link" onClick={onBack}><Icons.X /> Back</button>
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  // Show login form if not authenticated
+  if (!adminAuthenticated) {
+    return (
+      <div className="admin-login">
+        <button className="back-link" onClick={onBack}><Icons.X /> Back to App</button>
         <Card className="admin-login-card">
-          <div className="admin-denied-icon"><Icons.Lock /></div>
-          <h1>Admin Access Required</h1>
-          <p>You don't have admin privileges. Please contact an administrator if you need access.</p>
-          <Button onClick={onBack}>Go Back</Button>
+          <div className="admin-login-icon"><Icons.Lock /></div>
+          <h1>Admin Login</h1>
+          <p>Enter your admin credentials to access the dashboard.</p>
+          <form onSubmit={handleAdminLogin} className="admin-login-form">
+            {loginError && <Alert type="error">{loginError}</Alert>}
+            <Input 
+              label="Username" 
+              value={loginData.username} 
+              onChange={(e) => setLoginData(d => ({ ...d, username: e.target.value }))} 
+              required 
+              autoFocus
+            />
+            <Input 
+              label="Password" 
+              type="password" 
+              value={loginData.password} 
+              onChange={(e) => setLoginData(d => ({ ...d, password: e.target.value }))} 
+              required 
+            />
+            <Button type="submit" loading={loginLoading} className="full-width">Login to Admin Panel</Button>
+          </form>
+          <p className="admin-login-hint">Credentials are set in environment variables (ADMIN_USERNAME & ADMIN_PASSWORD)</p>
         </Card>
       </div>
     );
@@ -1701,13 +1808,14 @@ const AdminPage = ({ onBack }) => {
       <div className="admin-header">
         <button className="back-link" onClick={onBack}><Icons.X /> Exit Admin</button>
         <h1>PermitWise Admin</h1>
+        <Button variant="outline" onClick={handleAdminLogout}>Logout</Button>
       </div>
       {message && <Alert type="info" onClose={() => setMessage('')}>{message}</Alert>}
       
       <div className="admin-tabs">
-        {['stats', 'users', 'businesses', 'jurisdictions', 'permitTypes'].map(tab => (
+        {['stats', 'admins', 'users', 'businesses', 'jurisdictions', 'permitTypes'].map(tab => (
           <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>
-            {tab === 'permitTypes' ? 'Permit Types' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'permitTypes' ? 'Permit Types' : tab === 'admins' ? 'Admin Users' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
@@ -1731,6 +1839,43 @@ const AdminPage = ({ onBack }) => {
               <p>New users this week: {data.stats.newUsersThisWeek || 0}</p>
               <p>MRR: ${data.stats.mrr || 0}</p>
             </Card>
+          </div>
+        )}
+
+        {activeTab === 'admins' && (
+          <div className="admin-section">
+            <Card className="admin-form-card">
+              <h3>Make User Admin</h3>
+              <p>Grant admin privileges to an existing user by their email address.</p>
+              <div className="form-row">
+                <Input 
+                  label="User Email" 
+                  type="email" 
+                  placeholder="user@example.com" 
+                  value={makeAdminEmail} 
+                  onChange={(e) => setMakeAdminEmail(e.target.value)} 
+                />
+                <Button onClick={makeUserAdmin} disabled={!makeAdminEmail}>Make Admin</Button>
+              </div>
+            </Card>
+            
+            <h3>Current Admins</h3>
+            <div className="admin-table-container">
+              <table className="admin-table">
+                <thead><tr><th>Name</th><th>Email</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {data.users.filter(u => u.role === 'admin').length === 0 ? (
+                    <tr><td colSpan="3" className="empty-row">No admin users yet</td></tr>
+                  ) : data.users.filter(u => u.role === 'admin').map(user => (
+                    <tr key={user._id}>
+                      <td>{user.firstName} {user.lastName}</td>
+                      <td>{user.email}</td>
+                      <td><Button variant="outline" size="sm" onClick={() => removeUserAdmin(user.email)}>Remove Admin</Button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
