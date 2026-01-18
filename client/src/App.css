@@ -860,6 +860,33 @@ img { max-width: 100%; display: block; }
   color: var(--gray-500);
   margin-bottom: 1.5rem;
 }
+.admin-login-icon {
+  width: 80px;
+  height: 80px;
+  background: linear-gradient(135deg, var(--primary) 0%, #1d4ed8 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.5rem;
+}
+.admin-login-icon svg {
+  width: 40px;
+  height: 40px;
+  stroke: white;
+}
+.admin-login-form {
+  text-align: left;
+  margin-top: 1.5rem;
+}
+.admin-login-form .form-group {
+  margin-bottom: 1rem;
+}
+.admin-login-hint {
+  font-size: 0.75rem;
+  color: var(--gray-400);
+  margin-top: 1.5rem;
+}
 .admin-page {
   min-height: 100vh;
   background: var(--gray-100);
@@ -873,7 +900,13 @@ img { max-width: 100%; display: block; }
   gap: 2rem;
 }
 .admin-header .back-link { color: var(--gray-400); margin: 0; }
-.admin-header h1 { font-size: 1.25rem; margin: 0; }
+.admin-header h1 { font-size: 1.25rem; margin: 0; flex: 1; }
+.admin-header button:last-child { margin-left: auto; }
+.admin-form-card { margin-bottom: 2rem; }
+.admin-form-card h3 { margin: 0 0 0.5rem; }
+.admin-form-card p { color: var(--gray-500); margin-bottom: 1rem; }
+.admin-form-card .form-row { display: flex; gap: 1rem; align-items: flex-end; }
+.admin-form-card .form-row .form-group { flex: 1; margin-bottom: 0; }
 .admin-tabs {
   background: white;
   padding: 0 2rem;
