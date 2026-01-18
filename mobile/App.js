@@ -1591,22 +1591,63 @@ const InspectionsScreen = () => {
     return total > 0 ? Math.round((completed / total) * 100) : 0;
   };
 
-  // Show upgrade prompt for non-Pro users
+  // Show upgrade modal for non-Pro users
   if (!hasAccess) {
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView contentContainerStyle={styles.upgradeContainer}>
-          <View style={styles.upgradeIcon}><Icons.Checklist size={48} color={COLORS.primary} /></View>
-          <Text style={styles.upgradeTitle}>Inspection Checklists</Text>
-          <Badge label="Pro Plan Required" variant="warning" />
-          <Text style={styles.upgradeText}>Walk through health inspections step-by-step before the inspector arrives.</Text>
-          <View style={styles.upgradeFeatures}>
-            <Text style={styles.upgradeFeature}>✓ Pre-inspection checklists by city</Text>
-            <Text style={styles.upgradeFeature}>✓ Offline mode for on-site prep</Text>
-            <Text style={styles.upgradeFeature}>✓ Photo documentation</Text>
-            <Text style={styles.upgradeFeature}>✓ Common violation alerts</Text>
+        <ScrollView contentContainerStyle={styles.upgradeModalContainer}>
+          <View style={styles.upgradeModalIcon}>
+            <Icons.Checklist size={56} color={COLORS.primary} />
           </View>
-          <Button title="Upgrade to Pro" onPress={() => Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={{ marginTop: 24 }} />
+          <Text style={styles.upgradeModalTitle}>Inspection Checklists</Text>
+          <View style={styles.upgradeModalBadge}>
+            <Text style={styles.upgradeModalBadgeText}>PRO FEATURE</Text>
+          </View>
+          
+          <Text style={styles.upgradeModalDescription}>
+            Never fail a health inspection again. Walk through every requirement step-by-step before the inspector arrives.
+          </Text>
+          
+          <View style={styles.upgradeModalFeatures}>
+            <Text style={styles.upgradeModalFeaturesTitle}>What you'll get:</Text>
+            <View style={styles.upgradeModalFeatureRow}>
+              <Icons.Check size={18} color={COLORS.success} />
+              <View style={styles.upgradeModalFeatureContent}>
+                <Text style={styles.upgradeModalFeatureTitle}>City-Specific Checklists</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Pre-built checklists based on your operating cities' health department requirements</Text>
+              </View>
+            </View>
+            <View style={styles.upgradeModalFeatureRow}>
+              <Icons.Check size={18} color={COLORS.success} />
+              <View style={styles.upgradeModalFeatureContent}>
+                <Text style={styles.upgradeModalFeatureTitle}>Offline Mode</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Access checklists anywhere, even without internet connection</Text>
+              </View>
+            </View>
+            <View style={styles.upgradeModalFeatureRow}>
+              <Icons.Check size={18} color={COLORS.success} />
+              <View style={styles.upgradeModalFeatureContent}>
+                <Text style={styles.upgradeModalFeatureTitle}>Photo Documentation</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Capture photos as proof of compliance for each item</Text>
+              </View>
+            </View>
+            <View style={styles.upgradeModalFeatureRow}>
+              <Icons.Check size={18} color={COLORS.success} />
+              <View style={styles.upgradeModalFeatureContent}>
+                <Text style={styles.upgradeModalFeatureTitle}>Violation Alerts</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Get warnings about commonly failed inspection items</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.upgradeModalPricing}>
+            <Text style={styles.upgradeModalPricingLabel}>Pro Plan</Text>
+            <Text style={styles.upgradeModalPrice}>$49<Text style={styles.upgradeModalPriceUnit}>/month</Text></Text>
+            <Text style={styles.upgradeModalPricingNote}>Also includes SMS alerts, PDF autofill & multi-city support</Text>
+          </View>
+
+          <Button title="Upgrade to Pro" onPress={() => navigation?.navigate?.('Settings') || Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
+          <Text style={styles.upgradeModalCancel}>14-day free trial • Cancel anytime</Text>
         </ScrollView>
       </SafeAreaView>
     );
@@ -1709,22 +1750,63 @@ const EventsScreen = () => {
     } catch (error) { Alert.alert('Error', error.message); }
   };
 
-  // Show upgrade prompt for non-Elite users
+  // Show upgrade modal for non-Elite users
   if (!hasAccess) {
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView contentContainerStyle={styles.upgradeContainer}>
-          <View style={styles.upgradeIcon}><Icons.Event size={48} color={COLORS.primary} /></View>
-          <Text style={styles.upgradeTitle}>Event Marketplace</Text>
-          <Badge label="Elite Plan Required" variant="warning" />
-          <Text style={styles.upgradeText}>Find festivals, farmers markets, and pop-up opportunities in your area.</Text>
-          <View style={styles.upgradeFeatures}>
-            <Text style={styles.upgradeFeature}>✓ Browse local events</Text>
-            <Text style={styles.upgradeFeature}>✓ One-click permit readiness check</Text>
-            <Text style={styles.upgradeFeature}>✓ Apply directly through PermitWise</Text>
-            <Text style={styles.upgradeFeature}>✓ Get notified of new opportunities</Text>
+        <ScrollView contentContainerStyle={styles.upgradeModalContainer}>
+          <View style={styles.upgradeModalIcon}>
+            <Icons.Event size={56} color={COLORS.primary} />
           </View>
-          <Button title="Upgrade to Elite" onPress={() => Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={{ marginTop: 24 }} />
+          <Text style={styles.upgradeModalTitle}>Event Marketplace</Text>
+          <View style={[styles.upgradeModalBadge, { backgroundColor: '#fef3c7' }]}>
+            <Text style={[styles.upgradeModalBadgeText, { color: '#92400e' }]}>ELITE FEATURE</Text>
+          </View>
+          
+          <Text style={styles.upgradeModalDescription}>
+            Discover festivals, farmers markets, and pop-up opportunities. Check your permit readiness instantly and apply with one click.
+          </Text>
+          
+          <View style={styles.upgradeModalFeatures}>
+            <Text style={styles.upgradeModalFeaturesTitle}>What you'll get:</Text>
+            <View style={styles.upgradeModalFeatureRow}>
+              <Icons.Check size={18} color={COLORS.success} />
+              <View style={styles.upgradeModalFeatureContent}>
+                <Text style={styles.upgradeModalFeatureTitle}>Local Event Discovery</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Browse upcoming events in all your operating cities in one place</Text>
+              </View>
+            </View>
+            <View style={styles.upgradeModalFeatureRow}>
+              <Icons.Check size={18} color={COLORS.success} />
+              <View style={styles.upgradeModalFeatureContent}>
+                <Text style={styles.upgradeModalFeatureTitle}>Permit Readiness Check</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Instantly see which permits you need before applying to any event</Text>
+              </View>
+            </View>
+            <View style={styles.upgradeModalFeatureRow}>
+              <Icons.Check size={18} color={COLORS.success} />
+              <View style={styles.upgradeModalFeatureContent}>
+                <Text style={styles.upgradeModalFeatureTitle}>One-Click Applications</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Apply directly through PermitWise with your info pre-filled</Text>
+              </View>
+            </View>
+            <View style={styles.upgradeModalFeatureRow}>
+              <Icons.Check size={18} color={COLORS.success} />
+              <View style={styles.upgradeModalFeatureContent}>
+                <Text style={styles.upgradeModalFeatureTitle}>New Event Alerts</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Get notified when new events open for vendor applications</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.upgradeModalPricing}>
+            <Text style={styles.upgradeModalPricingLabel}>Elite Plan</Text>
+            <Text style={styles.upgradeModalPrice}>$99<Text style={styles.upgradeModalPriceUnit}>/month</Text></Text>
+            <Text style={styles.upgradeModalPricingNote}>Includes everything in Pro + team accounts & priority support</Text>
+          </View>
+
+          <Button title="Upgrade to Elite" onPress={() => navigation?.navigate?.('Settings') || Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
+          <Text style={styles.upgradeModalCancel}>14-day free trial • Cancel anytime</Text>
         </ScrollView>
       </SafeAreaView>
     );
@@ -2161,7 +2243,27 @@ const styles = StyleSheet.create({
   eventDetail: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   eventDetailText: { fontSize: 13, color: COLORS.gray600 },
   eventFee: { fontSize: 14, fontWeight: '500', color: COLORS.gray700, marginTop: 8 },
-  // Upgrade prompt styles
+  // Upgrade Modal styles
+  upgradeModalContainer: { flexGrow: 1, padding: 24, backgroundColor: COLORS.white },
+  upgradeModalIcon: { width: 100, height: 100, backgroundColor: '#e0e7ff', borderRadius: 50, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginTop: 20, marginBottom: 20 },
+  upgradeModalTitle: { fontSize: 28, fontWeight: '700', color: COLORS.gray900, textAlign: 'center', marginBottom: 12 },
+  upgradeModalBadge: { backgroundColor: '#dbeafe', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, alignSelf: 'center', marginBottom: 16 },
+  upgradeModalBadgeText: { fontSize: 12, fontWeight: '700', color: COLORS.primary, letterSpacing: 1 },
+  upgradeModalDescription: { fontSize: 16, color: COLORS.gray600, textAlign: 'center', lineHeight: 24, marginBottom: 24, paddingHorizontal: 8 },
+  upgradeModalFeatures: { backgroundColor: COLORS.gray50, borderRadius: 16, padding: 20, marginBottom: 24 },
+  upgradeModalFeaturesTitle: { fontSize: 16, fontWeight: '600', color: COLORS.gray800, marginBottom: 16 },
+  upgradeModalFeatureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 16 },
+  upgradeModalFeatureContent: { flex: 1 },
+  upgradeModalFeatureTitle: { fontSize: 15, fontWeight: '600', color: COLORS.gray800, marginBottom: 2 },
+  upgradeModalFeatureDesc: { fontSize: 13, color: COLORS.gray500, lineHeight: 18 },
+  upgradeModalPricing: { backgroundColor: '#f0f9ff', borderRadius: 16, padding: 20, alignItems: 'center', marginBottom: 24, borderWidth: 2, borderColor: '#bae6fd' },
+  upgradeModalPricingLabel: { fontSize: 14, fontWeight: '600', color: COLORS.primary, marginBottom: 4 },
+  upgradeModalPrice: { fontSize: 36, fontWeight: '700', color: COLORS.gray900 },
+  upgradeModalPriceUnit: { fontSize: 16, fontWeight: '400', color: COLORS.gray500 },
+  upgradeModalPricingNote: { fontSize: 13, color: COLORS.gray500, textAlign: 'center', marginTop: 8 },
+  upgradeModalButton: { marginBottom: 12 },
+  upgradeModalCancel: { fontSize: 13, color: COLORS.gray400, textAlign: 'center' },
+  // Legacy upgrade styles (keeping for compatibility)
   upgradeContainer: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   upgradeIcon: { width: 80, height: 80, backgroundColor: '#e0e7ff', borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
   upgradeTitle: { fontSize: 24, fontWeight: '700', color: COLORS.gray900, marginBottom: 12, textAlign: 'center' },
