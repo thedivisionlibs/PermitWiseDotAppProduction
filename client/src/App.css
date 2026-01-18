@@ -1391,6 +1391,145 @@ img { max-width: 100%; display: block; }
   margin-top: 2px;
 }
 
+/* Upgrade Feature Page */
+.upgrade-feature-page {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%);
+}
+.upgrade-feature-content {
+  max-width: 800px;
+  text-align: center;
+}
+.upgrade-feature-icon {
+  width: 100px;
+  height: 100px;
+  background: linear-gradient(135deg, var(--primary) 0%, #1d4ed8 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.5rem;
+  box-shadow: 0 10px 40px rgba(37, 99, 235, 0.3);
+}
+.upgrade-feature-icon svg {
+  width: 48px;
+  height: 48px;
+  stroke: white;
+}
+.upgrade-feature-content h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin-bottom: 0.75rem;
+}
+.upgrade-feature-content .badge {
+  margin-bottom: 1rem;
+}
+.upgrade-feature-description {
+  font-size: 1.125rem;
+  color: var(--gray-600);
+  line-height: 1.75;
+  margin-bottom: 2rem;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.upgrade-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+  text-align: left;
+}
+.upgrade-feature-item {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.upgrade-feature-item-icon {
+  width: 40px;
+  height: 40px;
+  background: #dcfce7;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+.upgrade-feature-item-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke: var(--success);
+}
+.upgrade-feature-item h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gray-800);
+  margin-bottom: 0.5rem;
+}
+.upgrade-feature-item p {
+  font-size: 0.875rem;
+  color: var(--gray-500);
+  line-height: 1.5;
+  margin: 0;
+}
+.upgrade-pricing-card {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  border: 2px solid #93c5fd;
+  padding: 1.5rem 2rem;
+  border-radius: 16px;
+  margin-bottom: 1.5rem;
+  display: inline-block;
+}
+.upgrade-pricing-card.elite {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border-color: #fcd34d;
+}
+.upgrade-plan-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.upgrade-pricing-card.elite .upgrade-plan-label {
+  color: #92400e;
+}
+.upgrade-price {
+  font-size: 3rem;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0.5rem 0;
+}
+.upgrade-price span {
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: var(--gray-500);
+}
+.upgrade-pricing-card p {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  margin: 0;
+}
+.upgrade-feature-content > button {
+  margin-bottom: 1rem;
+}
+.upgrade-note {
+  font-size: 0.875rem;
+  color: var(--gray-400);
+}
+
+@media (max-width: 768px) {
+  .upgrade-feature-grid { grid-template-columns: 1fr; }
+  .upgrade-feature-content h1 { font-size: 1.75rem; }
+  .upgrade-price { font-size: 2.5rem; }
+}
+
 @media (max-width: 768px) {
   .admin-content { padding: 1rem; }
   .admin-table-container { overflow-x: auto; }
