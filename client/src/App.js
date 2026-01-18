@@ -1590,7 +1590,7 @@ const PrivacyPage = ({ onBack }) => (
 // ===========================================
 // ADMIN PAGE
 // ===========================================
-const AdminPage = ({ onBack }) => {
+const SuperAdminPage = ({ onBack }) => {
   // Admin authentication state
   const [adminAuthenticated, setAdminAuthenticated] = useState(false);
   const [adminLoading, setAdminLoading] = useState(true);
@@ -1608,12 +1608,11 @@ const AdminPage = ({ onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [duplicateTarget, setDuplicateTarget] = useState(null);
   const [duplicateJurisdiction, setDuplicateJurisdiction] = useState('');
-  const [makeAdminEmail, setMakeAdminEmail] = useState('');
 
   // Verify existing admin token on mount
   useEffect(() => {
     const verifyToken = async () => {
-      const adminToken = localStorage.getItem('adminToken');
+      const adminToken = localStorage.getItem('superadminToken');
       if (!adminToken) {
         setAdminLoading(false);
         return;
@@ -1625,10 +1624,10 @@ const AdminPage = ({ onBack }) => {
         if (response.ok) {
           setAdminAuthenticated(true);
         } else {
-          localStorage.removeItem('adminToken');
+          localStorage.removeItem('superadminToken');
         }
       } catch (err) {
-        localStorage.removeItem('adminToken');
+        localStorage.removeItem('superadminToken');
       }
       setAdminLoading(false);
     };
@@ -1648,7 +1647,7 @@ const AdminPage = ({ onBack }) => {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Login failed');
-      localStorage.setItem('adminToken', result.adminToken);
+      localStorage.setItem('superadminToken', result.adminToken);
       setAdminAuthenticated(true);
     } catch (err) {
       setLoginError(err.message);
@@ -1659,14 +1658,14 @@ const AdminPage = ({ onBack }) => {
 
   // Admin logout
   const handleAdminLogout = () => {
-    localStorage.removeItem('adminToken');
+    localStorage.removeItem('superadminToken');
     setAdminAuthenticated(false);
     setLoginData({ username: '', password: '' });
   };
 
   // Admin API helper
   const adminApi = async (endpoint, method = 'GET', body = null) => {
-    const adminToken = localStorage.getItem('adminToken');
+    const adminToken = localStorage.getItem('superadminToken');
     const options = { method, headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken } };
     if (body) options.body = JSON.stringify(body);
     const response = await fetch(`${API_URL}${endpoint}`, options);
@@ -1723,25 +1722,6 @@ const AdminPage = ({ onBack }) => {
     } catch (err) { setMessage(err.message); }
   };
 
-  const makeUserAdmin = async () => {
-    if (!makeAdminEmail) return;
-    try {
-      await adminApi('/admin/make-admin', 'POST', { email: makeAdminEmail });
-      setMakeAdminEmail('');
-      fetchData('users');
-      setMessage('User is now an admin');
-    } catch (err) { setMessage(err.message); }
-  };
-
-  const removeUserAdmin = async (email) => {
-    if (!window.confirm(`Remove admin privileges from ${email}?`)) return;
-    try {
-      await adminApi('/admin/remove-admin', 'POST', { email });
-      fetchData('users');
-      setMessage('Admin privileges removed');
-    } catch (err) { setMessage(err.message); }
-  };
-
   const deleteUser = async (id) => { if (window.confirm('Delete this user?')) { try { await adminApi(`/admin/users/${id}`, 'DELETE'); fetchData('users'); setMessage('User deleted'); } catch (err) { setMessage(err.message); } } };
   const deleteBusiness = async (id) => { if (window.confirm('Delete this business?')) { try { await adminApi(`/admin/businesses/${id}`, 'DELETE'); fetchData('businesses'); setMessage('Business deleted'); } catch (err) { setMessage(err.message); } } };
   const deleteJurisdiction = async (id) => { if (window.confirm('Delete this jurisdiction?')) { try { await adminApi(`/admin/jurisdictions/${id}`, 'DELETE'); fetchData('jurisdictions'); setMessage('Jurisdiction deleted'); } catch (err) { setMessage(err.message); } } };
@@ -1774,11 +1754,11 @@ const AdminPage = ({ onBack }) => {
   if (!adminAuthenticated) {
     return (
       <div className="admin-login">
-        <button className="back-link" onClick={onBack}><Icons.X /> Back to App</button>
+        <button className="back-link" onClick={onBack}><Icons.X /> Back to Site</button>
         <Card className="admin-login-card">
           <div className="admin-login-icon"><Icons.Lock /></div>
-          <h1>Admin Login</h1>
-          <p>Enter your admin credentials to access the dashboard.</p>
+          <h1>Super Admin</h1>
+          <p>Enter your credentials to access the admin dashboard.</p>
           <form onSubmit={handleAdminLogin} className="admin-login-form">
             {loginError && <Alert type="error">{loginError}</Alert>}
             <Input 
@@ -1795,7 +1775,7 @@ const AdminPage = ({ onBack }) => {
               onChange={(e) => setLoginData(d => ({ ...d, password: e.target.value }))} 
               required 
             />
-            <Button type="submit" loading={loginLoading} className="full-width">Login to Admin Panel</Button>
+            <Button type="submit" loading={loginLoading} className="full-width">Login</Button>
           </form>
           <p className="admin-login-hint">Credentials are set in environment variables (ADMIN_USERNAME & ADMIN_PASSWORD)</p>
         </Card>
@@ -1806,16 +1786,16 @@ const AdminPage = ({ onBack }) => {
   return (
     <div className="admin-page">
       <div className="admin-header">
-        <button className="back-link" onClick={onBack}><Icons.X /> Exit Admin</button>
-        <h1>PermitWise Admin</h1>
+        <button className="back-link" onClick={onBack}><Icons.X /> Exit</button>
+        <h1>PermitWise Super Admin</h1>
         <Button variant="outline" onClick={handleAdminLogout}>Logout</Button>
       </div>
       {message && <Alert type="info" onClose={() => setMessage('')}>{message}</Alert>}
       
       <div className="admin-tabs">
-        {['stats', 'admins', 'users', 'businesses', 'jurisdictions', 'permitTypes'].map(tab => (
+        {['stats', 'users', 'businesses', 'jurisdictions', 'permitTypes'].map(tab => (
           <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>
-            {tab === 'permitTypes' ? 'Permit Types' : tab === 'admins' ? 'Admin Users' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {tab === 'permitTypes' ? 'Permit Types' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
         ))}
       </div>
@@ -1839,43 +1819,6 @@ const AdminPage = ({ onBack }) => {
               <p>New users this week: {data.stats.newUsersThisWeek || 0}</p>
               <p>MRR: ${data.stats.mrr || 0}</p>
             </Card>
-          </div>
-        )}
-
-        {activeTab === 'admins' && (
-          <div className="admin-section">
-            <Card className="admin-form-card">
-              <h3>Make User Admin</h3>
-              <p>Grant admin privileges to an existing user by their email address.</p>
-              <div className="form-row">
-                <Input 
-                  label="User Email" 
-                  type="email" 
-                  placeholder="user@example.com" 
-                  value={makeAdminEmail} 
-                  onChange={(e) => setMakeAdminEmail(e.target.value)} 
-                />
-                <Button onClick={makeUserAdmin} disabled={!makeAdminEmail}>Make Admin</Button>
-              </div>
-            </Card>
-            
-            <h3>Current Admins</h3>
-            <div className="admin-table-container">
-              <table className="admin-table">
-                <thead><tr><th>Name</th><th>Email</th><th>Actions</th></tr></thead>
-                <tbody>
-                  {data.users.filter(u => u.role === 'admin').length === 0 ? (
-                    <tr><td colSpan="3" className="empty-row">No admin users yet</td></tr>
-                  ) : data.users.filter(u => u.role === 'admin').map(user => (
-                    <tr key={user._id}>
-                      <td>{user.firstName} {user.lastName}</td>
-                      <td>{user.email}</td>
-                      <td><Button variant="outline" size="sm" onClick={() => removeUserAdmin(user.email)}>Remove Admin</Button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </div>
         )}
 
@@ -2149,7 +2092,7 @@ const App = () => {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [authView, setAuthView] = useState(null);
   const [showPermitChecker, setShowPermitChecker] = useState(false);
-  const [legalPage, setLegalPage] = useState(null); // 'privacy', 'terms', 'admin'
+  const [legalPage, setLegalPage] = useState(null); // 'privacy', 'terms', 'superadmin'
   const [resetToken, setResetToken] = useState(null);
 
   useEffect(() => { 
@@ -2164,11 +2107,11 @@ const App = () => {
     // Auto-detect login/register from URL params (from landing page links)
     if (params.get('register') === 'true') { setAuthView('register'); window.history.replaceState({}, '', window.location.pathname); }
     else if (params.get('login') === 'true' || window.location.pathname === '/app') { setAuthView('login'); }
-    // Handle direct URL access to legal/admin pages
+    // Handle direct URL access to legal/superadmin pages
     const path = window.location.pathname;
     if (path === '/privacy') setLegalPage('privacy');
     else if (path === '/terms') setLegalPage('terms');
-    else if (path === '/admin' || path === '/app/admin') setLegalPage('admin');
+    else if (path === '/SUPERADMIN') setLegalPage('superadmin');
   }, []);
 
   // Password reset page (accessible without auth)
@@ -2179,12 +2122,9 @@ const App = () => {
   // Legal pages are accessible without authentication
   if (legalPage === 'privacy') return <PrivacyPage onBack={() => { setLegalPage(null); window.history.pushState({}, '', '/app'); }} />;
   if (legalPage === 'terms') return <TermsPage onBack={() => { setLegalPage(null); window.history.pushState({}, '', '/app'); }} />;
-  // Admin page requires authentication
-  if (legalPage === 'admin') {
-    if (!isAuthenticated) {
-      return <LoginPage onSwitch={(v) => { if (v === 'register') { setLegalPage(null); setAuthView('register'); } else if (v === 'forgot') { setLegalPage(null); setAuthView('forgot'); } else { setAuthView(v); } }} onSuccess={() => {}} />;
-    }
-    return <AdminPage onBack={() => { setLegalPage(null); window.history.pushState({}, '', '/app'); }} />;
+  // Superadmin page - standalone with its own auth
+  if (legalPage === 'superadmin') {
+    return <SuperAdminPage onBack={() => { setLegalPage(null); window.history.pushState({}, '', '/'); }} />;
   }
 
   if (loading) return <div className="loading-screen"><LoadingSpinner /><p>Loading...</p></div>;
