@@ -1552,11 +1552,15 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
 };
 
 const InspectionsScreen = () => {
+  const { subscription } = useAuth();
   const [checklists, setChecklists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeChecklist, setActiveChecklist] = useState(null);
   const [checklistItems, setChecklistItems] = useState({});
+
+  // Plan check: Pro or Elite required
+  const hasAccess = subscription?.plan === 'pro' || subscription?.plan === 'elite' || subscription?.features?.inspectionChecklists;
 
   const fetchChecklists = async () => {
     try {
@@ -1566,7 +1570,7 @@ const InspectionsScreen = () => {
     finally { setLoading(false); setRefreshing(false); }
   };
 
-  useEffect(() => { fetchChecklists(); }, []);
+  useEffect(() => { if (hasAccess) fetchChecklists(); else setLoading(false); }, [hasAccess]);
 
   const toggleItem = (checklistId, sectionIdx, itemIdx) => {
     setChecklistItems(prev => {
@@ -1586,6 +1590,27 @@ const InspectionsScreen = () => {
     });
     return total > 0 ? Math.round((completed / total) * 100) : 0;
   };
+
+  // Show upgrade prompt for non-Pro users
+  if (!hasAccess) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.upgradeContainer}>
+          <View style={styles.upgradeIcon}><Icons.Checklist size={48} color={COLORS.primary} /></View>
+          <Text style={styles.upgradeTitle}>Inspection Checklists</Text>
+          <Badge label="Pro Plan Required" variant="warning" />
+          <Text style={styles.upgradeText}>Walk through health inspections step-by-step before the inspector arrives.</Text>
+          <View style={styles.upgradeFeatures}>
+            <Text style={styles.upgradeFeature}>✓ Pre-inspection checklists by city</Text>
+            <Text style={styles.upgradeFeature}>✓ Offline mode for on-site prep</Text>
+            <Text style={styles.upgradeFeature}>✓ Photo documentation</Text>
+            <Text style={styles.upgradeFeature}>✓ Common violation alerts</Text>
+          </View>
+          <Button title="Upgrade to Pro" onPress={() => Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={{ marginTop: 24 }} />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
@@ -1657,10 +1682,14 @@ const InspectionsScreen = () => {
 };
 
 const EventsScreen = () => {
+  const { subscription } = useAuth();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('upcoming');
+
+  // Plan check: Elite only
+  const hasAccess = subscription?.plan === 'elite' || subscription?.features?.eventIntegration;
 
   const fetchEvents = async () => {
     try {
@@ -1670,7 +1699,7 @@ const EventsScreen = () => {
     finally { setLoading(false); setRefreshing(false); }
   };
 
-  useEffect(() => { fetchEvents(); }, [filter]);
+  useEffect(() => { if (hasAccess) fetchEvents(); else setLoading(false); }, [filter, hasAccess]);
 
   const handleApply = async (eventId) => {
     try {
@@ -1679,6 +1708,27 @@ const EventsScreen = () => {
       fetchEvents();
     } catch (error) { Alert.alert('Error', error.message); }
   };
+
+  // Show upgrade prompt for non-Elite users
+  if (!hasAccess) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.upgradeContainer}>
+          <View style={styles.upgradeIcon}><Icons.Event size={48} color={COLORS.primary} /></View>
+          <Text style={styles.upgradeTitle}>Event Marketplace</Text>
+          <Badge label="Elite Plan Required" variant="warning" />
+          <Text style={styles.upgradeText}>Find festivals, farmers markets, and pop-up opportunities in your area.</Text>
+          <View style={styles.upgradeFeatures}>
+            <Text style={styles.upgradeFeature}>✓ Browse local events</Text>
+            <Text style={styles.upgradeFeature}>✓ One-click permit readiness check</Text>
+            <Text style={styles.upgradeFeature}>✓ Apply directly through PermitWise</Text>
+            <Text style={styles.upgradeFeature}>✓ Get notified of new opportunities</Text>
+          </View>
+          <Button title="Upgrade to Elite" onPress={() => Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={{ marginTop: 24 }} />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
@@ -2111,4 +2161,11 @@ const styles = StyleSheet.create({
   eventDetail: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   eventDetailText: { fontSize: 13, color: COLORS.gray600 },
   eventFee: { fontSize: 14, fontWeight: '500', color: COLORS.gray700, marginTop: 8 },
+  // Upgrade prompt styles
+  upgradeContainer: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  upgradeIcon: { width: 80, height: 80, backgroundColor: '#e0e7ff', borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  upgradeTitle: { fontSize: 24, fontWeight: '700', color: COLORS.gray900, marginBottom: 12, textAlign: 'center' },
+  upgradeText: { fontSize: 15, color: COLORS.gray600, textAlign: 'center', lineHeight: 22, marginTop: 12, marginBottom: 20, paddingHorizontal: 16 },
+  upgradeFeatures: { backgroundColor: COLORS.gray50, borderRadius: 12, padding: 16, width: '100%', marginBottom: 8 },
+  upgradeFeature: { fontSize: 14, color: COLORS.gray700, paddingVertical: 6 },
 });
