@@ -2688,52 +2688,9 @@ app.get('/api/admin/verify', masterAdminMiddleware, (req, res) => {
   res.json({ valid: true, isMasterAdmin: true });
 });
 
-// Make user admin (requires master admin)
-app.post('/api/admin/make-admin', masterAdminMiddleware, async (req, res) => {
-  try {
-    const { email } = req.body;
-    
-    const user = await User.findOneAndUpdate(
-      { email: email.toLowerCase() },
-      { role: 'admin' },
-      { new: true }
-    );
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    res.json({ message: 'User is now admin', user: { email: user.email, role: user.role } });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Remove admin role (requires master admin)
-app.post('/api/admin/remove-admin', masterAdminMiddleware, async (req, res) => {
-  try {
-    const { email } = req.body;
-    
-    const user = await User.findOneAndUpdate(
-      { email: email.toLowerCase() },
-      { role: 'owner' },
-      { new: true }
-    );
-    
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    res.json({ message: 'Admin role removed', user: { email: user.email, role: user.role } });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // ===========================================
-// ADMIN DASHBOARD API (JWT-based auth)
+// ADMIN DASHBOARD API
 // ===========================================
-// Admin routes now use authMiddleware + adminMiddleware (user must be logged in AND have admin role)
 
 // Admin Stats
 app.get('/api/admin/stats', masterAdminMiddleware, async (req, res) => {
@@ -3164,6 +3121,15 @@ app.get('/privacy', (req, res) => {
 
 app.get('/terms', (req, res) => {
   res.redirect('/app#terms');
+});
+
+// Superadmin page - served as React SPA
+app.get('/SUPERADMIN', (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+  } else {
+    res.redirect('http://localhost:3000/SUPERADMIN');
+  }
 });
 
 // Catch-all for React app routes
