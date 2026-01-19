@@ -175,6 +175,15 @@ const daysUntil = (date) => date ? Math.ceil((new Date(date) - new Date()) / (10
 const getStatusLabel = (status) => ({ active: 'Active', expired: 'Expired', pending_renewal: 'Expiring Soon', missing: 'Missing', in_progress: 'In Progress' }[status] || status);
 const getStatusColor = (status) => ({ active: COLORS.success, expired: COLORS.danger, pending_renewal: COLORS.warning, missing: COLORS.gray400 }[status] || COLORS.gray500);
 
+// Get secure file URL with authentication token
+const getSecureFileUrl = async (fileUrl) => {
+  if (!fileUrl) return '';
+  const token = await AsyncStorage.getItem('permitwise_token');
+  if (!token) return fileUrl;
+  const separator = fileUrl.includes('?') ? '&' : '?';
+  return `${fileUrl}${separator}token=${token}`;
+};
+
 // ===========================================
 // GOOGLE PLAY BILLING (Android) / IN-APP PURCHASE
 // ===========================================
@@ -831,6 +840,7 @@ const DashboardScreen = ({ navigation }) => {
 const PermitsScreen = ({ navigation }) => {
   const [permits, setPermits] = useState([]); const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false);
+  const [showAddCityModal, setShowAddCityModal] = useState(false);
 
   const fetchPermits = async () => {
     try { const data = await api.get('/permits'); setPermits(data.permits); setSummary(data.summary); }
@@ -846,9 +856,14 @@ const PermitsScreen = ({ navigation }) => {
     <SafeAreaView style={styles.container}>
       <View style={styles.pageHeader}>
         <Text style={styles.pageTitle}>Permits</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate('AddPermit')}>
-          <Icons.Plus size={20} color={COLORS.white} />
-        </TouchableOpacity>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity style={[styles.addButton, { marginRight: 8, backgroundColor: COLORS.gray600 }]} onPress={() => setShowAddCityModal(true)}>
+            <Icons.MapPin size={20} color={COLORS.white} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate('AddPermit')}>
+            <Icons.Plus size={20} color={COLORS.white} />
+          </TouchableOpacity>
+        </View>
       </View>
       {summary && (
         <View style={styles.summaryBar}>
@@ -877,18 +892,109 @@ const PermitsScreen = ({ navigation }) => {
         ListEmptyComponent={<View style={styles.emptyContainer}><Icons.Permit size={48} color={COLORS.gray300} /><Text style={styles.emptyTitle}>No permits yet</Text><Text style={styles.emptyText}>Tap + to add a permit</Text></View>}
         contentContainerStyle={styles.listContent}
       />
+      <AddCityPermitsModal visible={showAddCityModal} onClose={() => setShowAddCityModal(false)} onSuccess={() => { setShowAddCityModal(false); fetchPermits(); }} />
     </SafeAreaView>
+  );
+};
+
+// Add City Permits Modal
+const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
+  const { business } = useAuth();
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [showStatePicker, setShowStatePicker] = useState(false);
+
+  const handleAdd = async () => {
+    if (!city || !state) {
+      Alert.alert('Error', 'Please enter city and state');
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await api.post('/permits/add-city', { city, state });
+      setResult(data);
+      Alert.alert('Success', data.message || 'Permits added for ' + city);
+      onSuccess();
+    } catch (err) {
+      Alert.alert('Error', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClose = () => {
+    setCity('');
+    setState('');
+    setResult(null);
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide">
+      <View style={styles.modalOverlay}>
+        <View style={styles.addCityModal}>
+          <View style={styles.addCityHeader}>
+            <Text style={styles.addCityTitle}>Add Operating City</Text>
+            <TouchableOpacity onPress={handleClose}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
+          </View>
+          
+          <ScrollView style={styles.addCityContent}>
+            <Text style={styles.addCityDescription}>
+              Add a city where you operate. We'll automatically add all required permits for your business type in that location.
+            </Text>
+            
+            {result && (
+              <View style={styles.successMessage}>
+                <Icons.Check size={20} color={COLORS.success} />
+                <Text style={styles.successText}>{result.message}</Text>
+              </View>
+            )}
+            
+            <Input label="City" value={city} onChangeText={setCity} placeholder="e.g., Austin" />
+            
+            <Text style={[styles.label, { marginTop: 12 }]}>State</Text>
+            <TouchableOpacity style={styles.pickerButton} onPress={() => setShowStatePicker(true)}>
+              <Text style={state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{state || 'Select state'}</Text>
+            </TouchableOpacity>
+            
+            <Button title={loading ? 'Adding Permits...' : 'Add City'} onPress={handleAdd} loading={loading} disabled={!city || !state} style={{ marginTop: 24 }} />
+            <Button title="Cancel" variant="outline" onPress={handleClose} style={{ marginTop: 12 }} />
+          </ScrollView>
+          
+          <PickerModal visible={showStatePicker} onClose={() => setShowStatePicker(false)} title="State" options={US_STATES.map(s => ({ value: s, label: s }))} value={state} onSelect={setState} />
+        </View>
+      </View>
+    </Modal>
   );
 };
 
 const PermitDetailScreen = ({ route, navigation }) => {
   const { permit } = route.params;
+  const { subscription } = useAuth();
+  const [loadingAutofill, setLoadingAutofill] = useState(false);
   
   const getImportanceLabel = (level) => {
     if (level === 'critical') return { text: 'Critical', color: COLORS.danger };
     if (level === 'often_forgotten') return { text: 'Often Forgotten', color: COLORS.warning };
     if (level === 'event_required') return { text: 'Event Required', color: COLORS.primary };
     return null;
+  };
+  
+  const handleAutofill = async () => {
+    setLoadingAutofill(true);
+    try {
+      const data = await api.post('/autofill/generate', { permitTypeId: permit.permitTypeId._id });
+      if (data.downloadUrl) {
+        const secureUrl = await getSecureFileUrl(data.downloadUrl);
+        await Linking.openURL(secureUrl);
+      }
+    } catch (error) {
+      Alert.alert('Error', error.message);
+    } finally {
+      setLoadingAutofill(false);
+    }
   };
   
   const importanceLabel = getImportanceLabel(permit.permitTypeId?.importanceLevel);
@@ -966,6 +1072,15 @@ const PermitDetailScreen = ({ route, navigation }) => {
             </View>
           )}
         </Card>
+        {subscription?.features?.autofill && (
+          <Button 
+            title={loadingAutofill ? 'Generating...' : 'Generate Application PDF'} 
+            variant="outline" 
+            onPress={handleAutofill} 
+            loading={loadingAutofill}
+            style={{ marginBottom: 12 }} 
+          />
+        )}
         <Button title="Edit Permit" onPress={() => navigation.navigate('EditPermit', { permit })} style={{ marginBottom: 12 }} />
       </ScrollView>
     </SafeAreaView>
@@ -1154,7 +1269,8 @@ const DocumentsScreen = ({ navigation }) => {
 
   const handleView = async (doc) => {
     if (doc.fileUrl) {
-      await Linking.openURL(doc.fileUrl);
+      const secureUrl = await getSecureFileUrl(doc.fileUrl);
+      await Linking.openURL(secureUrl);
     }
   };
 
@@ -1278,7 +1394,9 @@ const SettingsScreen = ({ navigation }) => {
     businessName: business?.businessName || '', dbaName: business?.dbaName || '', ein: business?.ein || '',
     phone: business?.phone || '', email: business?.email || '',
     address: business?.address || { street: '', city: '', state: '', zip: '' },
-    operatingCities: business?.operatingCities || [{ city: '', state: '', isPrimary: true }]
+    operatingCities: business?.operatingCities || [{ city: '', state: '', isPrimary: true }],
+    vehicleDetails: business?.vehicleDetails || { type: '', make: '', model: '', year: '', licensePlate: '' },
+    insurance: business?.insurance || { provider: '', policyNumber: '', expiryDate: '' }
   });
   const [notificationPrefs, setNotificationPrefs] = useState({
     email: user?.notificationPreferences?.email ?? true,
@@ -1287,6 +1405,16 @@ const SettingsScreen = ({ navigation }) => {
   });
   const [showStatePicker, setShowStatePicker] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [showVehicleTypePicker, setShowVehicleTypePicker] = useState(false);
+
+  // Fetch team members if subscription allows
+  useEffect(() => {
+    if (subscription?.features?.teamAccounts) {
+      api.get('/team').then(data => setTeamMembers(data.members || [])).catch(console.error);
+    }
+  }, [subscription]);
 
   const handleLogout = () => { Alert.alert('Log Out', 'Are you sure?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Log Out', style: 'destructive', onPress: logout }]); };
   const handleProfileSave = async () => { setLoading(true); try { await api.put('/auth/profile', profileData); await fetchUser(); Alert.alert('Success', 'Profile updated'); setActiveSection(null); } catch (err) { Alert.alert('Error', err.message); } finally { setLoading(false); } };
@@ -1295,6 +1423,31 @@ const SettingsScreen = ({ navigation }) => {
   const addCity = () => setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
   const removeCity = (i) => { if (businessData.operatingCities.length > 1) setBusinessData(d => ({ ...d, operatingCities: d.operatingCities.filter((_, idx) => idx !== i) })); };
+  
+  const inviteTeamMember = async () => {
+    if (!newMemberEmail) return;
+    setLoading(true);
+    try {
+      await api.post('/team/invite', { email: newMemberEmail, role: 'member' });
+      setNewMemberEmail('');
+      const data = await api.get('/team');
+      setTeamMembers(data.members || []);
+      Alert.alert('Success', 'Invitation sent');
+    } catch (err) { Alert.alert('Error', err.message); }
+    finally { setLoading(false); }
+  };
+
+  const removeTeamMember = (id, name) => {
+    Alert.alert('Remove Member', `Remove ${name} from your team?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: async () => {
+        try {
+          await api.delete(`/team/${id}`);
+          setTeamMembers(m => m.filter(t => t._id !== id));
+        } catch (err) { Alert.alert('Error', err.message); }
+      }}
+    ]);
+  };
 
   const getSubscriptionStatusText = () => {
     if (subscription?.status === 'trial') {
@@ -1304,6 +1457,14 @@ const SettingsScreen = ({ navigation }) => {
     if (subscription?.status === 'active') return 'Active subscription';
     return 'Inactive';
   };
+
+  const VEHICLE_TYPES = [
+    { value: 'truck', label: 'Food Truck' },
+    { value: 'trailer', label: 'Trailer' },
+    { value: 'cart', label: 'Cart' },
+    { value: 'tent', label: 'Tent/Booth' },
+    { value: 'other', label: 'Other' }
+  ];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -1402,6 +1563,74 @@ const SettingsScreen = ({ navigation }) => {
           </Card>
         )}
 
+        <TouchableOpacity onPress={() => setActiveSection(activeSection === 'vehicle' ? null : 'vehicle')}>
+          <Card style={styles.settingsCard}><Text style={styles.settingsSection}>Vehicle Information</Text><Icons.Edit size={18} color={COLORS.gray400} /></Card>
+        </TouchableOpacity>
+        {activeSection === 'vehicle' && (
+          <Card style={styles.editCard}>
+            <Text style={styles.label}>Vehicle Type</Text>
+            <TouchableOpacity style={styles.pickerButton} onPress={() => setShowVehicleTypePicker(true)}>
+              <Text style={businessData.vehicleDetails.type ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
+                {VEHICLE_TYPES.find(v => v.value === businessData.vehicleDetails.type)?.label || 'Select Type'}
+              </Text>
+            </TouchableOpacity>
+            <View style={styles.row}>
+              <View style={styles.halfInput}><Input label="Make" value={businessData.vehicleDetails.make} onChangeText={v => setBusinessData(d => ({ ...d, vehicleDetails: { ...d.vehicleDetails, make: v } }))} /></View>
+              <View style={styles.halfInput}><Input label="Model" value={businessData.vehicleDetails.model} onChangeText={v => setBusinessData(d => ({ ...d, vehicleDetails: { ...d.vehicleDetails, model: v } }))} /></View>
+            </View>
+            <View style={styles.row}>
+              <View style={styles.halfInput}><Input label="Year" value={businessData.vehicleDetails.year} onChangeText={v => setBusinessData(d => ({ ...d, vehicleDetails: { ...d.vehicleDetails, year: v } }))} keyboardType="number-pad" /></View>
+              <View style={styles.halfInput}><Input label="License Plate" value={businessData.vehicleDetails.licensePlate} onChangeText={v => setBusinessData(d => ({ ...d, vehicleDetails: { ...d.vehicleDetails, licensePlate: v } }))} /></View>
+            </View>
+            <Button title="Save Vehicle Info" onPress={handleBusinessSave} loading={loading} style={{ marginTop: 12 }} />
+          </Card>
+        )}
+
+        <TouchableOpacity onPress={() => setActiveSection(activeSection === 'insurance' ? null : 'insurance')}>
+          <Card style={styles.settingsCard}><Text style={styles.settingsSection}>Insurance</Text><Icons.Edit size={18} color={COLORS.gray400} /></Card>
+        </TouchableOpacity>
+        {activeSection === 'insurance' && (
+          <Card style={styles.editCard}>
+            <Input label="Insurance Provider" value={businessData.insurance.provider} onChangeText={v => setBusinessData(d => ({ ...d, insurance: { ...d.insurance, provider: v } }))} placeholder="e.g., State Farm, GEICO" />
+            <Input label="Policy Number" value={businessData.insurance.policyNumber} onChangeText={v => setBusinessData(d => ({ ...d, insurance: { ...d.insurance, policyNumber: v } }))} />
+            <Input label="Expiry Date" value={businessData.insurance.expiryDate ? businessData.insurance.expiryDate.split('T')[0] : ''} onChangeText={v => setBusinessData(d => ({ ...d, insurance: { ...d.insurance, expiryDate: v } }))} placeholder="YYYY-MM-DD" />
+            <Button title="Save Insurance Info" onPress={handleBusinessSave} loading={loading} style={{ marginTop: 12 }} />
+          </Card>
+        )}
+
+        {subscription?.features?.teamAccounts && (
+          <>
+            <TouchableOpacity onPress={() => setActiveSection(activeSection === 'team' ? null : 'team')}>
+              <Card style={styles.settingsCard}><Text style={styles.settingsSection}>Team Members ({teamMembers.length})</Text><Icons.Edit size={18} color={COLORS.gray400} /></Card>
+            </TouchableOpacity>
+            {activeSection === 'team' && (
+              <Card style={styles.editCard}>
+                <Text style={[styles.label, { marginBottom: 8 }]}>Invite Team Member</Text>
+                <View style={styles.row}>
+                  <View style={{ flex: 1 }}><Input placeholder="Email address" value={newMemberEmail} onChangeText={setNewMemberEmail} keyboardType="email-address" autoCapitalize="none" /></View>
+                  <Button title="Invite" onPress={inviteTeamMember} loading={loading} style={{ marginLeft: 8 }} />
+                </View>
+                {teamMembers.length > 0 && (
+                  <View style={{ marginTop: 16 }}>
+                    <Text style={[styles.label, { marginBottom: 8 }]}>Current Members</Text>
+                    {teamMembers.map(member => (
+                      <View key={member._id} style={styles.teamMemberRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.teamMemberName}>{member.firstName} {member.lastName}</Text>
+                          <Text style={styles.teamMemberEmail}>{member.email}</Text>
+                        </View>
+                        <TouchableOpacity onPress={() => removeTeamMember(member._id, member.firstName)} style={styles.deleteButton}>
+                          <Icons.X size={18} color={COLORS.danger} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </Card>
+            )}
+          </>
+        )}
+
         <TouchableOpacity onPress={() => setShowSubscriptionModal(true)}>
           <Card style={styles.settingsCard}>
             <View style={{ flex: 1 }}>
@@ -1435,6 +1664,10 @@ const SettingsScreen = ({ navigation }) => {
         <PickerModal visible={showStatePicker !== false} onClose={() => setShowStatePicker(false)} title="State" options={US_STATES.map(s => ({ value: s, label: s }))} 
           value={showStatePicker === 'address' ? businessData.address.state : businessData.operatingCities[showStatePicker]?.state}
           onSelect={v => { if (showStatePicker === 'address') setBusinessData(d => ({ ...d, address: { ...d.address, state: v } })); else updateCity(showStatePicker, 'state', v); }} />
+        
+        <PickerModal visible={showVehicleTypePicker} onClose={() => setShowVehicleTypePicker(false)} title="Vehicle Type" options={VEHICLE_TYPES}
+          value={businessData.vehicleDetails.type}
+          onSelect={v => { setBusinessData(d => ({ ...d, vehicleDetails: { ...d.vehicleDetails, type: v } })); setShowVehicleTypePicker(false); }} />
         
         <SubscriptionModal visible={showSubscriptionModal} onClose={() => setShowSubscriptionModal(false)} currentPlan={subscription?.plan} onSubscribe={fetchUser} />
       </ScrollView>
@@ -2170,6 +2403,9 @@ const styles = StyleSheet.create({
   statusOptionText: { fontSize: 14, color: COLORS.gray600 },
   statusOptionTextActive: { color: COLORS.white, fontWeight: '500' },
   deleteButton: { padding: 8 },
+  teamMemberRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
+  teamMemberName: { fontSize: 15, fontWeight: '500', color: COLORS.gray800 },
+  teamMemberEmail: { fontSize: 13, color: COLORS.gray500, marginTop: 2 },
   // Upload Modal
   uploadModal: { backgroundColor: COLORS.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%' },
   uploadModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: COLORS.gray200 },
@@ -2270,4 +2506,15 @@ const styles = StyleSheet.create({
   upgradeText: { fontSize: 15, color: COLORS.gray600, textAlign: 'center', lineHeight: 22, marginTop: 12, marginBottom: 20, paddingHorizontal: 16 },
   upgradeFeatures: { backgroundColor: COLORS.gray50, borderRadius: 12, padding: 16, width: '100%', marginBottom: 8 },
   upgradeFeature: { fontSize: 14, color: COLORS.gray700, paddingVertical: 6 },
+  // Header buttons
+  headerButtons: { flexDirection: 'row', alignItems: 'center' },
+  // Add City Modal
+  addCityModal: { backgroundColor: COLORS.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '80%', marginTop: 'auto' },
+  addCityHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: COLORS.gray200 },
+  addCityTitle: { fontSize: 18, fontWeight: '600', color: COLORS.gray800 },
+  addCityContent: { padding: 20 },
+  addCityDescription: { fontSize: 14, color: COLORS.gray600, marginBottom: 20, lineHeight: 20 },
+  successMessage: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#dcfce7', padding: 12, borderRadius: 8, marginBottom: 16 },
+  successText: { fontSize: 14, color: '#166534', flex: 1 },
 });
+
