@@ -60,7 +60,69 @@ app.use(cors());
 app.use('/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Secure file serving - requires authentication and ownership verification
+// Supports both Authorization header and ?token= query parameter for img/iframe compatibility
+app.get('/uploads/:filename', async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const filePath = path.join(__dirname, 'uploads', filename);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    
+    // Check for auth token (header or query param)
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1] || req.query.token;
+    
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required. Add ?token=YOUR_TOKEN to the URL.' });
+    }
+    
+    // Verify token and get user
+    let userId;
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      userId = decoded.userId;
+    } catch (err) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    
+    const user = await User.findById(userId);
+    if (!user || !user.vendorBusinessId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    // Check if this file belongs to user's business
+    const document = await Document.findOne({ 
+      fileName: filename,
+      vendorBusinessId: user.vendorBusinessId
+    });
+    
+    // Also check if it's the business logo
+    const business = await VendorBusiness.findOne({
+      _id: user.vendorBusinessId,
+      logo: { $regex: filename }
+    });
+    
+    // Also check inspection photos
+    const inspection = await VendorInspection.findOne({
+      vendorBusinessId: user.vendorBusinessId,
+      photos: { $regex: filename }
+    });
+    
+    if (!document && !business && !inspection) {
+      return res.status(403).json({ error: 'Access denied to this file' });
+    }
+    
+    // Serve the file with appropriate content type
+    res.sendFile(filePath);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // File upload configuration
 const storage = multer.diskStorage({
@@ -1627,9 +1689,12 @@ app.post('/api/documents', authMiddleware, upload.single('file'), async (req, re
     
     await document.save();
     
-    // If related to a permit, update the permit
+    // If related to a permit, update the permit (verify ownership first)
     if (relatedEntityType === 'permit' && relatedEntityId) {
-      await VendorPermit.findByIdAndUpdate(relatedEntityId, { documentId: document._id });
+      await VendorPermit.findOneAndUpdate(
+        { _id: relatedEntityId, vendorBusinessId: req.user.vendorBusinessId },
+        { documentId: document._id }
+      );
     }
     
     res.status(201).json({ document });
@@ -2190,6 +2255,17 @@ app.post('/api/notifications', authMiddleware, async (req, res) => {
   try {
     const { type, channelAddress, subject, message, sendAt, relatedVendorPermitId } = req.body;
     
+    // Validate permit ownership if provided
+    if (relatedVendorPermitId) {
+      const permit = await VendorPermit.findOne({
+        _id: relatedVendorPermitId,
+        vendorBusinessId: req.user.vendorBusinessId
+      });
+      if (!permit) {
+        return res.status(403).json({ error: 'Permit not found or access denied' });
+      }
+    }
+    
     const notification = new Notification({
       vendorBusinessId: req.user.vendorBusinessId,
       userId: req.userId,
@@ -2746,8 +2822,27 @@ app.delete('/api/admin/users/:id', masterAdminMiddleware, async (req, res) => {
 // Admin Businesses List
 app.get('/api/admin/businesses', masterAdminMiddleware, async (req, res) => {
   try {
-    const businesses = await VendorBusiness.find().populate('ownerId', 'email firstName lastName').populate('subscriptionId').sort({ createdAt: -1 }).limit(100);
-    res.json({ businesses });
+    const businesses = await VendorBusiness.find()
+      .populate('ownerId', 'email firstName lastName')
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+    
+    // Get subscriptions for all businesses
+    const businessIds = businesses.map(b => b._id);
+    const subscriptions = await Subscription.find({ vendorBusinessId: { $in: businessIds } });
+    const subMap = {};
+    subscriptions.forEach(sub => {
+      subMap[sub.vendorBusinessId.toString()] = sub;
+    });
+    
+    // Attach subscription to each business
+    const businessesWithSubs = businesses.map(biz => ({
+      ...biz,
+      subscription: subMap[biz._id.toString()] || null
+    }));
+    
+    res.json({ businesses: businessesWithSubs });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
