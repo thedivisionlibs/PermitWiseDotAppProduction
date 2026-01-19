@@ -6,6 +6,19 @@ import './App.css';
 // CONFIGURATION
 // ===========================================
 const API_URL = process.env.REACT_APP_API_URL || (process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:5000/api');
+const BASE_URL = process.env.REACT_APP_BASE_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
+
+// Helper to get secure file URLs with authentication token
+const getSecureFileUrl = (fileUrl) => {
+  if (!fileUrl) return '';
+  const token = localStorage.getItem('permitwise_token');
+  if (!token) return fileUrl;
+  
+  // If it's already a full URL with the base, extract the path
+  const url = fileUrl.includes('/uploads/') ? fileUrl : `${BASE_URL}${fileUrl}`;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}token=${token}`;
+};
 
 // ===========================================
 // CONTEXT
@@ -945,7 +958,7 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
         <div className="detail-document">
           <h4>Document</h4>
           {permit.documentId ? (
-            <div className="document-preview"><Icons.Document /><span>{permit.documentId.originalName}</span><a href={permit.documentId.fileUrl} target="_blank" rel="noopener noreferrer"><Icons.Download /></a></div>
+            <div className="document-preview"><Icons.Document /><span>{permit.documentId.originalName}</span><a href={getSecureFileUrl(permit.documentId.fileUrl)} target="_blank" rel="noopener noreferrer"><Icons.Download /></a></div>
           ) : (
             <div className="upload-area"><input type="file" id="permit-upload" onChange={handleUpload} hidden /><label htmlFor="permit-upload">{uploading ? 'Uploading...' : 'Upload Document'}</label></div>
           )}
@@ -969,7 +982,7 @@ const DocumentsPage = () => {
   useEffect(() => { fetchDocuments(); }, []);
   const handleDelete = async (id) => { if (!window.confirm('Delete this document?')) return; try { await api.delete(`/documents/${id}`); fetchDocuments(); } catch (error) { console.error(error); } };
   if (loading) return <LoadingSpinner />;
-  return (<div className="documents-page"><div className="page-header"><div><h1>Document Vault</h1><p>Store all your documents</p></div><Button onClick={() => setShowUploadModal(true)}><Icons.Upload /> Upload</Button></div>{documents.length > 0 ? (<div className="documents-grid">{documents.map(doc => (<Card key={doc._id} className="document-card"><div className="document-icon"><Icons.Document /></div><div className="document-info"><h3>{doc.originalName}</h3><span>{doc.category}</span><span>{formatDate(doc.createdAt)}</span></div><div className="document-actions"><a href={doc.fileUrl} target="_blank" rel="noopener noreferrer"><Icons.Download /></a><button onClick={() => handleDelete(doc._id)}><Icons.Trash /></button></div></Card>))}</div>) : (<EmptyState icon={Icons.Document} title="No documents yet" action={<Button onClick={() => setShowUploadModal(true)}><Icons.Upload /> Upload</Button>} />)}<UploadDocumentModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} onSuccess={fetchDocuments} /></div>);
+  return (<div className="documents-page"><div className="page-header"><div><h1>Document Vault</h1><p>Store all your documents</p></div><Button onClick={() => setShowUploadModal(true)}><Icons.Upload /> Upload</Button></div>{documents.length > 0 ? (<div className="documents-grid">{documents.map(doc => (<Card key={doc._id} className="document-card"><div className="document-icon"><Icons.Document /></div><div className="document-info"><h3>{doc.originalName}</h3><span>{doc.category}</span><span>{formatDate(doc.createdAt)}</span></div><div className="document-actions"><a href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer"><Icons.Download /></a><button onClick={() => handleDelete(doc._id)}><Icons.Trash /></button></div></Card>))}</div>) : (<EmptyState icon={Icons.Document} title="No documents yet" action={<Button onClick={() => setShowUploadModal(true)}><Icons.Upload /> Upload</Button>} />)}<UploadDocumentModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} onSuccess={fetchDocuments} /></div>);
 };
 
 const UploadDocumentModal = ({ isOpen, onClose, onSuccess }) => {
@@ -1852,7 +1865,7 @@ const SuperAdminPage = ({ onBack }) => {
                     <td>{biz.businessName}</td>
                     <td>{biz.primaryVendorType}</td>
                     <td>{biz.operatingCities?.map(c => c.city).join(', ')}</td>
-                    <td><Badge variant="primary">{biz.subscriptionId?.plan || 'trial'}</Badge></td>
+                    <td><Badge variant="primary">{biz.subscription?.plan || 'trial'}</Badge></td>
                     <td>{formatDate(biz.createdAt)}</td>
                     <td><button className="delete-btn" onClick={() => deleteBusiness(biz._id)}><Icons.Trash /></button></td>
                   </tr>
