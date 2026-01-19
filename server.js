@@ -3123,13 +3123,18 @@ app.get('/terms', (req, res) => {
   res.redirect('/app#terms');
 });
 
-// Superadmin page - served as React SPA
-app.get('/SUPERADMIN', (req, res) => {
+// Superadmin page - served as React SPA (case-insensitive)
+app.get('/superadmin', (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
   } else {
-    res.redirect('http://localhost:3000/SUPERADMIN');
+    res.redirect('http://localhost:3000/superadmin');
   }
+});
+
+// Redirect uppercase to lowercase for consistency
+app.get('/SUPERADMIN', (req, res) => {
+  res.redirect('/superadmin');
 });
 
 // Catch-all for React app routes
@@ -3146,6 +3151,15 @@ if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, 'client/build'), {
     index: false // Don't serve index.html for "/" - we handle that above
   }));
+  
+  // Final catch-all - serve React app for any unmatched routes (except API)
+  app.get('*', (req, res) => {
+    // Don't catch API routes
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'API endpoint not found' });
+    }
+    res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+  });
 }
 
 // ===========================================
