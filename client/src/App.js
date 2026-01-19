@@ -1616,7 +1616,7 @@ const SuperAdminPage = ({ onBack }) => {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState({ users: [], businesses: [], permits: [], jurisdictions: [], permitTypes: [], stats: null });
   const [message, setMessage] = useState('');
-  const [newJurisdiction, setNewJurisdiction] = useState({ name: '', city: '', state: '', county: '' });
+  const [newJurisdiction, setNewJurisdiction] = useState({ name: '', city: '', state: '', county: '', type: 'city' });
   const [newPermitType, setNewPermitType] = useState({ name: '', description: '', jurisdictionId: '', vendorTypes: [], renewalPeriodMonths: 12, importanceLevel: 'critical', issuingAuthorityName: '', estimatedCost: '', requiredDocuments: '', fees: { application: 0, renewal: 0 } });
   const [searchTerm, setSearchTerm] = useState('');
   const [duplicateTarget, setDuplicateTarget] = useState(null);
@@ -1708,7 +1708,7 @@ const SuperAdminPage = ({ onBack }) => {
   const createJurisdiction = async () => {
     try {
       await adminApi('/admin/jurisdictions', 'POST', newJurisdiction);
-      setNewJurisdiction({ name: '', city: '', state: '', county: '' });
+      setNewJurisdiction({ name: '', city: '', state: '', county: '', type: 'city' });
       fetchData('jurisdictions');
       setMessage('Jurisdiction created');
     } catch (err) { setMessage(err.message); }
@@ -1884,6 +1884,9 @@ const SuperAdminPage = ({ onBack }) => {
               </div>
               <div className="form-section">
                 <div className="form-row">
+                  <div className="form-group">
+                    <Select label="Type *" value={newJurisdiction.type} onChange={(e) => setNewJurisdiction(j => ({ ...j, type: e.target.value }))} options={[{ value: 'city', label: 'City' }, { value: 'county', label: 'County' }, { value: 'state', label: 'State' }]} />
+                  </div>
                   <div className="form-group">
                     <Input label="City *" placeholder="Austin" value={newJurisdiction.city} onChange={(e) => {
                       const city = e.target.value;
