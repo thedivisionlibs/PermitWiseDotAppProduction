@@ -2109,9 +2109,10 @@ const App = () => {
     else if (params.get('login') === 'true' || window.location.pathname === '/app') { setAuthView('login'); }
     // Handle direct URL access to legal/superadmin pages
     const path = window.location.pathname;
+    const pathLower = path.toLowerCase();
     if (path === '/privacy') setLegalPage('privacy');
     else if (path === '/terms') setLegalPage('terms');
-    else if (path === '/SUPERADMIN') setLegalPage('superadmin');
+    else if (pathLower === '/superadmin') setLegalPage('superadmin');
   }, []);
 
   // Password reset page (accessible without auth)
