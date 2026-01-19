@@ -969,6 +969,21 @@ app.post('/api/onboarding/complete', authMiddleware, async (req, res) => {
       insurance
     } = req.body;
     
+    // Validate required fields
+    if (!businessName) return res.status(400).json({ error: 'Business name is required' });
+    if (!primaryVendorType) return res.status(400).json({ error: 'Business type is required' });
+    
+    const validVendorTypes = ['food_truck', 'tent_vendor', 'mobile_retail', 'farmers_market', 'craft_vendor', 'mobile_bartender', 'mobile_groomer', 'pop_up_shop', 'other'];
+    if (!validVendorTypes.includes(primaryVendorType)) {
+      return res.status(400).json({ error: 'Invalid business type' });
+    }
+    
+    // Check if user already has a business
+    const existingBusiness = await VendorBusiness.findOne({ ownerId: req.userId });
+    if (existingBusiness) {
+      return res.status(400).json({ error: 'You already have a business registered' });
+    }
+    
     // Create vendor business
     const business = new VendorBusiness({
       ownerId: req.userId,
@@ -1495,6 +1510,17 @@ app.post('/api/permits', authMiddleware, async (req, res) => {
   try {
     const { permitTypeId, jurisdictionId, status, permitNumber, issueDate, expiryDate, notes } = req.body;
     
+    // Validate required fields
+    if (!permitTypeId) return res.status(400).json({ error: 'Permit type is required' });
+    if (!jurisdictionId) return res.status(400).json({ error: 'Jurisdiction is required' });
+    
+    // Verify permit type and jurisdiction exist
+    const permitType = await PermitType.findById(permitTypeId);
+    if (!permitType) return res.status(400).json({ error: 'Permit type not found' });
+    
+    const jurisdiction = await Jurisdiction.findById(jurisdictionId);
+    if (!jurisdiction) return res.status(400).json({ error: 'Jurisdiction not found' });
+    
     // Check if permit already exists
     const existing = await VendorPermit.findOne({
       vendorBusinessId: req.user.vendorBusinessId,
@@ -1992,7 +2018,22 @@ app.get('/api/checklists/:id', authMiddleware, async (req, res) => {
 // Create checklist (admin)
 app.post('/api/checklists', masterAdminMiddleware, async (req, res) => {
   try {
-    const checklist = new InspectionChecklist(req.body);
+    const { name, category, items, jurisdictionId } = req.body;
+    
+    // Validate required fields
+    if (!name) return res.status(400).json({ error: 'Checklist name is required' });
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Checklist must have at least one item' });
+    }
+    
+    // Validate each item has itemText
+    for (let i = 0; i < items.length; i++) {
+      if (!items[i].itemText) {
+        return res.status(400).json({ error: `Item ${i + 1} is missing itemText` });
+      }
+    }
+    
+    const checklist = new InspectionChecklist({ name, category, items, jurisdictionId });
     await checklist.save();
     res.status(201).json({ checklist });
   } catch (error) {
@@ -2216,9 +2257,28 @@ app.post('/api/events/:id/apply', authMiddleware, async (req, res) => {
 // Create event (organizer)
 app.post('/api/events', authMiddleware, async (req, res) => {
   try {
+    const { organizerName, eventName, location, startDate, endDate, eventType, vendorSpots, vendorFee, applicationDeadline, description } = req.body;
+    
+    // Validate required fields
+    if (!organizerName) return res.status(400).json({ error: 'Organizer name is required' });
+    if (!eventName) return res.status(400).json({ error: 'Event name is required' });
+    if (!location?.city) return res.status(400).json({ error: 'Event city is required' });
+    if (!location?.state) return res.status(400).json({ error: 'Event state is required' });
+    if (!startDate) return res.status(400).json({ error: 'Start date is required' });
+    if (!endDate) return res.status(400).json({ error: 'End date is required' });
+    
     const event = new Event({
-      ...req.body,
-      organizerId: req.userId
+      organizerId: req.userId,
+      organizerName,
+      eventName,
+      location,
+      startDate,
+      endDate,
+      eventType,
+      vendorSpots,
+      vendorFee,
+      applicationDeadline,
+      description
     });
     await event.save();
     res.status(201).json({ event });
@@ -2254,6 +2314,13 @@ app.get('/api/notifications', authMiddleware, async (req, res) => {
 app.post('/api/notifications', authMiddleware, async (req, res) => {
   try {
     const { type, channelAddress, subject, message, sendAt, relatedVendorPermitId } = req.body;
+    
+    // Validate required fields
+    if (!type) return res.status(400).json({ error: 'Notification type is required (email, sms, or push)' });
+    if (!['email', 'sms', 'push'].includes(type)) return res.status(400).json({ error: 'Type must be email, sms, or push' });
+    if (!channelAddress) return res.status(400).json({ error: 'Channel address is required (email or phone number)' });
+    if (!message) return res.status(400).json({ error: 'Message is required' });
+    if (!sendAt) return res.status(400).json({ error: 'Send date/time is required' });
     
     // Validate permit ownership if provided
     if (relatedVendorPermitId) {
@@ -2876,7 +2943,15 @@ app.get('/api/admin/jurisdictions', masterAdminMiddleware, async (req, res) => {
 // Admin Create Jurisdiction
 app.post('/api/admin/jurisdictions', masterAdminMiddleware, async (req, res) => {
   try {
-    const jurisdiction = new Jurisdiction(req.body);
+    const { name, type, city, state, county, notes, contactInfo } = req.body;
+    
+    // Validate required fields
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    if (!type) return res.status(400).json({ error: 'Type is required (city, county, or state)' });
+    if (!['city', 'county', 'state'].includes(type)) return res.status(400).json({ error: 'Type must be city, county, or state' });
+    if (!state) return res.status(400).json({ error: 'State is required' });
+    
+    const jurisdiction = new Jurisdiction({ name, type, city, state, county, notes, contactInfo });
     await jurisdiction.save();
     res.status(201).json({ jurisdiction });
   } catch (error) {
@@ -2908,7 +2983,17 @@ app.get('/api/admin/permit-types', masterAdminMiddleware, async (req, res) => {
 // Admin Create Permit Type
 app.post('/api/admin/permit-types', masterAdminMiddleware, async (req, res) => {
   try {
-    const permitType = new PermitType(req.body);
+    const { name, jurisdictionId, vendorTypes, description, issuingAuthorityName, renewalPeriodMonths, importanceLevel, estimatedCost, requiredDocuments, fees } = req.body;
+    
+    // Validate required fields
+    if (!name) return res.status(400).json({ error: 'Permit name is required' });
+    if (!jurisdictionId) return res.status(400).json({ error: 'Jurisdiction is required' });
+    
+    // Verify jurisdiction exists
+    const jurisdiction = await Jurisdiction.findById(jurisdictionId);
+    if (!jurisdiction) return res.status(400).json({ error: 'Jurisdiction not found' });
+    
+    const permitType = new PermitType({ name, jurisdictionId, vendorTypes, description, issuingAuthorityName, renewalPeriodMonths, importanceLevel, estimatedCost, requiredDocuments, fees });
     await permitType.save();
     res.status(201).json({ permitType });
   } catch (error) {
