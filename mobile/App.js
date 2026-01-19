@@ -2517,4 +2517,3 @@ const styles = StyleSheet.create({
   successMessage: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#dcfce7', padding: 12, borderRadius: 8, marginBottom: 16 },
   successText: { fontSize: 14, color: '#166534', flex: 1 },
 });
-
