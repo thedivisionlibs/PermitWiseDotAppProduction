@@ -1403,7 +1403,6 @@ const EventsPage = () => {
     </div>
   );
 };
-};
 
 const SettingsPage = () => {
   const { user, business, subscription, fetchUser, updateBusiness } = useAuth();
