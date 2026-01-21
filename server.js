@@ -1431,6 +1431,80 @@ app.put('/api/permit-types/:id', masterAdminMiddleware, async (req, res) => {
 // VENDOR PERMIT ROUTES
 // ===========================================
 
+// Sync permits - check for new permit types and add missing ones
+app.post('/api/permits/sync', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.vendorBusinessId) {
+      return res.status(404).json({ error: 'No business found' });
+    }
+    
+    const business = await VendorBusiness.findById(req.user.vendorBusinessId);
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+    
+    // Get user's existing permit type IDs
+    const existingPermits = await VendorPermit.find({ vendorBusinessId: business._id });
+    const existingPermitTypeIds = new Set(existingPermits.map(p => p.permitTypeId.toString()));
+    
+    let addedCount = 0;
+    const addedPermits = [];
+    
+    // Check each operating city for new permit types
+    for (const city of (business.operatingCities || [])) {
+      // Find jurisdiction for this city
+      const jurisdiction = await Jurisdiction.findOne({
+        $or: [
+          { city: new RegExp(`^${city.city}$`, 'i'), state: city.state },
+          { name: new RegExp(`^${city.city}$`, 'i'), state: city.state }
+        ],
+        active: true
+      });
+      
+      if (!jurisdiction) continue;
+      
+      // Find all permit types for this jurisdiction that match vendor type
+      // Check both primary and secondary vendor types
+      const vendorTypes = [business.primaryVendorType, ...(business.secondaryVendorTypes || [])].filter(Boolean);
+      
+      const permitTypes = await PermitType.find({
+        jurisdictionId: jurisdiction._id,
+        vendorTypes: { $in: vendorTypes },
+        active: true
+      });
+      
+      // Add any permit types the user doesn't have yet
+      for (const pt of permitTypes) {
+        if (!existingPermitTypeIds.has(pt._id.toString())) {
+          const newPermit = new VendorPermit({
+            vendorBusinessId: business._id,
+            permitTypeId: pt._id,
+            jurisdictionId: jurisdiction._id,
+            status: 'missing'
+          });
+          await newPermit.save();
+          existingPermitTypeIds.add(pt._id.toString()); // Prevent duplicates within same sync
+          addedCount++;
+          
+          const populated = await VendorPermit.findById(newPermit._id)
+            .populate('permitTypeId')
+            .populate('jurisdictionId');
+          addedPermits.push(populated);
+        }
+      }
+    }
+    
+    res.json({ 
+      synced: true, 
+      addedCount,
+      addedPermits,
+      message: addedCount > 0 ? `Added ${addedCount} new permit(s) to your dashboard` : 'All permits up to date'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get all vendor permits (dashboard)
 app.get('/api/permits', authMiddleware, async (req, res) => {
   try {
