@@ -6,6 +6,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Svg, { Path, Circle, Rect, Polyline, Line } from 'react-native-svg';
+import * as ImagePicker from 'expo-image-picker';
 
 // ===========================================
 // CONFIGURATION
@@ -843,9 +844,15 @@ const DashboardScreen = ({ navigation }) => {
 };
 
 const PermitsScreen = ({ navigation }) => {
+  const { business } = useAuth();
   const [permits, setPermits] = useState([]); const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false);
   const [showAddCityModal, setShowAddCityModal] = useState(false);
+  const [showSuggestModal, setShowSuggestModal] = useState(false);
+  const [suggestedPermits, setSuggestedPermits] = useState([]);
+  const [selectedSuggestions, setSelectedSuggestions] = useState([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [addingSuggestions, setAddingSuggestions] = useState(false);
 
   const syncAndFetchPermits = async () => {
     try {
@@ -863,8 +870,60 @@ const PermitsScreen = ({ navigation }) => {
     catch (error) { console.error(error); } finally { setLoading(false); setRefreshing(false); }
   };
 
+  const fetchSuggestedPermits = async () => {
+    if (!business?.operatingCities?.[0]) return;
+    setLoadingSuggestions(true);
+    try {
+      const city = business.operatingCities.find(c => c.isPrimary) || business.operatingCities[0];
+      const data = await api.get(`/permit-types/required?city=${city.city}&state=${city.state}&vendorType=${business.primaryVendorType}`);
+      if (data.permitTypes?.length > 0) {
+        setSuggestedPermits(data.permitTypes);
+        setSelectedSuggestions(data.permitTypes.map(p => p._id));
+        setShowSuggestModal(true);
+      } else {
+        Alert.alert('No Suggestions', 'We don\'t have permit data for your city yet. You can add permits manually.');
+      }
+    } catch (err) { console.error(err); Alert.alert('Error', err.message); }
+    finally { setLoadingSuggestions(false); }
+  };
+
+  const toggleSuggestion = (id) => {
+    setSelectedSuggestions(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
+  };
+
+  const addSuggestedPermits = async () => {
+    if (selectedSuggestions.length === 0) { setShowSuggestModal(false); return; }
+    setAddingSuggestions(true);
+    try {
+      for (const permitTypeId of selectedSuggestions) {
+        const pt = suggestedPermits.find(p => p._id === permitTypeId);
+        if (pt) {
+          await api.post('/permits', { permitTypeId, jurisdictionId: pt.jurisdictionId._id || pt.jurisdictionId, status: 'missing' });
+        }
+      }
+      setShowSuggestModal(false);
+      fetchPermits();
+      Alert.alert('Success', `Added ${selectedSuggestions.length} permit(s)`);
+    } catch (err) { Alert.alert('Error', err.message); }
+    finally { setAddingSuggestions(false); }
+  };
+
   useEffect(() => { syncAndFetchPermits(); }, []); // Sync on initial load
   useEffect(() => { const unsubscribe = navigation.addListener('focus', syncAndFetchPermits); return unsubscribe; }, [navigation]);
+  
+  // Show suggestion modal when permits are empty
+  useEffect(() => {
+    if (!loading && permits.length === 0 && business?.operatingCities?.length > 0 && !showSuggestModal) {
+      fetchSuggestedPermits();
+    }
+  }, [loading, permits.length, business]);
+
+  const getImportanceLabel = (level) => {
+    if (level === 'critical') return { text: 'Critical', color: COLORS.danger };
+    if (level === 'often_forgotten') return { text: 'Often Forgotten', color: COLORS.warning };
+    if (level === 'event_required') return { text: 'Event Required', color: COLORS.primary };
+    return null;
+  };
 
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
@@ -905,10 +964,76 @@ const PermitsScreen = ({ navigation }) => {
             )}
           </Card>
         )}
-        ListEmptyComponent={<View style={styles.emptyContainer}><Icons.Permit size={48} color={COLORS.gray300} /><Text style={styles.emptyTitle}>No permits yet</Text><Text style={styles.emptyText}>Tap + to add a permit</Text></View>}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Icons.Permit size={48} color={COLORS.gray300} />
+            <Text style={styles.emptyTitle}>No permits yet</Text>
+            <Text style={styles.emptyText}>Let us suggest permits for your business</Text>
+            <Button title={loadingSuggestions ? "Loading..." : "Get Suggestions"} onPress={fetchSuggestedPermits} loading={loadingSuggestions} style={{ marginTop: 16 }} />
+          </View>
+        }
         contentContainerStyle={styles.listContent}
       />
       <AddCityPermitsModal visible={showAddCityModal} onClose={() => setShowAddCityModal(false)} onSuccess={() => { setShowAddCityModal(false); fetchPermits(); }} />
+      
+      {/* Suggested Permits Modal */}
+      <Modal visible={showSuggestModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.suggestModal}>
+            <View style={styles.suggestModalHeader}>
+              <Text style={styles.suggestModalTitle}>Suggested Permits</Text>
+              <TouchableOpacity onPress={() => setShowSuggestModal(false)}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.suggestModalContent}>
+              <Text style={styles.suggestModalIntro}>
+                Based on your {VENDOR_TYPES.find(v => v.value === business?.primaryVendorType)?.label || 'business'} in {business?.operatingCities?.[0]?.city}, {business?.operatingCities?.[0]?.state}:
+              </Text>
+              
+              <View style={styles.suggestSelectRow}>
+                <Text style={styles.suggestSelectedCount}>{selectedSuggestions.length} of {suggestedPermits.length} selected</Text>
+                <TouchableOpacity onPress={() => setSelectedSuggestions(suggestedPermits.map(p => p._id))}>
+                  <Text style={styles.selectAllText}>Select All</Text>
+                </TouchableOpacity>
+              </View>
+              
+              {suggestedPermits.map(permit => {
+                const isSelected = selectedSuggestions.includes(permit._id);
+                const label = getImportanceLabel(permit.importanceLevel);
+                return (
+                  <TouchableOpacity key={permit._id} style={[styles.suggestItem, isSelected && styles.suggestItemSelected]} onPress={() => toggleSuggestion(permit._id)}>
+                    <View style={[styles.suggestCheckbox, isSelected && styles.suggestCheckboxSelected]}>
+                      {isSelected && <Icons.Check size={14} color={COLORS.white} />}
+                    </View>
+                    <View style={styles.suggestItemContent}>
+                      <View style={styles.suggestItemHeader}>
+                        <Text style={styles.suggestItemName}>{permit.name}</Text>
+                        {label && <View style={[styles.suggestBadge, { backgroundColor: label.color + '20' }]}><Text style={[styles.suggestBadgeText, { color: label.color }]}>{label.text}</Text></View>}
+                      </View>
+                      {permit.description && <Text style={styles.suggestItemDesc} numberOfLines={2}>{permit.description}</Text>}
+                      <Text style={styles.suggestItemMeta}>
+                        {permit.issuingAuthorityName && `${permit.issuingAuthorityName} • `}Renews every {permit.renewalPeriodMonths || 12} months
+                        {permit.estimatedCost && ` • ${permit.estimatedCost}`}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            
+            <View style={styles.suggestModalFooter}>
+              <Button title="Skip for Now" variant="outline" onPress={() => setShowSuggestModal(false)} style={{ flex: 1, marginRight: 8 }} />
+              <Button 
+                title={addingSuggestions ? "Adding..." : `Add ${selectedSuggestions.length} Permit${selectedSuggestions.length !== 1 ? 's' : ''}`} 
+                onPress={addSuggestedPermits} 
+                loading={addingSuggestions}
+                disabled={selectedSuggestions.length === 0}
+                style={{ flex: 1 }} 
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -992,6 +1117,7 @@ const PermitDetailScreen = ({ route, navigation }) => {
   const [permit, setPermit] = useState(initialPermit);
   const [loadingAutofill, setLoadingAutofill] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   
   // Refresh permit data when screen comes into focus (after editing)
   useEffect(() => {
@@ -1044,6 +1170,74 @@ const PermitDetailScreen = ({ route, navigation }) => {
       Alert.alert('Error', error.message);
     } finally {
       setLoadingAutofill(false);
+    }
+  };
+  
+  const handleUploadDocument = async () => {
+    // Show options: camera or photo library
+    Alert.alert(
+      'Upload Document',
+      'Choose a source',
+      [
+        { text: 'Camera', onPress: () => pickImage('camera') },
+        { text: 'Photo Library', onPress: () => pickImage('library') },
+        { text: 'Cancel', style: 'cancel' }
+      ]
+    );
+  };
+  
+  const pickImage = async (source) => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant camera roll permissions to upload documents.');
+        return;
+      }
+      
+      let result;
+      if (source === 'camera') {
+        const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
+        if (cameraStatus.status !== 'granted') {
+          Alert.alert('Permission Required', 'Please grant camera permissions.');
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+      } else {
+        result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+      }
+      
+      if (!result.canceled && result.assets?.[0]) {
+        setUploading(true);
+        const asset = result.assets[0];
+        const formData = new FormData();
+        formData.append('file', {
+          uri: asset.uri,
+          type: 'image/jpeg',
+          name: `permit_${permit._id}.jpg`
+        });
+        formData.append('category', 'permit');
+        formData.append('permitId', permit._id);
+        
+        try {
+          await api.upload('/documents', formData);
+          Alert.alert('Success', 'Document uploaded successfully');
+          refreshPermit();
+        } catch (err) {
+          Alert.alert('Error', err.message || 'Failed to upload document');
+        } finally {
+          setUploading(false);
+        }
+      }
+    } catch (err) {
+      console.error('Image picker error:', err);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+  
+  const handleViewDocument = async () => {
+    if (permit.documentId?.fileUrl) {
+      const secureUrl = await getSecureFileUrl(permit.documentId.fileUrl);
+      await Linking.openURL(secureUrl);
     }
   };
   
@@ -1122,6 +1316,34 @@ const PermitDetailScreen = ({ route, navigation }) => {
             </View>
           )}
         </Card>
+        
+        {/* Document Section */}
+        <Card style={styles.detailCard}>
+          <Text style={styles.permitTypeInfoTitle}>Document</Text>
+          {permit.documentId ? (
+            <TouchableOpacity style={styles.documentPreview} onPress={handleViewDocument}>
+              <Icons.Document size={24} color={COLORS.primary} />
+              <View style={styles.documentInfo}>
+                <Text style={styles.documentName} numberOfLines={1}>{permit.documentId.originalName || 'Attached Document'}</Text>
+                <Text style={styles.documentHint}>Tap to view</Text>
+              </View>
+              <Icons.Download size={20} color={COLORS.primary} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.uploadDocArea} onPress={handleUploadDocument} disabled={uploading}>
+              {uploading ? (
+                <ActivityIndicator color={COLORS.primary} />
+              ) : (
+                <>
+                  <Icons.Upload size={32} color={COLORS.gray400} />
+                  <Text style={styles.uploadDocText}>Tap to upload document</Text>
+                  <Text style={styles.uploadDocHint}>Photo or scan of your permit</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+        </Card>
+        
         {subscription?.features?.autofill && (
           <Button 
             title={loadingAutofill ? 'Generating...' : 'Generate Application PDF'} 
@@ -1848,41 +2070,63 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
 const InspectionsScreen = () => {
   const { subscription } = useAuth();
   const [checklists, setChecklists] = useState([]);
+  const [inspections, setInspections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeChecklist, setActiveChecklist] = useState(null);
-  const [checklistItems, setChecklistItems] = useState({});
+  const [inspectionData, setInspectionData] = useState({ items: [], notes: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState('checklists'); // 'checklists' or 'history'
 
   // Plan check: Pro, Elite, Promo, or Lifetime required
   const hasAccess = subscription?.plan === 'pro' || subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.inspectionChecklists;
 
-  const fetchChecklists = async () => {
+  const fetchData = async () => {
     try {
-      const data = await api.get('/checklists');
-      setChecklists(data.checklists || []);
+      const [cl, insp] = await Promise.all([api.get('/checklists'), api.get('/inspections')]);
+      setChecklists(cl.checklists || []);
+      setInspections(insp.inspections || []);
     } catch (error) { console.error(error); }
     finally { setLoading(false); setRefreshing(false); }
   };
 
-  useEffect(() => { if (hasAccess) fetchChecklists(); else setLoading(false); }, [hasAccess]);
+  useEffect(() => { if (hasAccess) fetchData(); else setLoading(false); }, [hasAccess]);
 
-  const toggleItem = (checklistId, sectionIdx, itemIdx) => {
-    setChecklistItems(prev => {
-      const key = `${checklistId}-${sectionIdx}-${itemIdx}`;
-      return { ...prev, [key]: !prev[key] };
+  const startInspection = (checklist) => {
+    setActiveChecklist(checklist);
+    // Handle both items array directly or items within sections
+    const items = checklist.items || (checklist.sections || []).flatMap(s => s.items || []);
+    setInspectionData({ 
+      items: items.map(item => ({ 
+        itemText: item.itemText || item.description || item.name,
+        description: item.description,
+        passed: null, 
+        notes: '' 
+      })), 
+      notes: '' 
     });
   };
 
-  const getProgress = (checklist) => {
-    if (!checklist.sections) return 0;
-    let total = 0, completed = 0;
-    checklist.sections.forEach((section, sIdx) => {
-      section.items.forEach((_, iIdx) => {
-        total++;
-        if (checklistItems[`${checklist._id}-${sIdx}-${iIdx}`]) completed++;
+  const updateItem = (index, field, value) => {
+    const items = [...inspectionData.items];
+    items[index] = { ...items[index], [field]: value };
+    setInspectionData(d => ({ ...d, items }));
+  };
+
+  const submitInspection = async () => {
+    setSubmitting(true);
+    try {
+      await api.post('/inspections', { 
+        checklistId: activeChecklist._id, 
+        items: inspectionData.items, 
+        notes: inspectionData.notes, 
+        inspectionDate: new Date() 
       });
-    });
-    return total > 0 ? Math.round((completed / total) * 100) : 0;
+      Alert.alert('Success', 'Inspection completed!');
+      setActiveChecklist(null);
+      fetchData();
+    } catch (err) { Alert.alert('Error', err.message); }
+    finally { setSubmitting(false); }
   };
 
   // Show upgrade modal for non-Pro users
@@ -1940,7 +2184,7 @@ const InspectionsScreen = () => {
             <Text style={styles.upgradeModalPricingNote}>Also includes SMS alerts, PDF autofill & multi-city support</Text>
           </View>
 
-          <Button title="Upgrade to Pro" onPress={() => navigation?.navigate?.('Settings') || Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
+          <Button title="Upgrade to Pro" onPress={() => Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
           <Text style={styles.upgradeModalCancel}>14-day free trial • Cancel anytime</Text>
         </ScrollView>
       </SafeAreaView>
@@ -1949,36 +2193,95 @@ const InspectionsScreen = () => {
 
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
+  // Active inspection flow
   if (activeChecklist) {
-    const progress = getProgress(activeChecklist);
+    const passedCount = inspectionData.items.filter(i => i.passed === true).length;
+    const failedCount = inspectionData.items.filter(i => i.passed === false).length;
+    const pendingCount = inspectionData.items.filter(i => i.passed === null).length;
+    const progress = inspectionData.items.length > 0 ? Math.round(((passedCount + failedCount) / inspectionData.items.length) * 100) : 0;
+    
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.pageHeader}>
-          <TouchableOpacity onPress={() => setActiveChecklist(null)}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
-          <Text style={styles.pageTitleSmall}>{activeChecklist.name}</Text>
-          <Text style={styles.progressText}>{progress}%</Text>
+        <View style={styles.inspectionHeader}>
+          <TouchableOpacity onPress={() => setActiveChecklist(null)} style={styles.backButton}>
+            <Icons.X size={24} color={COLORS.gray600} />
+          </TouchableOpacity>
+          <View style={styles.inspectionHeaderText}>
+            <Text style={styles.inspectionTitle}>{activeChecklist.name}</Text>
+            <Text style={styles.inspectionProgress}>{progress}% complete</Text>
+          </View>
         </View>
         <View style={styles.progressBarContainer}><View style={[styles.progressBarFill, { width: `${progress}%` }]} /></View>
-        <ScrollView contentContainerStyle={styles.checklistScroll}>
-          {activeChecklist.sections?.map((section, sIdx) => (
-            <View key={sIdx} style={styles.checklistSection}>
-              <Text style={styles.checklistSectionTitle}>{section.title}</Text>
-              {section.items.map((item, iIdx) => {
-                const isChecked = checklistItems[`${activeChecklist._id}-${sIdx}-${iIdx}`];
-                return (
-                  <TouchableOpacity key={iIdx} style={styles.checklistItem} onPress={() => toggleItem(activeChecklist._id, sIdx, iIdx)}>
-                    <View style={[styles.checkbox, isChecked && styles.checkboxChecked]}>
-                      {isChecked && <Icons.Check size={14} color={COLORS.white} />}
-                    </View>
-                    <View style={styles.checklistItemContent}>
-                      <Text style={[styles.checklistItemText, isChecked && styles.checklistItemChecked]}>{item.description}</Text>
-                      {item.tip && <Text style={styles.checklistTip}>💡 {item.tip}</Text>}
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+        
+        <ScrollView contentContainerStyle={styles.inspectionScroll}>
+          {inspectionData.items.map((item, i) => (
+            <Card key={i} style={[styles.inspectionItemCard, item.passed === true && styles.itemPassed, item.passed === false && styles.itemFailed]}>
+              <View style={styles.inspectionItemHeader}>
+                <View style={styles.itemNumberBadge}><Text style={styles.itemNumberText}>{i + 1}</Text></View>
+                <Text style={styles.inspectionItemText}>{item.itemText}</Text>
+              </View>
+              {item.description && <Text style={styles.inspectionItemDesc}>{item.description}</Text>}
+              <View style={styles.passFailButtons}>
+                <TouchableOpacity 
+                  style={[styles.passBtn, item.passed === true && styles.passBtnActive]} 
+                  onPress={() => updateItem(i, 'passed', true)}
+                >
+                  <Icons.Check size={18} color={item.passed === true ? COLORS.white : COLORS.success} />
+                  <Text style={[styles.passBtnText, item.passed === true && styles.passBtnTextActive]}>Pass</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.failBtn, item.passed === false && styles.failBtnActive]} 
+                  onPress={() => updateItem(i, 'passed', false)}
+                >
+                  <Icons.X size={18} color={item.passed === false ? COLORS.white : COLORS.danger} />
+                  <Text style={[styles.failBtnText, item.passed === false && styles.failBtnTextActive]}>Fail</Text>
+                </TouchableOpacity>
+              </View>
+              {item.passed === false && (
+                <TextInput
+                  style={styles.failNoteInput}
+                  placeholder="Notes on failure..."
+                  value={item.notes}
+                  onChangeText={(v) => updateItem(i, 'notes', v)}
+                  multiline
+                />
+              )}
+            </Card>
           ))}
+          
+          <Card style={styles.inspectionSummaryCard}>
+            <Text style={styles.summaryTitle}>Summary</Text>
+            <View style={styles.summaryStats}>
+              <View style={styles.summaryStat}>
+                <Text style={[styles.summaryStatCount, { color: COLORS.success }]}>{passedCount}</Text>
+                <Text style={styles.summaryStatLabel}>Passed</Text>
+              </View>
+              <View style={styles.summaryStat}>
+                <Text style={[styles.summaryStatCount, { color: COLORS.danger }]}>{failedCount}</Text>
+                <Text style={styles.summaryStatLabel}>Failed</Text>
+              </View>
+              <View style={styles.summaryStat}>
+                <Text style={[styles.summaryStatCount, { color: COLORS.gray500 }]}>{pendingCount}</Text>
+                <Text style={styles.summaryStatLabel}>Pending</Text>
+              </View>
+            </View>
+            <Text style={[styles.label, { marginTop: 12 }]}>Overall Notes</Text>
+            <TextInput
+              style={styles.overallNotesInput}
+              placeholder="Add any overall notes..."
+              value={inspectionData.notes}
+              onChangeText={(v) => setInspectionData(d => ({ ...d, notes: v }))}
+              multiline
+            />
+            <Button 
+              title={submitting ? "Submitting..." : "Complete Inspection"} 
+              onPress={submitInspection} 
+              loading={submitting}
+              disabled={pendingCount > 0}
+              style={{ marginTop: 16 }}
+            />
+            {pendingCount > 0 && <Text style={styles.pendingWarning}>Complete all items before submitting</Text>}
+          </Card>
         </ScrollView>
       </SafeAreaView>
     );
@@ -1986,32 +2289,90 @@ const InspectionsScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.pageHeader}><Text style={styles.pageTitle}>Inspection Prep</Text></View>
-      <FlatList
-        data={checklists}
-        keyExtractor={item => item._id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchChecklists(); }} />}
-        renderItem={({ item }) => (
-          <Card style={styles.checklistCard} onPress={() => setActiveChecklist(item)}>
-            <View style={styles.checklistHeader}>
-              <Icons.Checklist size={24} color={COLORS.primary} />
-              <View style={styles.checklistInfo}>
-                <Text style={styles.checklistName}>{item.name}</Text>
-                <Text style={styles.checklistMeta}>{item.sections?.length || 0} sections • {item.jurisdictionId?.name || 'General'}</Text>
+      <View style={styles.pageHeader}><Text style={styles.pageTitle}>Inspections</Text></View>
+      
+      {/* Tab Buttons */}
+      <View style={styles.inspectionTabs}>
+        <TouchableOpacity 
+          style={[styles.inspectionTab, activeTab === 'checklists' && styles.inspectionTabActive]} 
+          onPress={() => setActiveTab('checklists')}
+        >
+          <Text style={[styles.inspectionTabText, activeTab === 'checklists' && styles.inspectionTabTextActive]}>Checklists</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.inspectionTab, activeTab === 'history' && styles.inspectionTabActive]} 
+          onPress={() => setActiveTab('history')}
+        >
+          <Text style={[styles.inspectionTabText, activeTab === 'history' && styles.inspectionTabTextActive]}>History ({inspections.length})</Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeTab === 'checklists' ? (
+        <FlatList
+          data={checklists}
+          keyExtractor={item => item._id}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchData(); }} />}
+          renderItem={({ item }) => (
+            <Card style={styles.checklistCard} onPress={() => startInspection(item)}>
+              <View style={styles.checklistHeader}>
+                <Icons.Checklist size={24} color={COLORS.primary} />
+                <View style={styles.checklistInfo}>
+                  <Text style={styles.checklistName}>{item.name}</Text>
+                  <Text style={styles.checklistMeta}>{item.items?.length || 0} items • {item.jurisdictionId?.name || 'General'}</Text>
+                </View>
+                <View style={styles.startBtnSmall}><Text style={styles.startBtnText}>Start</Text></View>
               </View>
-              <Badge label={`${getProgress(item)}%`} variant={getProgress(item) === 100 ? 'success' : 'primary'} />
+              {item.description && <Text style={styles.checklistDesc}>{item.description}</Text>}
+            </Card>
+          )}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Icons.Checklist size={48} color={COLORS.gray300} />
+              <Text style={styles.emptyTitle}>No checklists yet</Text>
+              <Text style={styles.emptyText}>Checklists will appear based on your operating cities</Text>
             </View>
-          </Card>
-        )}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Icons.Checklist size={48} color={COLORS.gray300} />
-            <Text style={styles.emptyTitle}>No checklists yet</Text>
-            <Text style={styles.emptyText}>Checklists will appear based on your operating cities</Text>
-          </View>
-        }
-        contentContainerStyle={styles.listContent}
-      />
+          }
+          contentContainerStyle={styles.listContent}
+        />
+      ) : (
+        <FlatList
+          data={inspections}
+          keyExtractor={item => item._id}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchData(); }} />}
+          renderItem={({ item }) => (
+            <Card style={styles.inspectionHistoryCard}>
+              <View style={styles.inspectionHistoryHeader}>
+                <View>
+                  <Text style={styles.inspectionHistoryName}>{item.checklistId?.name || 'Inspection'}</Text>
+                  <Text style={styles.inspectionHistoryDate}>{formatDate(item.inspectionDate)}</Text>
+                </View>
+                <Badge 
+                  label={item.overallStatus?.toUpperCase() || 'COMPLETED'} 
+                  variant={item.overallStatus === 'passed' ? 'success' : item.overallStatus === 'failed' ? 'danger' : 'warning'} 
+                />
+              </View>
+              {item.items && (
+                <View style={styles.inspectionHistoryStats}>
+                  <Text style={styles.historyStatText}>
+                    ✓ {item.items.filter(i => i.passed === true).length} passed
+                  </Text>
+                  <Text style={styles.historyStatText}>
+                    ✗ {item.items.filter(i => i.passed === false).length} failed
+                  </Text>
+                </View>
+              )}
+            </Card>
+          )}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Icons.Checklist size={48} color={COLORS.gray300} />
+              <Text style={styles.emptyTitle}>No inspections yet</Text>
+              <Text style={styles.emptyText}>Complete a checklist to see your history here</Text>
+            </View>
+          }
+          contentContainerStyle={styles.listContent}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -2586,10 +2947,88 @@ const styles = StyleSheet.create({
   checklistInfo: { flex: 1 },
   checklistName: { fontSize: 16, fontWeight: '600', color: COLORS.gray800 },
   checklistMeta: { fontSize: 13, color: COLORS.gray500, marginTop: 2 },
+  checklistDesc: { fontSize: 13, color: COLORS.gray600, marginTop: 8 },
+  startBtnSmall: { backgroundColor: COLORS.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
+  startBtnText: { color: COLORS.white, fontSize: 13, fontWeight: '600' },
   progressBarContainer: { height: 4, backgroundColor: COLORS.gray200, marginHorizontal: 20 },
   progressBarFill: { height: '100%', backgroundColor: COLORS.primary },
   progressText: { fontSize: 14, fontWeight: '600', color: COLORS.primary },
   pageTitleSmall: { fontSize: 16, fontWeight: '600', color: COLORS.gray800, flex: 1, textAlign: 'center' },
+  // Inspection tabs
+  inspectionTabs: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 16, gap: 8 },
+  inspectionTab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8, backgroundColor: COLORS.gray100 },
+  inspectionTabActive: { backgroundColor: COLORS.primary },
+  inspectionTabText: { fontSize: 14, fontWeight: '500', color: COLORS.gray600 },
+  inspectionTabTextActive: { color: COLORS.white },
+  // Inspection active flow
+  inspectionHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12 },
+  backButton: { padding: 4 },
+  inspectionHeaderText: { flex: 1, marginLeft: 12 },
+  inspectionTitle: { fontSize: 16, fontWeight: '600', color: COLORS.gray800 },
+  inspectionProgress: { fontSize: 13, color: COLORS.gray500 },
+  inspectionScroll: { padding: 20 },
+  inspectionItemCard: { marginBottom: 12, borderWidth: 2, borderColor: 'transparent' },
+  itemPassed: { borderColor: COLORS.success, backgroundColor: '#f0fdf4' },
+  itemFailed: { borderColor: COLORS.danger, backgroundColor: '#fef2f2' },
+  inspectionItemHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  itemNumberBadge: { width: 28, height: 28, borderRadius: 14, backgroundColor: COLORS.gray200, alignItems: 'center', justifyContent: 'center' },
+  itemNumberText: { fontSize: 13, fontWeight: '600', color: COLORS.gray600 },
+  inspectionItemText: { flex: 1, fontSize: 15, color: COLORS.gray800, lineHeight: 22 },
+  inspectionItemDesc: { fontSize: 13, color: COLORS.gray500, marginTop: 8, marginLeft: 40 },
+  passFailButtons: { flexDirection: 'row', gap: 12, marginTop: 16 },
+  passBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderRadius: 8, borderWidth: 2, borderColor: COLORS.success, backgroundColor: COLORS.white },
+  passBtnActive: { backgroundColor: COLORS.success },
+  passBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.success },
+  passBtnTextActive: { color: COLORS.white },
+  failBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, borderRadius: 8, borderWidth: 2, borderColor: COLORS.danger, backgroundColor: COLORS.white },
+  failBtnActive: { backgroundColor: COLORS.danger },
+  failBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.danger },
+  failBtnTextActive: { color: COLORS.white },
+  failNoteInput: { marginTop: 12, borderWidth: 1, borderColor: COLORS.gray200, borderRadius: 8, padding: 12, fontSize: 14, color: COLORS.gray700, minHeight: 60 },
+  inspectionSummaryCard: { marginTop: 8 },
+  summaryTitle: { fontSize: 16, fontWeight: '600', color: COLORS.gray800, marginBottom: 12 },
+  summaryStats: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 12, backgroundColor: COLORS.gray50, borderRadius: 8 },
+  summaryStat: { alignItems: 'center' },
+  summaryStatCount: { fontSize: 24, fontWeight: '700' },
+  summaryStatLabel: { fontSize: 12, color: COLORS.gray500, marginTop: 2 },
+  overallNotesInput: { borderWidth: 1, borderColor: COLORS.gray200, borderRadius: 8, padding: 12, fontSize: 14, color: COLORS.gray700, minHeight: 80, textAlignVertical: 'top' },
+  pendingWarning: { fontSize: 12, color: COLORS.warning, textAlign: 'center', marginTop: 8 },
+  // Inspection history
+  inspectionHistoryCard: { marginHorizontal: 20 },
+  inspectionHistoryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  inspectionHistoryName: { fontSize: 15, fontWeight: '600', color: COLORS.gray800 },
+  inspectionHistoryDate: { fontSize: 13, color: COLORS.gray500, marginTop: 2 },
+  inspectionHistoryStats: { flexDirection: 'row', gap: 16, marginTop: 8 },
+  historyStatText: { fontSize: 13, color: COLORS.gray600 },
+  // Suggested Permits Modal
+  suggestModal: { backgroundColor: COLORS.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%', marginTop: 'auto' },
+  suggestModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
+  suggestModalTitle: { fontSize: 18, fontWeight: '700', color: COLORS.gray900 },
+  suggestModalContent: { padding: 20, maxHeight: 400 },
+  suggestModalIntro: { fontSize: 14, color: COLORS.gray600, marginBottom: 16, lineHeight: 20 },
+  suggestSelectRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  suggestSelectedCount: { fontSize: 13, color: COLORS.gray500 },
+  selectAllText: { fontSize: 13, color: COLORS.primary, fontWeight: '600' },
+  suggestItem: { flexDirection: 'row', padding: 12, borderRadius: 8, backgroundColor: COLORS.gray50, marginBottom: 8, borderWidth: 2, borderColor: 'transparent' },
+  suggestItemSelected: { borderColor: COLORS.primary, backgroundColor: '#eff6ff' },
+  suggestCheckbox: { width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: COLORS.gray300, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  suggestCheckboxSelected: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  suggestItemContent: { flex: 1 },
+  suggestItemHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  suggestItemName: { fontSize: 14, fontWeight: '600', color: COLORS.gray800, flex: 1 },
+  suggestBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
+  suggestBadgeText: { fontSize: 11, fontWeight: '600' },
+  suggestItemDesc: { fontSize: 12, color: COLORS.gray500, marginTop: 4, lineHeight: 18 },
+  suggestItemMeta: { fontSize: 11, color: COLORS.gray400, marginTop: 6 },
+  suggestModalFooter: { flexDirection: 'row', padding: 20, borderTopWidth: 1, borderTopColor: COLORS.gray100, gap: 12 },
+  // Document upload in permit detail
+  documentPreview: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: COLORS.gray50, borderRadius: 8 },
+  documentInfo: { flex: 1 },
+  documentName: { fontSize: 14, fontWeight: '500', color: COLORS.gray700 },
+  documentHint: { fontSize: 12, color: COLORS.primary, marginTop: 2 },
+  uploadDocArea: { alignItems: 'center', justifyContent: 'center', padding: 24, borderWidth: 2, borderStyle: 'dashed', borderColor: COLORS.gray300, borderRadius: 8, backgroundColor: COLORS.gray50 },
+  uploadDocText: { fontSize: 14, fontWeight: '500', color: COLORS.gray600, marginTop: 12 },
+  uploadDocHint: { fontSize: 12, color: COLORS.gray400, marginTop: 4 },
   // Event styles
   filterTabs: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 16, gap: 8 },
   filterTab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 8, backgroundColor: COLORS.gray100 },
