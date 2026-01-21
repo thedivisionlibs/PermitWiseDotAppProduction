@@ -1853,8 +1853,8 @@ const InspectionsScreen = () => {
   const [activeChecklist, setActiveChecklist] = useState(null);
   const [checklistItems, setChecklistItems] = useState({});
 
-  // Plan check: Pro or Elite required
-  const hasAccess = subscription?.plan === 'pro' || subscription?.plan === 'elite' || subscription?.features?.inspectionChecklists;
+  // Plan check: Pro, Elite, Promo, or Lifetime required
+  const hasAccess = subscription?.plan === 'pro' || subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.inspectionChecklists;
 
   const fetchChecklists = async () => {
     try {
@@ -2021,28 +2021,20 @@ const EventsScreen = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState('upcoming');
+  const [selectedEvent, setSelectedEvent] = useState(null);
 
-  // Plan check: Elite only
-  const hasAccess = subscription?.plan === 'elite' || subscription?.features?.eventIntegration;
+  // Plan check: Elite, Promo, or Lifetime required
+  const hasAccess = subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration;
 
-  const fetchEvents = async () => {
+  const fetchMyEvents = async () => {
     try {
-      const data = await api.get('/events?status=' + filter);
+      const data = await api.get('/events/my-events');
       setEvents(data.events || []);
     } catch (error) { console.error(error); }
     finally { setLoading(false); setRefreshing(false); }
   };
 
-  useEffect(() => { if (hasAccess) fetchEvents(); else setLoading(false); }, [filter, hasAccess]);
-
-  const handleApply = async (eventId) => {
-    try {
-      await api.post(`/events/${eventId}/apply`);
-      Alert.alert('Success', 'Application submitted!');
-      fetchEvents();
-    } catch (error) { Alert.alert('Error', error.message); }
-  };
+  useEffect(() => { if (hasAccess) fetchMyEvents(); else setLoading(false); }, [hasAccess]);
 
   // Show upgrade modal for non-Elite users
   if (!hasAccess) {
@@ -2052,13 +2044,13 @@ const EventsScreen = () => {
           <View style={styles.upgradeModalIcon}>
             <Icons.Event size={56} color={COLORS.primary} />
           </View>
-          <Text style={styles.upgradeModalTitle}>Event Marketplace</Text>
+          <Text style={styles.upgradeModalTitle}>Event Readiness</Text>
           <View style={[styles.upgradeModalBadge, { backgroundColor: '#fef3c7' }]}>
             <Text style={[styles.upgradeModalBadgeText, { color: '#92400e' }]}>ELITE FEATURE</Text>
           </View>
           
           <Text style={styles.upgradeModalDescription}>
-            Discover festivals, farmers markets, and pop-up opportunities. Check your permit readiness instantly and apply with one click.
+            See your permit compliance status for events you've been invited to participate in. Know instantly if you're ready or what's missing.
           </Text>
           
           <View style={styles.upgradeModalFeatures}>
@@ -2066,29 +2058,29 @@ const EventsScreen = () => {
             <View style={styles.upgradeModalFeatureRow}>
               <Icons.Check size={18} color={COLORS.success} />
               <View style={styles.upgradeModalFeatureContent}>
-                <Text style={styles.upgradeModalFeatureTitle}>Local Event Discovery</Text>
-                <Text style={styles.upgradeModalFeatureDesc}>Browse upcoming events in all your operating cities in one place</Text>
+                <Text style={styles.upgradeModalFeatureTitle}>Readiness Dashboard</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>See at a glance which events you're ready for and which need attention</Text>
               </View>
             </View>
             <View style={styles.upgradeModalFeatureRow}>
               <Icons.Check size={18} color={COLORS.success} />
               <View style={styles.upgradeModalFeatureContent}>
-                <Text style={styles.upgradeModalFeatureTitle}>Permit Readiness Check</Text>
-                <Text style={styles.upgradeModalFeatureDesc}>Instantly see which permits you need before applying to any event</Text>
+                <Text style={styles.upgradeModalFeatureTitle}>Missing Permit Alerts</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Know exactly which permits or documents you need for each event</Text>
               </View>
             </View>
             <View style={styles.upgradeModalFeatureRow}>
               <Icons.Check size={18} color={COLORS.success} />
               <View style={styles.upgradeModalFeatureContent}>
-                <Text style={styles.upgradeModalFeatureTitle}>One-Click Applications</Text>
-                <Text style={styles.upgradeModalFeatureDesc}>Apply directly through PermitWise with your info pre-filled</Text>
+                <Text style={styles.upgradeModalFeatureTitle}>Expiration Warnings</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Get alerted if any permits will expire before an event date</Text>
               </View>
             </View>
             <View style={styles.upgradeModalFeatureRow}>
               <Icons.Check size={18} color={COLORS.success} />
               <View style={styles.upgradeModalFeatureContent}>
-                <Text style={styles.upgradeModalFeatureTitle}>New Event Alerts</Text>
-                <Text style={styles.upgradeModalFeatureDesc}>Get notified when new events open for vendor applications</Text>
+                <Text style={styles.upgradeModalFeatureTitle}>Organizer Integration</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Event organizers using PermitWise can verify your compliance directly</Text>
               </View>
             </View>
           </View>
@@ -2099,7 +2091,7 @@ const EventsScreen = () => {
             <Text style={styles.upgradeModalPricingNote}>Includes everything in Pro + team accounts & priority support</Text>
           </View>
 
-          <Button title="Upgrade to Elite" onPress={() => navigation?.navigate?.('Settings') || Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
+          <Button title="Upgrade to Elite" onPress={() => Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
           <Text style={styles.upgradeModalCancel}>14-day free trial • Cancel anytime</Text>
         </ScrollView>
       </SafeAreaView>
@@ -2108,47 +2100,118 @@ const EventsScreen = () => {
 
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
+  const getReadinessColor = (color) => {
+    if (color === 'success') return COLORS.success;
+    if (color === 'danger') return COLORS.danger;
+    if (color === 'warning') return COLORS.warning;
+    return COLORS.gray500;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.pageHeader}><Text style={styles.pageTitle}>Events</Text></View>
-      <View style={styles.filterTabs}>
-        {['upcoming', 'applied', 'past'].map(f => (
-          <TouchableOpacity key={f} style={[styles.filterTab, filter === f && styles.filterTabActive]} onPress={() => { setFilter(f); setLoading(true); }}>
-            <Text style={[styles.filterTabText, filter === f && styles.filterTabTextActive]}>{f.charAt(0).toUpperCase() + f.slice(1)}</Text>
-          </TouchableOpacity>
-        ))}
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageTitle}>Event Readiness</Text>
+        <Text style={styles.pageSubtitle}>Your compliance status for assigned events</Text>
       </View>
       <FlatList
         data={events}
         keyExtractor={item => item._id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchEvents(); }} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchMyEvents(); }} />}
         renderItem={({ item }) => (
-          <Card style={styles.eventCard}>
-            <Text style={styles.eventName}>{item.name}</Text>
-            <Text style={styles.eventOrganizer}>{item.organizer}</Text>
-            <View style={styles.eventDetails}>
-              <View style={styles.eventDetail}><Icons.Event size={14} color={COLORS.gray500} /><Text style={styles.eventDetailText}>{formatDate(item.startDate)}</Text></View>
-              <View style={styles.eventDetail}><Icons.MapPin size={14} color={COLORS.gray500} /><Text style={styles.eventDetailText}>{item.location?.city}, {item.location?.state}</Text></View>
+          <Card style={styles.eventReadinessCard}>
+            <View style={styles.eventReadinessHeader}>
+              <View style={styles.eventDateBadge}>
+                <Text style={styles.eventDateMonth}>{new Date(item.startDate).toLocaleDateString('en-US', { month: 'short' })}</Text>
+                <Text style={styles.eventDateDay}>{new Date(item.startDate).getDate()}</Text>
+              </View>
+              <View style={styles.eventReadinessInfo}>
+                <Text style={styles.eventReadinessName}>{item.eventName}</Text>
+                <Text style={styles.eventReadinessOrganizer}>by {item.organizerName}</Text>
+                <View style={styles.eventReadinessLocation}>
+                  <Icons.MapPin size={12} color={COLORS.gray500} />
+                  <Text style={styles.eventReadinessLocationText}>{item.location?.city}, {item.location?.state}</Text>
+                </View>
+              </View>
+              <View style={[styles.readinessBadge, { backgroundColor: getReadinessColor(item.readinessColor) + '20' }]}>
+                {item.readinessStatus === 'ready' ? (
+                  <Icons.Check size={16} color={getReadinessColor(item.readinessColor)} />
+                ) : (
+                  <Icons.Alert size={16} color={getReadinessColor(item.readinessColor)} />
+                )}
+              </View>
             </View>
-            {item.vendorFee && <Text style={styles.eventFee}>Vendor Fee: ${item.vendorFee}</Text>}
-            {item.applicationStatus === 'pending' ? (
-              <Badge label="Application Pending" variant="warning" />
-            ) : item.applicationStatus === 'approved' ? (
-              <Badge label="Approved" variant="success" />
-            ) : filter === 'upcoming' && (
-              <Button title="Apply Now" onPress={() => handleApply(item._id)} style={{ marginTop: 12 }} />
+            
+            <View style={styles.eventReadinessProgress}>
+              <View style={styles.progressBarContainer}>
+                <View style={[styles.progressBarFill, { width: `${item.requiredPermitsCount > 0 ? (item.readyCount / item.requiredPermitsCount) * 100 : 100}%` }]} />
+              </View>
+              <Text style={styles.progressText}>{item.readyCount}/{item.requiredPermitsCount} ready</Text>
+            </View>
+            
+            {item.readinessStatus === 'ready' ? (
+              <View style={styles.readinessSuccess}>
+                <Icons.Check size={16} color={COLORS.success} />
+                <Text style={styles.readinessSuccessText}>All permits ready</Text>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.readinessIssues} onPress={() => setSelectedEvent(item)}>
+                <Text style={styles.readinessIssueText} numberOfLines={1}>{item.readinessLabel}</Text>
+                <Text style={styles.readinessViewDetails}>View Details →</Text>
+              </TouchableOpacity>
             )}
           </Card>
         )}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Icons.Event size={48} color={COLORS.gray300} />
-            <Text style={styles.emptyTitle}>No events found</Text>
-            <Text style={styles.emptyText}>{filter === 'upcoming' ? 'Check back soon for new opportunities' : 'No events in this category'}</Text>
+            <Text style={styles.emptyTitle}>No events assigned</Text>
+            <Text style={styles.emptyText}>When event organizers using PermitWise add you to their vendor list, you'll see your compliance status here.</Text>
           </View>
         }
         contentContainerStyle={styles.listContent}
       />
+      
+      <Modal visible={!!selectedEvent} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{selectedEvent?.eventName}</Text>
+              <TouchableOpacity onPress={() => setSelectedEvent(null)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.modalBody}>
+              <View style={styles.eventDetailSummary}>
+                <Text style={styles.eventDetailText}><Text style={styles.eventDetailLabel}>Date:</Text> {selectedEvent && formatDate(selectedEvent.startDate)}</Text>
+                <Text style={styles.eventDetailText}><Text style={styles.eventDetailLabel}>Location:</Text> {selectedEvent?.location?.city}, {selectedEvent?.location?.state}</Text>
+                <Text style={styles.eventDetailText}><Text style={styles.eventDetailLabel}>Organizer:</Text> {selectedEvent?.organizerName}</Text>
+              </View>
+              
+              {selectedEvent?.issues?.length > 0 ? (
+                <View style={styles.issuesList}>
+                  <Text style={styles.issuesTitle}>Issues to Resolve:</Text>
+                  {selectedEvent.issues.map((issue, i) => (
+                    <View key={i} style={[styles.issueItem, { borderLeftColor: issue.type === 'missing' || issue.type === 'expired' ? COLORS.danger : COLORS.warning }]}>
+                      {issue.type === 'missing' && <Text style={styles.issueItemText}>🚫 <Text style={styles.issueBold}>{issue.permit}</Text> - Permit not found</Text>}
+                      {issue.type === 'expired' && <Text style={styles.issueItemText}>⏰ <Text style={styles.issueBold}>{issue.permit}</Text> - Expired or will expire before event</Text>}
+                      {issue.type === 'missing_document' && <Text style={styles.issueItemText}>📄 <Text style={styles.issueBold}>{issue.permit}</Text> - Document not uploaded</Text>}
+                      {issue.type === 'in_progress' && <Text style={styles.issueItemText}>⏳ <Text style={styles.issueBold}>{issue.permit}</Text> - Application in progress</Text>}
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.allGood}>
+                  <Icons.Check size={20} color={COLORS.success} />
+                  <Text style={styles.allGoodText}>All requirements met!</Text>
+                </View>
+              )}
+            </ScrollView>
+            
+            <View style={styles.modalFooter}>
+              <Button title="Close" onPress={() => setSelectedEvent(null)} variant="outline" />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -2540,6 +2603,36 @@ const styles = StyleSheet.create({
   eventDetail: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   eventDetailText: { fontSize: 13, color: COLORS.gray600 },
   eventFee: { fontSize: 14, fontWeight: '500', color: COLORS.gray700, marginTop: 8 },
+  // Event Readiness styles
+  eventReadinessCard: { marginHorizontal: 20, padding: 0, overflow: 'hidden' },
+  eventReadinessHeader: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12 },
+  eventDateBadge: { width: 50, alignItems: 'center', backgroundColor: COLORS.primary, borderRadius: 8, paddingVertical: 8 },
+  eventDateMonth: { fontSize: 11, color: COLORS.white, textTransform: 'uppercase' },
+  eventDateDay: { fontSize: 22, fontWeight: '700', color: COLORS.white },
+  eventReadinessInfo: { flex: 1 },
+  eventReadinessName: { fontSize: 16, fontWeight: '600', color: COLORS.gray800 },
+  eventReadinessOrganizer: { fontSize: 13, color: COLORS.gray500, marginTop: 2 },
+  eventReadinessLocation: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  eventReadinessLocationText: { fontSize: 12, color: COLORS.gray500 },
+  readinessBadge: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  eventReadinessProgress: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingBottom: 12 },
+  progressBarContainer: { flex: 1, height: 6, backgroundColor: COLORS.gray200, borderRadius: 3, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: COLORS.success, borderRadius: 3 },
+  progressText: { fontSize: 12, color: COLORS.gray500 },
+  readinessSuccess: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#dcfce7', padding: 12, marginHorizontal: 16, marginBottom: 16, borderRadius: 8 },
+  readinessSuccessText: { fontSize: 13, color: COLORS.success },
+  readinessIssues: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: COLORS.gray50, padding: 12, marginHorizontal: 16, marginBottom: 16, borderRadius: 8 },
+  readinessIssueText: { flex: 1, fontSize: 13, color: COLORS.danger },
+  readinessViewDetails: { fontSize: 13, color: COLORS.primary, fontWeight: '500' },
+  eventDetailSummary: { backgroundColor: COLORS.gray50, padding: 16, borderRadius: 12, marginBottom: 16 },
+  eventDetailLabel: { fontWeight: '600' },
+  issuesList: { marginTop: 8 },
+  issuesTitle: { fontSize: 15, fontWeight: '600', color: COLORS.danger, marginBottom: 12 },
+  issueItem: { backgroundColor: COLORS.gray50, padding: 12, borderRadius: 8, marginBottom: 8, borderLeftWidth: 3 },
+  issueItemText: { fontSize: 14, color: COLORS.gray700 },
+  issueBold: { fontWeight: '600' },
+  allGood: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#dcfce7', padding: 16, borderRadius: 12 },
+  allGoodText: { fontSize: 15, color: COLORS.success, fontWeight: '500' },
   // Upgrade Modal styles
   upgradeModalContainer: { flexGrow: 1, padding: 24, backgroundColor: COLORS.white },
   upgradeModalIcon: { width: 100, height: 100, backgroundColor: '#e0e7ff', borderRadius: 50, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginTop: 20, marginBottom: 20 },
