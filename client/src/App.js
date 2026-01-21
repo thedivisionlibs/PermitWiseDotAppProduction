@@ -400,7 +400,7 @@ const ResetPasswordPage = ({ token, onSuccess }) => {
         </div>
         <PasswordStrengthIndicator password={password} />
         <div className="password-input-wrapper">
-          <Input label="Confirm New Password" type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+          <Input label="Confirm New Password" type={showConfirmPassword ? 'text' : 'password'} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required className={passwordsMatch ? 'input-success' : passwordsDontMatch ? 'input-error' : ''} />
           <button type="button" className="password-toggle" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>{showConfirmPassword ? <Icons.EyeOff /> : <Icons.Eye />}</button>
         </div>
         {passwordsMatch && <div className="password-match success"><Icons.Check /> Passwords match</div>}
@@ -433,7 +433,7 @@ const PermitChecker = ({ onClose, onGetStarted }) => {
     return null;
   };
 
-  const isPartialCoverage = results && results.permitTypes?.length > 0 && results.permitTypes?.length < 4;
+  const isPartialCoverage = results && results.coverage === 'partial';
 
   return (
     <div className="permit-checker"><div className="permit-checker-container">
@@ -495,9 +495,8 @@ const OnboardingPage = ({ onComplete }) => {
       const data = await api.get(`/permit-types/required?city=${formData.operatingCities[0].city}&state=${formData.operatingCities[0].state}&vendorType=${formData.primaryVendorType}`);
       setSuggestedPermits(data.permitTypes || []);
       setSelectedPermits((data.permitTypes || []).map(p => p._id));
-      if (data.permitTypes?.length >= 4) setCoverageStatus('full');
-      else if (data.permitTypes?.length > 0) setCoverageStatus('partial');
-      else setCoverageStatus('none');
+      // Use server-returned coverage status (full if jurisdiction exists, none if not)
+      setCoverageStatus(data.coverage || (data.permitTypes?.length > 0 ? 'full' : 'none'));
     } catch (err) { console.error(err); setCoverageStatus('none'); }
     finally { setLoadingPermits(false); }
   };
@@ -625,7 +624,7 @@ const OnboardingPage = ({ onComplete }) => {
   );
 };
 
-const Dashboard = () => {
+const Dashboard = ({ onNavigate }) => {
   const { user, business, subscription } = useAuth();
   const [stats, setStats] = useState(null); const [loading, setLoading] = useState(true);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -671,7 +670,7 @@ const Dashboard = () => {
               {stats?.permits?.pendingRenewal > 0 && <span className="aha-item yellow">🟡 {stats.permits.pendingRenewal} expiring soon — inspectors check these first!</span>}</p>
             </div>
           </div>
-          <div className="aha-actions"><Button onClick={() => window.location.hash = 'permits'}>Fix Now →</Button></div>
+          <div className="aha-actions"><Button onClick={() => onNavigate('permits')}>Fix Now →</Button></div>
         </Card>
       )}
       <div className="stats-grid">
@@ -872,12 +871,58 @@ const AddPermitModal = ({ isOpen, onClose, onSuccess }) => {
 
 const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
   const { subscription } = useAuth();
-  const [editing, setEditing] = useState(false); const [formData, setFormData] = useState({}); const [loading, setLoading] = useState(false); const [uploading, setUploading] = useState(false);
+  const [editing, setEditing] = useState(false); const [formData, setFormData] = useState({}); const [loading, setLoading] = useState(false); const [uploading, setUploading] = useState(false); const [uploadError, setUploadError] = useState('');
+  const [localPermit, setLocalPermit] = useState(permit);
+  
+  useEffect(() => { setLocalPermit(permit); }, [permit]);
   useEffect(() => { if (permit) { setFormData({ status: permit.status, permitNumber: permit.permitNumber || '', issueDate: permit.issueDate?.split('T')[0] || '', expiryDate: permit.expiryDate?.split('T')[0] || '', notes: permit.notes || '' }); } }, [permit]);
   if (!permit) return null;
-  const handleSave = async () => { setLoading(true); try { await api.put(`/permits/${permit._id}`, formData); onUpdate(); setEditing(false); } catch (error) { console.error(error); } finally { setLoading(false); } };
-  const handleUpload = async (e) => { const file = e.target.files[0]; if (!file) return; setUploading(true); const fd = new FormData(); fd.append('file', file); fd.append('category', 'permit'); fd.append('relatedEntityType', 'permit'); fd.append('relatedEntityId', permit._id); try { await api.upload('/documents', fd); onUpdate(); } catch (error) { console.error(error); } finally { setUploading(false); } };
-  const handleAutofill = async () => { try { const data = await api.post('/autofill/generate', { permitTypeId: permit.permitTypeId._id }); window.open(data.downloadUrl, '_blank'); } catch (error) { alert(error.message); } };
+  
+  const handleSave = async () => { 
+    setLoading(true); 
+    try { 
+      const response = await api.put(`/permits/${permit._id}`, formData); 
+      setLocalPermit(response.permit);
+      setFormData({ 
+        status: response.permit.status, 
+        permitNumber: response.permit.permitNumber || '', 
+        issueDate: response.permit.issueDate?.split('T')[0] || '', 
+        expiryDate: response.permit.expiryDate?.split('T')[0] || '', 
+        notes: response.permit.notes || '' 
+      });
+      onUpdate(); 
+      setEditing(false); 
+    } catch (error) { console.error(error); } finally { setLoading(false); } 
+  };
+  
+  const handleUpload = async (e) => { 
+    const file = e.target.files[0]; 
+    if (!file) return;
+    setUploadError('');
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!allowedTypes.includes(file.type) && !['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)) {
+      setUploadError('Invalid file type. Allowed: PDF, JPG, PNG, GIF, WebP');
+      e.target.value = ''; return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError('File too large. Maximum size is 10MB.');
+      e.target.value = ''; return;
+    }
+    setUploading(true); 
+    const fd = new FormData(); 
+    fd.append('file', file); 
+    fd.append('category', 'permit'); 
+    fd.append('relatedEntityType', 'permit'); 
+    fd.append('relatedEntityId', permit._id); 
+    try { 
+      const docResponse = await api.upload('/documents', fd);
+      // Update local permit with the new document
+      setLocalPermit(prev => ({ ...prev, documentId: docResponse.document }));
+      onUpdate(); 
+    } catch (error) { setUploadError(error.message); } finally { setUploading(false); e.target.value = ''; } 
+  };
+  const handleAutofill = async () => { try { const data = await api.post('/autofill/generate', { permitTypeId: permit.permitTypeId._id }); window.open(getSecureFileUrl(data.downloadUrl), '_blank'); } catch (error) { alert(error.message); } };
   
   const getImportanceLabel = (level) => {
     if (level === 'critical') return { text: 'Critical', variant: 'danger' };
@@ -885,21 +930,21 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
     if (level === 'event_required') return { text: 'Required for Events', variant: 'info' };
     return null;
   };
-  const importanceLabel = getImportanceLabel(permit.permitTypeId?.importanceLevel);
+  const importanceLabel = getImportanceLabel(localPermit.permitTypeId?.importanceLevel);
 
   return (
-    <Modal isOpen={!!permit} onClose={onClose} title={permit.permitTypeId?.name} size="lg">
+    <Modal isOpen={!!permit} onClose={onClose} title={localPermit.permitTypeId?.name} size="lg">
       <div className="permit-detail">
         <div className="detail-header">
           <div className="detail-badges">
-            <Badge variant={permit.status === 'active' ? 'success' : permit.status === 'expired' ? 'danger' : 'warning'}>{getStatusLabel(permit.status)}</Badge>
+            <Badge variant={localPermit.status === 'active' ? 'success' : localPermit.status === 'expired' ? 'danger' : 'warning'}>{getStatusLabel(localPermit.status)}</Badge>
             {importanceLabel && <Badge variant={importanceLabel.variant}>{importanceLabel.text}</Badge>}
           </div>
-          <span>{permit.jurisdictionId?.name}, {permit.jurisdictionId?.state}</span>
+          <span>{localPermit.jurisdictionId?.name}, {localPermit.jurisdictionId?.state}</span>
         </div>
         
         {/* Missing Permit CTA */}
-        {permit.status === 'missing' && (
+        {localPermit.status === 'missing' && (
           <div className="missing-permit-cta">
             <Icons.Alert />
             <p>You don't have this permit yet. Add details now so we can track expiration reminders.</p>
@@ -913,25 +958,25 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
           <div className="info-grid">
             <div className="info-item">
               <Icons.Clock />
-              <div><span className="info-label">Renewal Frequency</span><span className="info-value">Renews every {permit.permitTypeId?.renewalPeriodMonths || 12} months</span></div>
+              <div><span className="info-label">Renewal Frequency</span><span className="info-value">Renews every {localPermit.permitTypeId?.renewalPeriodMonths || 12} months</span></div>
             </div>
-            {permit.permitTypeId?.issuingAuthorityName && (
+            {localPermit.permitTypeId?.issuingAuthorityName && (
               <div className="info-item">
                 <Icons.Shield />
-                <div><span className="info-label">Issued By</span><span className="info-value">{permit.permitTypeId.issuingAuthorityName}</span></div>
+                <div><span className="info-label">Issued By</span><span className="info-value">{localPermit.permitTypeId.issuingAuthorityName}</span></div>
               </div>
             )}
-            {permit.permitTypeId?.estimatedCost && (
+            {localPermit.permitTypeId?.estimatedCost && (
               <div className="info-item">
                 <Icons.Document />
-                <div><span className="info-label">Typical Cost</span><span className="info-value">{permit.permitTypeId.estimatedCost}</span></div>
+                <div><span className="info-label">Typical Cost</span><span className="info-value">{localPermit.permitTypeId.estimatedCost}</span></div>
               </div>
             )}
           </div>
-          {permit.permitTypeId?.requiredDocuments?.length > 0 && (
+          {localPermit.permitTypeId?.requiredDocuments?.length > 0 && (
             <div className="required-docs">
               <span className="info-label">Usually Required:</span>
-              <span className="info-value">{permit.permitTypeId.requiredDocuments.join(', ')}</span>
+              <span className="info-value">{localPermit.permitTypeId.requiredDocuments.join(', ')}</span>
             </div>
           )}
         </div>
@@ -948,19 +993,23 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
         ) : (
           <div className="detail-info">
             <h4>Your Permit Details</h4>
-            <div className="info-row"><span>Permit Number</span><span>{permit.permitNumber || 'Not entered'}</span></div>
-            <div className="info-row"><span>Issue Date</span><span>{formatDate(permit.issueDate)}</span></div>
-            <div className="info-row"><span>Expiry Date</span><span>{formatDate(permit.expiryDate)}</span></div>
-            {permit.expiryDate && <div className="info-row highlight"><span>Days Until Expiry</span><span>{daysUntil(permit.expiryDate)}</span></div>}
+            <div className="info-row"><span>Permit Number</span><span>{localPermit.permitNumber || 'Not entered'}</span></div>
+            <div className="info-row"><span>Issue Date</span><span>{localPermit.issueDate ? formatDate(localPermit.issueDate) : 'Not entered'}</span></div>
+            <div className="info-row"><span>Expiry Date</span><span>{localPermit.expiryDate ? formatDate(localPermit.expiryDate) : 'Not entered'}</span></div>
+            {localPermit.expiryDate && <div className="info-row highlight"><span>Days Until Expiry</span><span>{daysUntil(localPermit.expiryDate)}</span></div>}
           </div>
         )}
         
         <div className="detail-document">
           <h4>Document</h4>
-          {permit.documentId ? (
-            <div className="document-preview"><Icons.Document /><span>{permit.documentId.originalName}</span><a href={getSecureFileUrl(permit.documentId.fileUrl)} target="_blank" rel="noopener noreferrer"><Icons.Download /></a></div>
+          {uploadError && <Alert type="error">{uploadError}</Alert>}
+          {localPermit.documentId ? (
+            <div className="document-preview"><Icons.Document /><span>{localPermit.documentId.originalName}</span><a href={getSecureFileUrl(localPermit.documentId.fileUrl)} target="_blank" rel="noopener noreferrer"><Icons.Download /></a></div>
           ) : (
-            <div className="upload-area"><input type="file" id="permit-upload" onChange={handleUpload} hidden /><label htmlFor="permit-upload">{uploading ? 'Uploading...' : 'Upload Document'}</label></div>
+            <div className="upload-area">
+              <input type="file" id="permit-upload" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" onChange={handleUpload} hidden />
+              <label htmlFor="permit-upload">{uploading ? 'Uploading...' : 'Upload Document (PDF, JPG, PNG)'}</label>
+            </div>
           )}
         </div>
         
@@ -986,9 +1035,25 @@ const DocumentsPage = () => {
 };
 
 const UploadDocumentModal = ({ isOpen, onClose, onSuccess }) => {
-  const [file, setFile] = useState(null); const [category, setCategory] = useState('other'); const [loading, setLoading] = useState(false);
-  const handleUpload = async () => { if (!file) return; setLoading(true); const fd = new FormData(); fd.append('file', file); fd.append('category', category); try { await api.upload('/documents', fd); onSuccess(); onClose(); setFile(null); } catch (err) { alert(err.message); } finally { setLoading(false); } };
-  return (<Modal isOpen={isOpen} onClose={onClose} title="Upload Document"><div className="upload-form"><input type="file" onChange={(e) => setFile(e.target.files[0])} /><Select label="Category" value={category} onChange={(e) => setCategory(e.target.value)} options={[{ value: 'permit', label: 'Permit' }, { value: 'insurance', label: 'Insurance' }, { value: 'inspection', label: 'Inspection' }, { value: 'food_handler', label: 'Food Handler' }, { value: 'vehicle', label: 'Vehicle' }, { value: 'other', label: 'Other' }]} /></div><div className="modal-actions"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={handleUpload} loading={loading} disabled={!file}>Upload</Button></div></Modal>);
+  const [file, setFile] = useState(null); const [category, setCategory] = useState('other'); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
+  const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+  const allowedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp'];
+  const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0]; setError('');
+    if (!selectedFile) return;
+    const ext = '.' + selectedFile.name.split('.').pop().toLowerCase();
+    if (!allowedTypes.includes(selectedFile.type) && !allowedExtensions.includes(ext)) {
+      setError(`Invalid file type. Allowed: PDF, JPG, PNG, GIF, WebP`);
+      e.target.value = ''; setFile(null); return;
+    }
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      setError('File too large. Maximum size is 10MB.');
+      e.target.value = ''; setFile(null); return;
+    }
+    setFile(selectedFile);
+  };
+  const handleUpload = async () => { if (!file) return; setLoading(true); const fd = new FormData(); fd.append('file', file); fd.append('category', category); try { await api.upload('/documents', fd); onSuccess(); onClose(); setFile(null); setError(''); } catch (err) { setError(err.message); } finally { setLoading(false); } };
+  return (<Modal isOpen={isOpen} onClose={onClose} title="Upload Document"><div className="upload-form">{error && <Alert type="error">{error}</Alert>}<input type="file" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" onChange={handleFileChange} /><p className="upload-hint">Accepted: PDF, JPG, PNG, GIF, WebP (max 10MB)</p><Select label="Category" value={category} onChange={(e) => setCategory(e.target.value)} options={[{ value: 'permit', label: 'Permit' }, { value: 'insurance', label: 'Insurance' }, { value: 'inspection', label: 'Inspection' }, { value: 'food_handler', label: 'Food Handler' }, { value: 'vehicle', label: 'Vehicle' }, { value: 'other', label: 'Other' }]} /></div><div className="modal-actions"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={handleUpload} loading={loading} disabled={!file}>Upload</Button></div></Modal>);
 };
 const UploadModal = UploadDocumentModal; // Alias for Dashboard use
 
@@ -1621,6 +1686,7 @@ const SuperAdminPage = ({ onBack }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [duplicateTarget, setDuplicateTarget] = useState(null);
   const [duplicateJurisdiction, setDuplicateJurisdiction] = useState('');
+  const [editingPermitType, setEditingPermitType] = useState(null);
 
   // Verify existing admin token on mount
   useEffect(() => {
@@ -1739,6 +1805,23 @@ const SuperAdminPage = ({ onBack }) => {
   const deleteBusiness = async (id) => { if (window.confirm('Delete this business?')) { try { await adminApi(`/admin/businesses/${id}`, 'DELETE'); fetchData('businesses'); setMessage('Business deleted'); } catch (err) { setMessage(err.message); } } };
   const deleteJurisdiction = async (id) => { if (window.confirm('Delete this jurisdiction?')) { try { await adminApi(`/admin/jurisdictions/${id}`, 'DELETE'); fetchData('jurisdictions'); setMessage('Jurisdiction deleted'); } catch (err) { setMessage(err.message); } } };
   const deletePermitType = async (id) => { if (window.confirm('Delete this permit type?')) { try { await adminApi(`/admin/permit-types/${id}`, 'DELETE'); fetchData('permitTypes'); setMessage('Permit type deleted'); } catch (err) { setMessage(err.message); } } };
+  
+  const updatePermitType = async () => {
+    if (!editingPermitType) return;
+    try {
+      const payload = {
+        ...editingPermitType,
+        jurisdictionId: editingPermitType.jurisdictionId?._id || editingPermitType.jurisdictionId,
+        requiredDocuments: typeof editingPermitType.requiredDocuments === 'string' 
+          ? editingPermitType.requiredDocuments.split(',').map(d => d.trim()).filter(Boolean)
+          : editingPermitType.requiredDocuments
+      };
+      await adminApi(`/admin/permit-types/${editingPermitType._id}`, 'PUT', payload);
+      setEditingPermitType(null);
+      fetchData('permitTypes');
+      setMessage('Permit type updated');
+    } catch (err) { setMessage(err.message); }
+  };
 
   const getImportanceLabel = (level) => {
     if (level === 'critical') return { text: 'Critical', variant: 'danger' };
@@ -2060,6 +2143,7 @@ const SuperAdminPage = ({ onBack }) => {
                         <td>{pt.renewalPeriodMonths} mo</td>
                         <td>${pt.fees?.application || 0}</td>
                         <td className="actions-cell">
+                          <button className="action-btn edit" onClick={() => setEditingPermitType({...pt, requiredDocuments: pt.requiredDocuments?.join(', ') || ''})} title="Edit"><Icons.Edit /></button>
                           <button className="action-btn duplicate" onClick={() => setDuplicateTarget(pt._id)} title="Duplicate to another city"><Icons.Plus /></button>
                           <button className="delete-btn" onClick={() => deletePermitType(pt._id)} title="Delete"><Icons.Trash /></button>
                         </td>
@@ -2081,6 +2165,69 @@ const SuperAdminPage = ({ onBack }) => {
           <Button variant="outline" onClick={() => { setDuplicateTarget(null); setDuplicateJurisdiction(''); }}>Cancel</Button>
           <Button onClick={duplicatePermitType}>Duplicate</Button>
         </div>
+      </Modal>
+      
+      {/* Edit Permit Type Modal */}
+      <Modal isOpen={!!editingPermitType} onClose={() => setEditingPermitType(null)} title="Edit Permit Type" size="lg">
+        {editingPermitType && (
+          <div className="admin-form-enhanced">
+            <div className="form-section">
+              <div className="form-section-title">Basic Information</div>
+              <Input label="Permit Name *" value={editingPermitType.name} onChange={(e) => setEditingPermitType(p => ({ ...p, name: e.target.value }))} />
+              <Input label="Description" value={editingPermitType.description || ''} onChange={(e) => setEditingPermitType(p => ({ ...p, description: e.target.value }))} />
+              <Select label="Jurisdiction *" value={editingPermitType.jurisdictionId?._id || editingPermitType.jurisdictionId} onChange={(e) => setEditingPermitType(p => ({ ...p, jurisdictionId: e.target.value }))} options={[{ value: '', label: 'Select Jurisdiction' }, ...data.jurisdictions.map(j => ({ value: j._id, label: `${j.city}, ${j.state}` }))]} />
+            </div>
+            <div className="form-section">
+              <div className="form-section-title">Classification</div>
+              <div className="form-row">
+                <Select label="Importance Level" value={editingPermitType.importanceLevel} onChange={(e) => setEditingPermitType(p => ({ ...p, importanceLevel: e.target.value }))} options={[
+                  { value: 'critical', label: '🔴 Critical' },
+                  { value: 'often_forgotten', label: '🟡 Often Forgotten' },
+                  { value: 'event_required', label: '🔵 Event Required' }
+                ]} />
+                <Input label="Renewal Period (months)" type="number" value={editingPermitType.renewalPeriodMonths} onChange={(e) => setEditingPermitType(p => ({ ...p, renewalPeriodMonths: parseInt(e.target.value) || 12 }))} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Vendor Types</label>
+                <div className="vendor-type-checkboxes">
+                  {VENDOR_TYPES.map(vt => (
+                    <label key={vt.value} className="vendor-checkbox">
+                      <input 
+                        type="checkbox" 
+                        checked={editingPermitType.vendorTypes?.includes(vt.value)} 
+                        onChange={(e) => {
+                          const types = editingPermitType.vendorTypes || [];
+                          if (e.target.checked) {
+                            setEditingPermitType(p => ({ ...p, vendorTypes: [...types, vt.value] }));
+                          } else {
+                            setEditingPermitType(p => ({ ...p, vendorTypes: types.filter(t => t !== vt.value) }));
+                          }
+                        }}
+                      />
+                      <span>{vt.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="form-section">
+              <div className="form-section-title">Authority & Cost</div>
+              <div className="form-row">
+                <Input label="Issuing Authority" value={editingPermitType.issuingAuthorityName || ''} onChange={(e) => setEditingPermitType(p => ({ ...p, issuingAuthorityName: e.target.value }))} />
+                <Input label="Estimated Cost" placeholder="$50-100" value={editingPermitType.estimatedCost || ''} onChange={(e) => setEditingPermitType(p => ({ ...p, estimatedCost: e.target.value }))} />
+              </div>
+              <div className="form-row">
+                <Input label="Application Fee" type="number" value={editingPermitType.fees?.application || 0} onChange={(e) => setEditingPermitType(p => ({ ...p, fees: { ...p.fees, application: parseFloat(e.target.value) || 0 } }))} />
+                <Input label="Renewal Fee" type="number" value={editingPermitType.fees?.renewal || 0} onChange={(e) => setEditingPermitType(p => ({ ...p, fees: { ...p.fees, renewal: parseFloat(e.target.value) || 0 } }))} />
+              </div>
+              <Input label="Required Documents (comma-separated)" placeholder="Business license, Food handler cert" value={editingPermitType.requiredDocuments || ''} onChange={(e) => setEditingPermitType(p => ({ ...p, requiredDocuments: e.target.value }))} />
+            </div>
+            <div className="modal-actions">
+              <Button variant="outline" onClick={() => setEditingPermitType(null)}>Cancel</Button>
+              <Button onClick={updatePermitType}>Save Changes</Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
@@ -2153,7 +2300,7 @@ const App = () => {
     return <LoginPage onSwitch={setAuthView} onSuccess={() => setAuthView(null)} />;
   }
   if (!hasCompletedOnboarding) return <OnboardingPage onComplete={() => window.location.reload()} />;
-  const renderPage = () => { switch (currentPage) { case 'dashboard': return <Dashboard />; case 'permits': return <PermitsPage />; case 'documents': return <DocumentsPage />; case 'inspections': return <InspectionsPage />; case 'events': return <EventsPage />; case 'settings': return <SettingsPage />; default: return <Dashboard />; } };
+  const renderPage = () => { switch (currentPage) { case 'dashboard': return <Dashboard onNavigate={setCurrentPage} />; case 'permits': return <PermitsPage />; case 'documents': return <DocumentsPage />; case 'inspections': return <InspectionsPage />; case 'events': return <EventsPage />; case 'settings': return <SettingsPage />; default: return <Dashboard onNavigate={setCurrentPage} />; } };
   return <AppLayout activePage={currentPage} onNavigate={setCurrentPage} onLogout={logout}>{renderPage()}</AppLayout>;
 };
 
