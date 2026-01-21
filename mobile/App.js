@@ -743,7 +743,13 @@ const DashboardScreen = ({ navigation }) => {
   const [showWelcome, setShowWelcome] = useState(false);
 
   const fetchStats = async () => {
-    try { const data = await api.get('/stats/dashboard'); setStats(data.stats); }
+    try {
+      // First sync to pick up any new permit types
+      await api.post('/permits/sync');
+      // Then get dashboard stats
+      const data = await api.get('/stats/dashboard');
+      setStats(data.stats);
+    }
     catch (error) { console.error(error); } finally { setLoading(false); setRefreshing(false); }
   };
 
@@ -841,13 +847,24 @@ const PermitsScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false);
   const [showAddCityModal, setShowAddCityModal] = useState(false);
 
+  const syncAndFetchPermits = async () => {
+    try {
+      // First sync to pick up any new permit types
+      await api.post('/permits/sync');
+      // Then fetch all permits
+      const data = await api.get('/permits');
+      setPermits(data.permits);
+      setSummary(data.summary);
+    } catch (error) { console.error(error); } finally { setLoading(false); setRefreshing(false); }
+  };
+
   const fetchPermits = async () => {
     try { const data = await api.get('/permits'); setPermits(data.permits); setSummary(data.summary); }
     catch (error) { console.error(error); } finally { setLoading(false); setRefreshing(false); }
   };
 
-  useEffect(() => { fetchPermits(); }, []);
-  useEffect(() => { const unsubscribe = navigation.addListener('focus', fetchPermits); return unsubscribe; }, [navigation]);
+  useEffect(() => { syncAndFetchPermits(); }, []); // Sync on initial load
+  useEffect(() => { const unsubscribe = navigation.addListener('focus', syncAndFetchPermits); return unsubscribe; }, [navigation]);
 
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
@@ -875,7 +892,7 @@ const PermitsScreen = ({ navigation }) => {
       <FlatList
         data={permits}
         keyExtractor={item => item._id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchPermits(); }} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); syncAndFetchPermits(); }} />}
         renderItem={({ item }) => (
           <Card style={styles.permitCard} onPress={() => navigation.navigate('PermitDetail', { permit: item })}>
             <View style={styles.permitHeader}>
@@ -982,9 +999,10 @@ const PermitDetailScreen = ({ route, navigation }) => {
       refreshPermit();
     });
     return unsubscribe;
-  }, [navigation, initialPermit._id]);
+  }, [navigation, initialPermit?._id]);
   
   const refreshPermit = async () => {
+    if (!initialPermit?._id) return;
     try {
       const data = await api.get(`/permits/${initialPermit._id}`);
       if (data.permit) {
@@ -995,6 +1013,17 @@ const PermitDetailScreen = ({ route, navigation }) => {
     }
   };
   
+  // Early return if no permit data
+  if (!permit || !permit.permitTypeId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+  
   const getImportanceLabel = (level) => {
     if (level === 'critical') return { text: 'Critical', color: COLORS.danger };
     if (level === 'often_forgotten') return { text: 'Often Forgotten', color: COLORS.warning };
@@ -1003,6 +1032,7 @@ const PermitDetailScreen = ({ route, navigation }) => {
   };
   
   const handleAutofill = async () => {
+    if (!permit?.permitTypeId?._id) return;
     setLoadingAutofill(true);
     try {
       const data = await api.post('/autofill/generate', { permitTypeId: permit.permitTypeId._id });
@@ -1203,11 +1233,22 @@ const EditPermitScreen = ({ route, navigation }) => {
   const { permit } = route.params;
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
-    permitNumber: permit.permitNumber || '',
-    issueDate: permit.issueDate ? new Date(permit.issueDate).toISOString().split('T')[0] : '',
-    expiryDate: permit.expiryDate ? new Date(permit.expiryDate).toISOString().split('T')[0] : '',
-    status: permit.status || 'active'
+    permitNumber: permit?.permitNumber || '',
+    issueDate: permit?.issueDate ? new Date(permit.issueDate).toISOString().split('T')[0] : '',
+    expiryDate: permit?.expiryDate ? new Date(permit.expiryDate).toISOString().split('T')[0] : '',
+    status: permit?.status || 'active'
   });
+
+  // Early return if no permit
+  if (!permit) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text>Permit not found</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -2537,4 +2578,3 @@ const styles = StyleSheet.create({
   successMessage: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#dcfce7', padding: 12, borderRadius: 8, marginBottom: 16 },
   successText: { fontSize: 14, color: '#166534', flex: 1 },
 });
-
