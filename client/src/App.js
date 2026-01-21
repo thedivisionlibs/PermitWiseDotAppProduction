@@ -1096,8 +1096,8 @@ const InspectionsPage = () => {
   const [loading, setLoading] = useState(true); const [activeChecklist, setActiveChecklist] = useState(null);
   const [inspectionData, setInspectionData] = useState({ items: [], notes: '' });
 
-  // Plan check: Pro or Elite required
-  const hasAccess = subscription?.plan === 'pro' || subscription?.plan === 'elite' || subscription?.features?.inspectionChecklists;
+  // Plan check: Pro, Elite, Promo, or Lifetime required
+  const hasAccess = subscription?.plan === 'pro' || subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.inspectionChecklists;
 
   useEffect(() => {
     if (!hasAccess) { setLoading(false); return; }
@@ -1237,67 +1237,50 @@ const InspectionsPage = () => {
 };
 
 const EventsPage = () => {
-  const { subscription, business } = useAuth();
+  const { subscription } = useAuth();
   const [events, setEvents] = useState([]); const [loading, setLoading] = useState(true);
-  const [selectedEvent, setSelectedEvent] = useState(null); const [readiness, setReadiness] = useState(null);
-  const [applying, setApplying] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState(null);
 
-  // Plan check: Elite only
-  const hasAccess = subscription?.plan === 'elite' || subscription?.features?.eventIntegration;
+  // Plan check: Elite, Promo, or Lifetime required
+  const hasAccess = subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration;
 
   useEffect(() => {
     if (!hasAccess) { setLoading(false); return; }
-    const fetchEvents = async () => {
-      try { const data = await api.get('/events'); setEvents(data.events || []); }
+    const fetchMyEvents = async () => {
+      try { const data = await api.get('/events/my-events'); setEvents(data.events || []); }
       catch (error) { console.error(error); } finally { setLoading(false); }
-    }; fetchEvents();
+    }; fetchMyEvents();
   }, [hasAccess]);
-
-  const checkReadiness = async (event) => {
-    setSelectedEvent(event);
-    try { const data = await api.get(`/events/${event._id}/readiness`); setReadiness(data); }
-    catch (err) { setReadiness({ error: err.message }); }
-  };
-
-  const applyToEvent = async () => {
-    setApplying(true);
-    try {
-      await api.post(`/events/${selectedEvent._id}/apply`, { vendorType: business?.primaryVendorType, boothSize: 'standard', specialRequests: '' });
-      alert('Application submitted successfully!');
-      setSelectedEvent(null); setReadiness(null);
-    } catch (err) { alert(err.message); }
-    finally { setApplying(false); }
-  };
 
   if (!hasAccess) {
     return (
       <div className="upgrade-feature-page">
         <div className="upgrade-feature-content">
           <div className="upgrade-feature-icon"><Icons.Event /></div>
-          <h1>Event Marketplace</h1>
+          <h1>Event Readiness</h1>
           <Badge variant="warning">Elite Plan Required</Badge>
-          <p className="upgrade-feature-description">Discover festivals, farmers markets, and pop-up opportunities. Check your permit readiness instantly and apply with one click.</p>
+          <p className="upgrade-feature-description">See your permit compliance status for events you've been invited to participate in. Know instantly if you're ready or what's missing.</p>
           
           <div className="upgrade-feature-grid">
             <div className="upgrade-feature-item">
               <div className="upgrade-feature-item-icon"><Icons.Check /></div>
-              <h3>Local Event Discovery</h3>
-              <p>Browse upcoming events in all your operating cities in one centralized place</p>
+              <h3>Readiness Dashboard</h3>
+              <p>See at a glance which events you're ready for and which need attention</p>
             </div>
             <div className="upgrade-feature-item">
               <div className="upgrade-feature-item-icon"><Icons.Check /></div>
-              <h3>Permit Readiness Check</h3>
-              <p>Instantly see which permits you need before applying to any event</p>
+              <h3>Missing Permit Alerts</h3>
+              <p>Know exactly which permits or documents you need for each event</p>
             </div>
             <div className="upgrade-feature-item">
               <div className="upgrade-feature-item-icon"><Icons.Check /></div>
-              <h3>One-Click Applications</h3>
-              <p>Apply directly through PermitWise with your business info pre-filled</p>
+              <h3>Expiration Warnings</h3>
+              <p>Get alerted if any permits will expire before an event date</p>
             </div>
             <div className="upgrade-feature-item">
               <div className="upgrade-feature-item-icon"><Icons.Check /></div>
-              <h3>New Event Alerts</h3>
-              <p>Get notified when new events open for vendor applications in your area</p>
+              <h3>Organizer Integration</h3>
+              <p>Event organizers using PermitWise can verify your compliance directly</p>
             </div>
           </div>
 
@@ -1316,68 +1299,110 @@ const EventsPage = () => {
 
   if (loading) return <LoadingSpinner />;
 
+  const getReadinessIcon = (status) => {
+    if (status === 'ready') return <Icons.Check />;
+    if (status === 'missing_permit' || status === 'expired_permit') return <Icons.Alert />;
+    return <Icons.Clock />;
+  };
+
   return (
     <div className="events-page">
-      <div className="page-header"><h1>Event Marketplace</h1><p>Find events and check your permit readiness</p></div>
+      <div className="page-header">
+        <h1>Event Readiness</h1>
+        <p>Your compliance status for assigned events</p>
+      </div>
+      
       {events.length > 0 ? (
-        <div className="events-grid">
+        <div className="events-readiness-list">
           {events.map(event => (
-            <Card key={event._id} className="event-card">
-              <div className="event-date">
-                <span className="month">{new Date(event.startDate).toLocaleDateString('en-US', { month: 'short' })}</span>
-                <span className="day">{new Date(event.startDate).getDate()}</span>
-              </div>
-              <div className="event-info">
-                <h3>{event.eventName}</h3>
-                <p className="organizer">{event.organizerName}</p>
-                <p className="location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
-                {event.vendorFee && <p className="fee">Vendor Fee: ${event.vendorFee}</p>}
-                <div className="event-meta">
-                  <Badge variant={event.status === 'open' ? 'success' : 'default'}>{event.status}</Badge>
-                  {event.maxVendors && <span>{event.registeredVendors?.length || 0}/{event.maxVendors} vendors</span>}
+            <Card key={event._id} className={`event-readiness-card ${event.readinessStatus}`}>
+              <div className="event-readiness-header">
+                <div className="event-date-badge">
+                  <span className="month">{new Date(event.startDate).toLocaleDateString('en-US', { month: 'short' })}</span>
+                  <span className="day">{new Date(event.startDate).getDate()}</span>
+                </div>
+                <div className="event-info">
+                  <h3>{event.eventName}</h3>
+                  <p className="organizer">Organized by {event.organizerName}</p>
+                  <p className="location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
+                </div>
+                <div className={`readiness-badge ${event.readinessColor}`}>
+                  {getReadinessIcon(event.readinessStatus)}
+                  <span>{event.readinessStatus === 'ready' ? 'Ready' : 'Action Needed'}</span>
                 </div>
               </div>
-              <div className="event-actions">
-                <Button onClick={() => checkReadiness(event)}>Check Readiness</Button>
+              
+              <div className="event-readiness-details">
+                <div className="permit-progress">
+                  <div className="progress-bar">
+                    <div className="progress-fill" style={{ width: `${event.requiredPermitsCount > 0 ? (event.readyCount / event.requiredPermitsCount) * 100 : 100}%` }}></div>
+                  </div>
+                  <span className="progress-text">{event.readyCount}/{event.requiredPermitsCount} permits ready</span>
+                </div>
+                
+                {event.readinessStatus !== 'ready' && (
+                  <div className="readiness-issues">
+                    <p className="readiness-label">{event.readinessLabel}</p>
+                    <Button variant="outline" size="sm" onClick={() => setSelectedEvent(event)}>View Details</Button>
+                  </div>
+                )}
+                
+                {event.readinessStatus === 'ready' && (
+                  <div className="readiness-success">
+                    <Icons.Check /> All permits and documents are in order
+                  </div>
+                )}
               </div>
             </Card>
           ))}
         </div>
       ) : (
-        <EmptyState icon={Icons.Event} title="No events found" description="Check back later for upcoming events in your area" />
+        <EmptyState 
+          icon={Icons.Event} 
+          title="No events assigned" 
+          description="You haven't been assigned to any events yet. When event organizers using PermitWise add you to their vendor list, you'll see your compliance status here."
+        />
       )}
 
-      <Modal isOpen={!!selectedEvent} onClose={() => { setSelectedEvent(null); setReadiness(null); }} title={selectedEvent?.eventName}>
-        {readiness && !readiness.error ? (
-          <div className="readiness-check">
-            <div className={`readiness-status ${readiness.isReady ? 'ready' : 'not-ready'}`}>
-              {readiness.isReady ? <><Icons.Check /><span>You're ready to apply!</span></> : <><Icons.Alert /><span>Missing requirements</span></>}
+      <Modal isOpen={!!selectedEvent} onClose={() => setSelectedEvent(null)} title={`${selectedEvent?.eventName} - Readiness Details`}>
+        {selectedEvent && (
+          <div className="readiness-detail-modal">
+            <div className="event-summary">
+              <p><strong>Date:</strong> {formatDate(selectedEvent.startDate)}</p>
+              <p><strong>Location:</strong> {selectedEvent.location?.city}, {selectedEvent.location?.state}</p>
+              <p><strong>Organizer:</strong> {selectedEvent.organizerName}</p>
             </div>
-            {readiness.missingPermits?.length > 0 && (
-              <div className="missing-section">
-                <h4>Missing Permits:</h4>
-                <ul>{readiness.missingPermits.map((p, i) => <li key={i}>{p.name}</li>)}</ul>
+            
+            {selectedEvent.issues?.length > 0 ? (
+              <div className="issues-list">
+                <h4>Issues to Resolve:</h4>
+                {selectedEvent.issues.map((issue, i) => (
+                  <div key={i} className={`issue-item ${issue.type}`}>
+                    {issue.type === 'missing' && <><Icons.Alert /> <span><strong>{issue.permit}</strong> - Permit not found</span></>}
+                    {issue.type === 'expired' && <><Icons.Clock /> <span><strong>{issue.permit}</strong> - Permit expired or will expire before event</span></>}
+                    {issue.type === 'missing_document' && <><Icons.Document /> <span><strong>{issue.permit}</strong> - Document not uploaded</span></>}
+                    {issue.type === 'in_progress' && <><Icons.Clock /> <span><strong>{issue.permit}</strong> - Application in progress</span></>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="all-good">
+                <Icons.Check /> All requirements met!
               </div>
             )}
-            {readiness.expiringPermits?.length > 0 && (
-              <div className="expiring-section">
-                <h4>Expiring Soon:</h4>
-                <ul>{readiness.expiringPermits.map((p, i) => <li key={i}>{p.name} - expires {formatDate(p.expiryDate)}</li>)}</ul>
-              </div>
-            )}
+            
             <div className="modal-actions">
-              <Button variant="outline" onClick={() => { setSelectedEvent(null); setReadiness(null); }}>Close</Button>
-              {readiness.isReady && <Button onClick={applyToEvent} loading={applying}>Apply Now</Button>}
+              <Button variant="outline" onClick={() => setSelectedEvent(null)}>Close</Button>
+              {selectedEvent.issues?.length > 0 && (
+                <Button onClick={() => { setSelectedEvent(null); window.location.hash = 'permits'; }}>Go to Permits</Button>
+              )}
             </div>
           </div>
-        ) : readiness?.error ? (
-          <div className="readiness-error"><p>{readiness.error}</p><Button onClick={() => setReadiness(null)}>Try Again</Button></div>
-        ) : (
-          <LoadingSpinner />
         )}
       </Modal>
     </div>
   );
+};
 };
 
 const SettingsPage = () => {
@@ -1712,7 +1737,7 @@ const SuperAdminPage = ({ onBack }) => {
   // Admin panel state
   const [activeTab, setActiveTab] = useState('stats');
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState({ users: [], businesses: [], permits: [], jurisdictions: [], permitTypes: [], stats: null });
+  const [data, setData] = useState({ users: [], businesses: [], permits: [], jurisdictions: [], permitTypes: [], checklists: [], events: [], stats: null });
   const [message, setMessage] = useState('');
   const [newJurisdiction, setNewJurisdiction] = useState({ name: '', city: '', state: '', county: '', type: 'city' });
   const [newPermitType, setNewPermitType] = useState({ name: '', description: '', jurisdictionId: '', vendorTypes: [], renewalPeriodMonths: 12, importanceLevel: 'critical', issuingAuthorityName: '', estimatedCost: '', requiredDocuments: '', fees: { application: 0, renewal: 0 } });
@@ -1720,6 +1745,21 @@ const SuperAdminPage = ({ onBack }) => {
   const [duplicateTarget, setDuplicateTarget] = useState(null);
   const [duplicateJurisdiction, setDuplicateJurisdiction] = useState('');
   const [editingPermitType, setEditingPermitType] = useState(null);
+  
+  // Subscription management state
+  const [managingSubscription, setManagingSubscription] = useState(null); // Business being managed
+  const [subscriptionAction, setSubscriptionAction] = useState(''); // 'extend', 'grant', 'revoke'
+  const [subscriptionForm, setSubscriptionForm] = useState({ days: 30, plan: 'promo', durationDays: 90, note: '' });
+  
+  // Checklist management state
+  const [newChecklist, setNewChecklist] = useState({ name: '', description: '', jurisdictionId: '', vendorType: '', category: 'health', items: [{ itemText: '', description: '', required: true }] });
+  
+  // Event management state
+  const [newEvent, setNewEvent] = useState({ eventName: '', organizerName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', vendorFee: '', maxVendors: '', status: 'draft', requiredPermits: [] });
+  
+  // Event vendor management state
+  const [managingEvent, setManagingEvent] = useState(null);
+  const [vendorToAssign, setVendorToAssign] = useState('');
 
   // Verify existing admin token on mount
   useEffect(() => {
@@ -1793,6 +1833,8 @@ const SuperAdminPage = ({ onBack }) => {
       else if (type === 'businesses') { const result = await adminApi('/admin/businesses'); setData(d => ({ ...d, businesses: result.businesses || [] })); }
       else if (type === 'jurisdictions') { const result = await adminApi('/admin/jurisdictions'); setData(d => ({ ...d, jurisdictions: result.jurisdictions || [] })); }
       else if (type === 'permitTypes') { const result = await adminApi('/admin/permit-types'); setData(d => ({ ...d, permitTypes: result.permitTypes || [] })); }
+      else if (type === 'checklists') { const result = await adminApi('/admin/checklists'); setData(d => ({ ...d, checklists: result.checklists || [] })); }
+      else if (type === 'events') { const result = await adminApi('/admin/events'); setData(d => ({ ...d, events: result.events || [] })); }
       else if (type === 'stats') { const result = await adminApi('/admin/stats'); setData(d => ({ ...d, stats: result })); }
     } catch (err) { setMessage(err.message); }
     finally { setLoading(false); }
@@ -1839,6 +1881,73 @@ const SuperAdminPage = ({ onBack }) => {
   const deleteJurisdiction = async (id) => { if (window.confirm('Delete this jurisdiction?')) { try { await adminApi(`/admin/jurisdictions/${id}`, 'DELETE'); fetchData('jurisdictions'); setMessage('Jurisdiction deleted'); } catch (err) { setMessage(err.message); } } };
   const deletePermitType = async (id) => { if (window.confirm('Delete this permit type?')) { try { await adminApi(`/admin/permit-types/${id}`, 'DELETE'); fetchData('permitTypes'); setMessage('Permit type deleted'); } catch (err) { setMessage(err.message); } } };
   
+  // Checklist CRUD functions
+  const createChecklist = async () => {
+    try {
+      await adminApi('/admin/checklists', 'POST', {
+        name: newChecklist.name,
+        description: newChecklist.description,
+        jurisdictionId: newChecklist.jurisdictionId || null,
+        vendorType: newChecklist.vendorType || null,
+        category: newChecklist.category,
+        items: newChecklist.items.filter(i => i.itemText.trim())
+      });
+      setNewChecklist({ name: '', description: '', jurisdictionId: '', vendorType: '', category: 'health', items: [{ itemText: '', description: '', required: true }] });
+      fetchData('checklists');
+      setMessage('Checklist created');
+    } catch (err) { setMessage(err.message); }
+  };
+  const deleteChecklist = async (id) => { if (window.confirm('Delete this checklist?')) { try { await adminApi(`/admin/checklists/${id}`, 'DELETE'); fetchData('checklists'); setMessage('Checklist deleted'); } catch (err) { setMessage(err.message); } } };
+
+  // Event CRUD functions
+  const createEvent = async () => {
+    try {
+      await adminApi('/admin/events', 'POST', {
+        eventName: newEvent.eventName,
+        organizerName: newEvent.organizerName,
+        description: newEvent.description,
+        startDate: newEvent.startDate,
+        endDate: newEvent.endDate || newEvent.startDate,
+        city: newEvent.city,
+        state: newEvent.state,
+        address: newEvent.address,
+        vendorFee: newEvent.vendorFee,
+        maxVendors: newEvent.maxVendors,
+        status: newEvent.status,
+        requiredPermitTypes: newEvent.requiredPermits || []
+      });
+      setNewEvent({ eventName: '', organizerName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', vendorFee: '', maxVendors: '', status: 'draft', requiredPermits: [] });
+      fetchData('events');
+      setMessage('Event created');
+    } catch (err) { setMessage(err.message); }
+  };
+  const deleteEvent = async (id) => { if (window.confirm('Delete this event?')) { try { await adminApi(`/admin/events/${id}`, 'DELETE'); fetchData('events'); setMessage('Event deleted'); } catch (err) { setMessage(err.message); } } };
+  
+  // Event vendor assignment functions
+  const assignVendorToEvent = async () => {
+    if (!managingEvent || !vendorToAssign) return;
+    try {
+      const result = await adminApi(`/admin/events/${managingEvent._id}/assign-vendor`, 'POST', { vendorBusinessId: vendorToAssign });
+      setManagingEvent(result.event);
+      setVendorToAssign('');
+      fetchData('events');
+      setMessage('Vendor assigned to event');
+    } catch (err) { setMessage(err.message); }
+  };
+  
+  const removeVendorFromEvent = async (vendorId) => {
+    if (!managingEvent || !window.confirm('Remove this vendor from the event?')) return;
+    try {
+      await adminApi(`/admin/events/${managingEvent._id}/remove-vendor/${vendorId}`, 'DELETE');
+      setManagingEvent(prev => ({
+        ...prev,
+        assignedVendors: prev.assignedVendors.filter(v => v.vendorBusinessId?._id !== vendorId)
+      }));
+      fetchData('events');
+      setMessage('Vendor removed from event');
+    } catch (err) { setMessage(err.message); }
+  };
+  
   const updatePermitType = async () => {
     if (!editingPermitType) return;
     try {
@@ -1854,6 +1963,68 @@ const SuperAdminPage = ({ onBack }) => {
       fetchData('permitTypes');
       setMessage('Permit type updated');
     } catch (err) { setMessage(err.message); }
+  };
+
+  // Subscription management functions
+  const extendTrial = async () => {
+    if (!managingSubscription) return;
+    try {
+      const result = await adminApi(`/admin/subscriptions/${managingSubscription._id}/extend-trial`, 'POST', {
+        days: subscriptionForm.days,
+        note: subscriptionForm.note
+      });
+      setMessage(result.message);
+      setManagingSubscription(null);
+      setSubscriptionAction('');
+      fetchData('businesses');
+    } catch (err) { setMessage(err.message); }
+  };
+
+  const grantPromo = async () => {
+    if (!managingSubscription) return;
+    try {
+      const result = await adminApi(`/admin/subscriptions/${managingSubscription._id}/grant-promo`, 'POST', {
+        plan: subscriptionForm.plan,
+        durationDays: subscriptionForm.plan === 'promo' ? subscriptionForm.durationDays : null,
+        note: subscriptionForm.note
+      });
+      setMessage(result.message);
+      setManagingSubscription(null);
+      setSubscriptionAction('');
+      fetchData('businesses');
+    } catch (err) { setMessage(err.message); }
+  };
+
+  const revokeSubscription = async () => {
+    if (!managingSubscription) return;
+    if (!window.confirm('Are you sure you want to revoke this subscription? The user will lose access to paid features.')) return;
+    try {
+      const result = await adminApi(`/admin/subscriptions/${managingSubscription._id}/revoke`, 'POST', {
+        note: subscriptionForm.note
+      });
+      setMessage(result.message);
+      setManagingSubscription(null);
+      setSubscriptionAction('');
+      fetchData('businesses');
+    } catch (err) { setMessage(err.message); }
+  };
+
+  const openSubscriptionManager = (business) => {
+    setManagingSubscription(business);
+    setSubscriptionAction('');
+    setSubscriptionForm({ days: 30, plan: 'promo', durationDays: 90, note: '' });
+  };
+
+  const getSubscriptionStatusColor = (sub) => {
+    if (!sub) return 'gray';
+    if (sub.status === 'lifetime') return 'purple';
+    if (sub.status === 'promo') return 'blue';
+    if (sub.status === 'active') return 'green';
+    if (sub.status === 'trial') {
+      const daysLeft = sub.trialEndsAt ? Math.ceil((new Date(sub.trialEndsAt) - new Date()) / (1000 * 60 * 60 * 24)) : 0;
+      return daysLeft > 0 ? 'yellow' : 'red';
+    }
+    return 'red';
   };
 
   const getImportanceLabel = (level) => {
@@ -1922,7 +2093,7 @@ const SuperAdminPage = ({ onBack }) => {
       {message && <Alert type="info" onClose={() => setMessage('')}>{message}</Alert>}
       
       <div className="admin-tabs">
-        {['stats', 'users', 'businesses', 'jurisdictions', 'permitTypes'].map(tab => (
+        {['stats', 'users', 'businesses', 'jurisdictions', 'permitTypes', 'checklists', 'events'].map(tab => (
           <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>
             {tab === 'permitTypes' ? 'Permit Types' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
@@ -1974,18 +2145,36 @@ const SuperAdminPage = ({ onBack }) => {
         {activeTab === 'businesses' && (
           <div className="admin-table-container">
             <table className="admin-table">
-              <thead><tr><th>Business Name</th><th>Type</th><th>Cities</th><th>Plan</th><th>Created</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Business Name</th><th>Owner</th><th>Type</th><th>Cities</th><th>Plan / Status</th><th>Expires</th><th>Actions</th></tr></thead>
               <tbody>
-                {data.businesses.map(biz => (
-                  <tr key={biz._id}>
-                    <td>{biz.businessName}</td>
-                    <td>{biz.primaryVendorType}</td>
-                    <td>{biz.operatingCities?.map(c => c.city).join(', ')}</td>
-                    <td><Badge variant="primary">{biz.subscription?.plan || 'trial'}</Badge></td>
-                    <td>{formatDate(biz.createdAt)}</td>
-                    <td><button className="delete-btn" onClick={() => deleteBusiness(biz._id)}><Icons.Trash /></button></td>
-                  </tr>
-                ))}
+                {data.businesses.map(biz => {
+                  const sub = biz.subscription;
+                  const statusColor = getSubscriptionStatusColor(sub);
+                  const expiryDate = sub?.promoExpiresAt || sub?.trialEndsAt || sub?.currentPeriodEnd;
+                  const isExpired = expiryDate && new Date(expiryDate) < new Date();
+                  return (
+                    <tr key={biz._id}>
+                      <td><strong>{biz.businessName}</strong></td>
+                      <td>{biz.ownerId?.email || 'N/A'}</td>
+                      <td>{biz.primaryVendorType}</td>
+                      <td>{biz.operatingCities?.map(c => c.city).join(', ') || 'None'}</td>
+                      <td>
+                        <Badge variant={statusColor === 'green' ? 'success' : statusColor === 'red' ? 'danger' : statusColor === 'purple' ? 'primary' : 'warning'}>
+                          {sub?.plan?.toUpperCase() || 'TRIAL'}
+                        </Badge>
+                        {sub?.promoNote && <span className="promo-note" title={sub.promoNote}>🎁</span>}
+                      </td>
+                      <td className={isExpired ? 'text-danger' : ''}>
+                        {sub?.status === 'lifetime' ? '∞ Never' : (expiryDate ? formatDate(expiryDate) : 'N/A')}
+                        {isExpired && sub?.status !== 'lifetime' && ' (Expired)'}
+                      </td>
+                      <td className="actions-cell">
+                        <button className="action-btn edit" onClick={() => openSubscriptionManager(biz)} title="Manage Subscription"><Icons.Settings /></button>
+                        <button className="delete-btn" onClick={() => deleteBusiness(biz._id)} title="Delete"><Icons.Trash /></button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -2188,6 +2377,166 @@ const SuperAdminPage = ({ onBack }) => {
             </div>
           </div>
         )}
+
+        {activeTab === 'checklists' && (
+          <div>
+            <Card className="create-form admin-form-enhanced">
+              <div className="form-header">
+                <h3>➕ Create Inspection Checklist</h3>
+                <p className="form-hint">Create checklists for vendors to self-inspect before official inspections.</p>
+              </div>
+              <div className="form-section">
+                <Input label="Checklist Name *" placeholder="Health Inspection Pre-Check" value={newChecklist.name} onChange={(e) => setNewChecklist(c => ({ ...c, name: e.target.value }))} />
+                <Input label="Description" placeholder="Standard health department inspection items" value={newChecklist.description} onChange={(e) => setNewChecklist(c => ({ ...c, description: e.target.value }))} />
+                <div className="form-row">
+                  <Select label="Category" value={newChecklist.category} onChange={(e) => setNewChecklist(c => ({ ...c, category: e.target.value }))} options={[
+                    { value: 'health', label: '🏥 Health' },
+                    { value: 'fire', label: '🔥 Fire Safety' },
+                    { value: 'safety', label: '⚠️ General Safety' },
+                    { value: 'general', label: '📋 General' }
+                  ]} />
+                  <Select label="Jurisdiction (optional)" value={newChecklist.jurisdictionId} onChange={(e) => setNewChecklist(c => ({ ...c, jurisdictionId: e.target.value }))} options={[{ value: '', label: 'All Jurisdictions' }, ...data.jurisdictions.map(j => ({ value: j._id, label: `${j.city}, ${j.state}` }))]} />
+                  <Select label="Vendor Type (optional)" value={newChecklist.vendorType} onChange={(e) => setNewChecklist(c => ({ ...c, vendorType: e.target.value }))} options={[{ value: '', label: 'All Vendor Types' }, ...VENDOR_TYPES]} />
+                </div>
+              </div>
+              <div className="form-section">
+                <div className="form-section-title">Checklist Items</div>
+                {newChecklist.items.map((item, i) => (
+                  <div key={i} className="checklist-item-row">
+                    <span className="item-number">{i + 1}.</span>
+                    <Input placeholder="Item text (e.g., 'Food stored at proper temperature')" value={item.itemText} onChange={(e) => {
+                      const items = [...newChecklist.items];
+                      items[i] = { ...items[i], itemText: e.target.value };
+                      setNewChecklist(c => ({ ...c, items }));
+                    }} />
+                    <button type="button" className="delete-btn" onClick={() => {
+                      if (newChecklist.items.length > 1) {
+                        setNewChecklist(c => ({ ...c, items: c.items.filter((_, idx) => idx !== i) }));
+                      }
+                    }}><Icons.Trash /></button>
+                  </div>
+                ))}
+                <Button variant="outline" onClick={() => setNewChecklist(c => ({ ...c, items: [...c.items, { itemText: '', description: '', required: true }] }))}>
+                  <Icons.Plus /> Add Item
+                </Button>
+              </div>
+              <div className="form-actions">
+                <Button onClick={createChecklist} disabled={!newChecklist.name || !newChecklist.items.some(i => i.itemText)}>
+                  <Icons.Plus /> Create Checklist
+                </Button>
+              </div>
+            </Card>
+            
+            <div className="admin-section-header">
+              <h3>📋 Existing Checklists ({data.checklists.length})</h3>
+            </div>
+            <div className="admin-table-container">
+              <table className="admin-table">
+                <thead><tr><th>Name</th><th>Category</th><th>Jurisdiction</th><th>Vendor Type</th><th>Items</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {data.checklists.map(cl => (
+                    <tr key={cl._id}>
+                      <td><strong>{cl.name}</strong>{cl.description && <br /><small>{cl.description}</small>}</td>
+                      <td><Badge variant={cl.category === 'health' ? 'danger' : cl.category === 'fire' ? 'warning' : 'default'}>{cl.category}</Badge></td>
+                      <td>{cl.jurisdictionId ? `${cl.jurisdictionId.city}, ${cl.jurisdictionId.state}` : 'All'}</td>
+                      <td>{cl.vendorType || 'All'}</td>
+                      <td>{cl.items?.length || 0}</td>
+                      <td><Badge variant={cl.active ? 'success' : 'default'}>{cl.active ? 'Active' : 'Inactive'}</Badge></td>
+                      <td><button className="delete-btn" onClick={() => deleteChecklist(cl._id)}><Icons.Trash /></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'events' && (
+          <div>
+            <Card className="create-form admin-form-enhanced">
+              <div className="form-header">
+                <h3>➕ Create Event</h3>
+                <p className="form-hint">Create events for organizers using PermitWise. Vendors will see their compliance status for assigned events.</p>
+              </div>
+              <div className="form-section">
+                <Input label="Event Name *" placeholder="Downtown Food Festival" value={newEvent.eventName} onChange={(e) => setNewEvent(ev => ({ ...ev, eventName: e.target.value }))} />
+                <Input label="Organizer Name" placeholder="City Events Department" value={newEvent.organizerName} onChange={(e) => setNewEvent(ev => ({ ...ev, organizerName: e.target.value }))} />
+                <Input label="Description" placeholder="Annual food truck festival featuring local vendors" value={newEvent.description} onChange={(e) => setNewEvent(ev => ({ ...ev, description: e.target.value }))} />
+              </div>
+              <div className="form-section">
+                <div className="form-section-title">Date & Location</div>
+                <div className="form-row">
+                  <Input label="Start Date *" type="date" value={newEvent.startDate} onChange={(e) => setNewEvent(ev => ({ ...ev, startDate: e.target.value }))} />
+                  <Input label="End Date" type="date" value={newEvent.endDate} onChange={(e) => setNewEvent(ev => ({ ...ev, endDate: e.target.value }))} />
+                </div>
+                <div className="form-row">
+                  <Input label="City *" placeholder="Austin" value={newEvent.city} onChange={(e) => setNewEvent(ev => ({ ...ev, city: e.target.value }))} />
+                  <Select label="State *" value={newEvent.state} onChange={(e) => setNewEvent(ev => ({ ...ev, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+                </div>
+                <Input label="Address" placeholder="123 Main Street" value={newEvent.address} onChange={(e) => setNewEvent(ev => ({ ...ev, address: e.target.value }))} />
+              </div>
+              <div className="form-section">
+                <div className="form-section-title">Requirements & Status</div>
+                <div className="form-row">
+                  <Select label="Status" value={newEvent.status} onChange={(e) => setNewEvent(ev => ({ ...ev, status: e.target.value }))} options={[
+                    { value: 'draft', label: 'Draft' },
+                    { value: 'published', label: 'Published' },
+                    { value: 'closed', label: 'Closed' }
+                  ]} />
+                  <Input label="Vendor Fee ($)" type="number" placeholder="150" value={newEvent.vendorFee} onChange={(e) => setNewEvent(ev => ({ ...ev, vendorFee: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label>Required Permits</label>
+                  <p className="form-hint">Select which permits vendors must have to participate</p>
+                  <div className="permit-type-checkboxes">
+                    {data.permitTypes.slice(0, 20).map(pt => (
+                      <label key={pt._id} className="checkbox-label">
+                        <input type="checkbox" checked={newEvent.requiredPermits?.includes(pt._id)} onChange={(e) => {
+                          if (e.target.checked) {
+                            setNewEvent(ev => ({ ...ev, requiredPermits: [...(ev.requiredPermits || []), pt._id] }));
+                          } else {
+                            setNewEvent(ev => ({ ...ev, requiredPermits: (ev.requiredPermits || []).filter(id => id !== pt._id) }));
+                          }
+                        }} />
+                        <span>{pt.name} <small>({pt.jurisdictionId?.city}, {pt.jurisdictionId?.state})</small></span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="form-actions">
+                <Button onClick={createEvent} disabled={!newEvent.eventName || !newEvent.startDate || !newEvent.city || !newEvent.state}>
+                  <Icons.Plus /> Create Event
+                </Button>
+              </div>
+            </Card>
+            
+            <div className="admin-section-header">
+              <h3>🎪 Events ({data.events.length})</h3>
+            </div>
+            <div className="admin-table-container">
+              <table className="admin-table">
+                <thead><tr><th>Event</th><th>Date</th><th>Location</th><th>Required Permits</th><th>Assigned Vendors</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {data.events.map(ev => (
+                    <tr key={ev._id}>
+                      <td><strong>{ev.eventName}</strong>{ev.organizerName && <br /><small>by {ev.organizerName}</small>}</td>
+                      <td>{formatDate(ev.startDate)}</td>
+                      <td>{ev.location?.city}, {ev.location?.state}</td>
+                      <td>{ev.requiredPermitTypes?.length || 0} permits</td>
+                      <td>{ev.assignedVendors?.length || 0} vendors</td>
+                      <td><Badge variant={ev.status === 'published' ? 'success' : ev.status === 'canceled' ? 'danger' : 'default'}>{ev.status}</Badge></td>
+                      <td className="actions-cell">
+                        <button className="action-btn edit" onClick={() => setManagingEvent(ev)} title="Manage Vendors"><Icons.Settings /></button>
+                        <button className="delete-btn" onClick={() => deleteEvent(ev._id)} title="Delete"><Icons.Trash /></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
       
       {/* Duplicate Modal */}
@@ -2258,6 +2607,155 @@ const SuperAdminPage = ({ onBack }) => {
             <div className="modal-actions">
               <Button variant="outline" onClick={() => setEditingPermitType(null)}>Cancel</Button>
               <Button onClick={updatePermitType}>Save Changes</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+      
+      {/* Subscription Management Modal */}
+      <Modal isOpen={!!managingSubscription} onClose={() => { setManagingSubscription(null); setSubscriptionAction(''); }} title={`Manage Subscription: ${managingSubscription?.businessName}`} size="lg">
+        {managingSubscription && (
+          <div className="subscription-manager">
+            <div className="sub-current-status">
+              <h4>Current Status</h4>
+              <div className="sub-info-grid">
+                <div><span className="sub-label">Plan:</span> <Badge variant={getSubscriptionStatusColor(managingSubscription.subscription) === 'green' ? 'success' : 'primary'}>{managingSubscription.subscription?.plan?.toUpperCase() || 'TRIAL'}</Badge></div>
+                <div><span className="sub-label">Status:</span> {managingSubscription.subscription?.status || 'trial'}</div>
+                <div><span className="sub-label">Expires:</span> {managingSubscription.subscription?.status === 'lifetime' ? 'Never' : formatDate(managingSubscription.subscription?.promoExpiresAt || managingSubscription.subscription?.trialEndsAt || managingSubscription.subscription?.currentPeriodEnd)}</div>
+                {managingSubscription.subscription?.promoNote && <div><span className="sub-label">Note:</span> {managingSubscription.subscription.promoNote}</div>}
+              </div>
+            </div>
+            
+            <div className="sub-actions">
+              <h4>Actions</h4>
+              <div className="sub-action-buttons">
+                <Button variant={subscriptionAction === 'extend' ? 'primary' : 'outline'} onClick={() => setSubscriptionAction('extend')}>
+                  <Icons.Clock /> Extend Trial
+                </Button>
+                <Button variant={subscriptionAction === 'grant' ? 'primary' : 'outline'} onClick={() => setSubscriptionAction('grant')}>
+                  <Icons.Check /> Grant Promo/Lifetime
+                </Button>
+                <Button variant={subscriptionAction === 'revoke' ? 'danger' : 'outline'} onClick={() => setSubscriptionAction('revoke')}>
+                  <Icons.X /> Revoke Access
+                </Button>
+              </div>
+            </div>
+            
+            {subscriptionAction === 'extend' && (
+              <div className="sub-action-form">
+                <h4>🕐 Extend Trial Period</h4>
+                <p className="form-hint">Add additional days to the user's trial period.</p>
+                <Input label="Days to Add" type="number" min="1" max="365" value={subscriptionForm.days} onChange={(e) => setSubscriptionForm(f => ({ ...f, days: parseInt(e.target.value) || 30 }))} />
+                <Input label="Note (optional)" placeholder="e.g., Customer service extension" value={subscriptionForm.note} onChange={(e) => setSubscriptionForm(f => ({ ...f, note: e.target.value }))} />
+                <div className="modal-actions">
+                  <Button variant="outline" onClick={() => setSubscriptionAction('')}>Cancel</Button>
+                  <Button onClick={extendTrial}>Extend Trial by {subscriptionForm.days} Days</Button>
+                </div>
+              </div>
+            )}
+            
+            {subscriptionAction === 'grant' && (
+              <div className="sub-action-form">
+                <h4>🎁 Grant Promotional Subscription</h4>
+                <p className="form-hint">Give the user free access to paid features.</p>
+                <Select label="Plan Type" value={subscriptionForm.plan} onChange={(e) => setSubscriptionForm(f => ({ ...f, plan: e.target.value }))} options={[
+                  { value: 'promo', label: '🎉 Promo (Time-Limited Full Access)' },
+                  { value: 'lifetime', label: '♾️ Lifetime (Permanent Full Access)' },
+                  { value: 'pro', label: '⭐ Pro Plan Features' },
+                  { value: 'elite', label: '👑 Elite Plan Features' }
+                ]} />
+                {subscriptionForm.plan === 'promo' && (
+                  <Input label="Duration (days)" type="number" min="1" max="3650" value={subscriptionForm.durationDays} onChange={(e) => setSubscriptionForm(f => ({ ...f, durationDays: parseInt(e.target.value) || 90 }))} />
+                )}
+                <Input label="Note (required for audit)" placeholder="e.g., Beta tester reward, Influencer deal" value={subscriptionForm.note} onChange={(e) => setSubscriptionForm(f => ({ ...f, note: e.target.value }))} />
+                <div className="modal-actions">
+                  <Button variant="outline" onClick={() => setSubscriptionAction('')}>Cancel</Button>
+                  <Button onClick={grantPromo} disabled={!subscriptionForm.note}>
+                    Grant {subscriptionForm.plan === 'lifetime' ? 'Lifetime' : subscriptionForm.plan === 'promo' ? `${subscriptionForm.durationDays}-Day Promo` : subscriptionForm.plan.toUpperCase()} Access
+                  </Button>
+                </div>
+              </div>
+            )}
+            
+            {subscriptionAction === 'revoke' && (
+              <div className="sub-action-form">
+                <h4>⚠️ Revoke Subscription</h4>
+                <p className="form-hint" style={{ color: 'var(--danger)' }}>This will remove the user's paid access and reset them to an expired trial. They will need to subscribe to regain access.</p>
+                <Input label="Reason (required)" placeholder="e.g., Refund processed, Abuse detected" value={subscriptionForm.note} onChange={(e) => setSubscriptionForm(f => ({ ...f, note: e.target.value }))} />
+                <div className="modal-actions">
+                  <Button variant="outline" onClick={() => setSubscriptionAction('')}>Cancel</Button>
+                  <Button variant="danger" onClick={revokeSubscription} disabled={!subscriptionForm.note}>Revoke Access</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+      
+      {/* Event Vendor Management Modal */}
+      <Modal isOpen={!!managingEvent} onClose={() => { setManagingEvent(null); setVendorToAssign(''); }} title={`Manage Event: ${managingEvent?.eventName}`} size="lg">
+        {managingEvent && (
+          <div className="event-management">
+            <div className="event-info-summary">
+              <p><strong>Date:</strong> {formatDate(managingEvent.startDate)}</p>
+              <p><strong>Location:</strong> {managingEvent.location?.city}, {managingEvent.location?.state}</p>
+              <p><strong>Status:</strong> <Badge variant={managingEvent.status === 'published' ? 'success' : 'default'}>{managingEvent.status}</Badge></p>
+            </div>
+            
+            <div className="event-required-permits">
+              <h4>Required Permits ({managingEvent.requiredPermitTypes?.length || 0})</h4>
+              {managingEvent.requiredPermitTypes?.length > 0 ? (
+                <ul className="permit-list">
+                  {managingEvent.requiredPermitTypes.map(pt => (
+                    <li key={pt._id || pt}>{pt.name || pt}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-text">No permits required</p>
+              )}
+            </div>
+            
+            <div className="event-assigned-vendors">
+              <h4>Assigned Vendors ({managingEvent.assignedVendors?.length || 0})</h4>
+              
+              <div className="assign-vendor-form">
+                <Select 
+                  label="Add Vendor" 
+                  value={vendorToAssign} 
+                  onChange={(e) => setVendorToAssign(e.target.value)}
+                  options={[
+                    { value: '', label: 'Select a business...' },
+                    ...data.businesses
+                      .filter(b => !managingEvent.assignedVendors?.some(v => v.vendorBusinessId?._id === b._id || v.vendorBusinessId === b._id))
+                      .map(b => ({ value: b._id, label: `${b.businessName} (${b.primaryVendorType})` }))
+                  ]}
+                />
+                <Button onClick={assignVendorToEvent} disabled={!vendorToAssign}>
+                  <Icons.Plus /> Assign
+                </Button>
+              </div>
+              
+              {managingEvent.assignedVendors?.length > 0 ? (
+                <table className="admin-table">
+                  <thead><tr><th>Business</th><th>Type</th><th>Assigned</th><th>Actions</th></tr></thead>
+                  <tbody>
+                    {managingEvent.assignedVendors.map(v => (
+                      <tr key={v.vendorBusinessId?._id || v.vendorBusinessId}>
+                        <td>{v.vendorBusinessId?.businessName || 'Unknown'}</td>
+                        <td>{v.vendorBusinessId?.primaryVendorType || '-'}</td>
+                        <td>{formatDate(v.assignedAt)}</td>
+                        <td>
+                          <button className="delete-btn" onClick={() => removeVendorFromEvent(v.vendorBusinessId?._id || v.vendorBusinessId)}>
+                            <Icons.Trash />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="empty-text">No vendors assigned yet</p>
+              )}
             </div>
           </div>
         )}
