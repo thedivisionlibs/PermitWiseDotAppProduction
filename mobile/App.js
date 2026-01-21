@@ -170,7 +170,7 @@ const api = {
 // ===========================================
 // UTILITIES
 // ===========================================
-const formatDate = (date) => date ? new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'N/A';
+const formatDate = (date) => date ? new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Not entered';
 const daysUntil = (date) => date ? Math.ceil((new Date(date) - new Date()) / (1000 * 60 * 60 * 24)) : null;
 const getStatusLabel = (status) => ({ active: 'Active', expired: 'Expired', pending_renewal: 'Expiring Soon', missing: 'Missing', in_progress: 'In Progress' }[status] || status);
 const getStatusColor = (status) => ({ active: COLORS.success, expired: COLORS.danger, pending_renewal: COLORS.warning, missing: COLORS.gray400 }[status] || COLORS.gray500);
@@ -584,9 +584,8 @@ const OnboardingScreen = () => {
       const data = await api.get('/permit-types/required?city=' + form.operatingCities[0].city + '&state=' + form.operatingCities[0].state + '&vendorType=' + form.primaryVendorType);
       setSuggestedPermits(data.permitTypes || []);
       setSelectedPermits((data.permitTypes || []).map(p => p._id));
-      if (data.permitTypes?.length >= 4) setCoverageStatus('full');
-      else if (data.permitTypes?.length > 0) setCoverageStatus('partial');
-      else setCoverageStatus('none');
+      // Use server-returned coverage status (full if jurisdiction exists, none if not)
+      setCoverageStatus(data.coverage || (data.permitTypes?.length > 0 ? 'full' : 'none'));
     } catch (err) { console.error(err); setCoverageStatus('none'); }
     finally { setLoadingPermits(false); }
   };
@@ -971,9 +970,30 @@ const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
 };
 
 const PermitDetailScreen = ({ route, navigation }) => {
-  const { permit } = route.params;
+  const { permit: initialPermit } = route.params;
   const { subscription } = useAuth();
+  const [permit, setPermit] = useState(initialPermit);
   const [loadingAutofill, setLoadingAutofill] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Refresh permit data when screen comes into focus (after editing)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      refreshPermit();
+    });
+    return unsubscribe;
+  }, [navigation, initialPermit._id]);
+  
+  const refreshPermit = async () => {
+    try {
+      const data = await api.get(`/permits/${initialPermit._id}`);
+      if (data.permit) {
+        setPermit(data.permit);
+      }
+    } catch (err) {
+      console.error('Failed to refresh permit:', err);
+    }
+  };
   
   const getImportanceLabel = (level) => {
     if (level === 'critical') return { text: 'Critical', color: COLORS.danger };
@@ -2517,3 +2537,4 @@ const styles = StyleSheet.create({
   successMessage: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#dcfce7', padding: 12, borderRadius: 8, marginBottom: 16 },
   successText: { fontSize: 14, color: '#166534', flex: 1 },
 });
+
