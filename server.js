@@ -1383,7 +1383,7 @@ app.get('/api/permit-types/required', async (req, res) => {
     });
     
     if (!jurisdiction) {
-      return res.json({ permitTypes: [], message: 'City not found in our database yet' });
+      return res.json({ permitTypes: [], coverage: 'none', message: 'City not found in our database yet' });
     }
     
     const permitTypes = await PermitType.find({
@@ -1392,7 +1392,11 @@ app.get('/api/permit-types/required', async (req, res) => {
       active: true
     }).populate('jurisdictionId', 'name city state type');
     
-    res.json({ jurisdiction, permitTypes });
+    // If jurisdiction exists and has permits for this vendor type, it's full coverage
+    // If jurisdiction exists but no permits, still "full" - we have data for the city
+    const coverage = 'full';
+    
+    res.json({ jurisdiction, permitTypes, coverage });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3001,6 +3005,31 @@ app.post('/api/admin/permit-types', masterAdminMiddleware, async (req, res) => {
   }
 });
 
+// Admin Update Permit Type
+app.put('/api/admin/permit-types/:id', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { name, description, jurisdictionId, vendorTypes, renewalPeriodMonths, importanceLevel, issuingAuthorityName, estimatedCost, requiredDocuments, fees } = req.body;
+    
+    const permitType = await PermitType.findByIdAndUpdate(
+      req.params.id,
+      { 
+        name, description, jurisdictionId, vendorTypes, renewalPeriodMonths, 
+        importanceLevel, issuingAuthorityName, estimatedCost, requiredDocuments, fees,
+        updatedAt: Date.now() 
+      },
+      { new: true }
+    ).populate('jurisdictionId', 'name city state');
+    
+    if (!permitType) {
+      return res.status(404).json({ error: 'Permit type not found' });
+    }
+    
+    res.json({ permitType });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Admin Delete Permit Type
 app.delete('/api/admin/permit-types/:id', masterAdminMiddleware, async (req, res) => {
   try {
@@ -3025,11 +3054,11 @@ app.post('/api/admin/permit-types/:id/duplicate', masterAdminMiddleware, async (
     delete duplicateData.createdAt;
     delete duplicateData.updatedAt;
     
-    // Use new jurisdiction if provided, otherwise keep original
+    // Use new jurisdiction if provided
     if (newJurisdictionId) {
       duplicateData.jurisdictionId = newJurisdictionId;
     }
-    duplicateData.name = `${duplicateData.name} (Copy)`;
+    // Keep the original name - no "(Copy)" suffix
     
     const duplicate = new PermitType(duplicateData);
     await duplicate.save();
