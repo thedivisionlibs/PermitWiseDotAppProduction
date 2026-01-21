@@ -1559,6 +1559,273 @@ img { max-width: 100%; display: block; }
   color: var(--gray-400);
 }
 
+/* Subscription Manager Styles */
+.subscription-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+.sub-current-status {
+  background: var(--gray-50);
+  padding: 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--gray-200);
+}
+.sub-current-status h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  color: var(--gray-500);
+}
+.sub-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem 1rem;
+}
+.sub-label {
+  font-weight: 500;
+  color: var(--gray-600);
+}
+.sub-actions h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  color: var(--gray-500);
+}
+.sub-action-buttons {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.sub-action-form {
+  background: var(--gray-50);
+  padding: 1.25rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--gray-200);
+}
+.sub-action-form h4 {
+  margin: 0 0 0.5rem 0;
+}
+.sub-action-form .form-hint {
+  margin-bottom: 1rem;
+}
+.sub-action-form .modal-actions {
+  margin-top: 1rem;
+}
+.checklist-item-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.checklist-item-row .item-number {
+  font-weight: 600;
+  color: var(--gray-500);
+  min-width: 1.5rem;
+}
+.checklist-item-row .form-group {
+  flex: 1;
+  margin-bottom: 0;
+}
+.checklist-item-row .delete-btn {
+  flex-shrink: 0;
+}
+
+/* Event Readiness Styles */
+.events-readiness-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.event-readiness-card {
+  padding: 0;
+  overflow: hidden;
+}
+.event-readiness-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.25rem;
+  border-bottom: 1px solid var(--gray-100);
+}
+.event-date-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 50px;
+  padding: 0.5rem;
+  background: var(--primary);
+  color: white;
+  border-radius: var(--radius);
+}
+.event-date-badge .month {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+.event-date-badge .day {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+.event-readiness-header .event-info {
+  flex: 1;
+}
+.event-readiness-header .event-info h3 {
+  margin: 0 0 0.25rem;
+}
+.event-readiness-header .event-info p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.readiness-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  font-weight: 500;
+}
+.readiness-badge.success {
+  background: var(--success-light);
+  color: var(--success);
+}
+.readiness-badge.danger {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+.readiness-badge.warning {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+.event-readiness-details {
+  padding: 1rem 1.25rem;
+  background: var(--gray-50);
+}
+.permit-progress {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.progress-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--gray-200);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--success);
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+.progress-text {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  white-space: nowrap;
+}
+.readiness-issues {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.readiness-label {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+.readiness-success {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--success);
+  font-size: 0.875rem;
+}
+.readiness-detail-modal .event-summary {
+  background: var(--gray-50);
+  padding: 1rem;
+  border-radius: var(--radius);
+  margin-bottom: 1rem;
+}
+.readiness-detail-modal .event-summary p {
+  margin: 0.25rem 0;
+}
+.issues-list h4 {
+  margin: 0 0 0.75rem;
+  color: var(--danger);
+}
+.issue-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--gray-50);
+  border-radius: var(--radius);
+  margin-bottom: 0.5rem;
+}
+.issue-item.missing { border-left: 3px solid var(--danger); }
+.issue-item.expired { border-left: 3px solid var(--warning); }
+.issue-item.missing_document { border-left: 3px solid var(--warning); }
+.issue-item.in_progress { border-left: 3px solid var(--primary); }
+.all-good {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: var(--success-light);
+  color: var(--success);
+  border-radius: var(--radius);
+}
+
+/* Event Management Modal */
+.event-management {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+.event-info-summary {
+  background: var(--gray-50);
+  padding: 1rem;
+  border-radius: var(--radius);
+}
+.event-info-summary p {
+  margin: 0.25rem 0;
+}
+.event-required-permits h4,
+.event-assigned-vendors h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  color: var(--gray-500);
+}
+.permit-list {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+.permit-list li {
+  margin: 0.25rem 0;
+}
+.assign-vendor-form {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+}
+.assign-vendor-form .form-group {
+  flex: 1;
+  margin-bottom: 0;
+}
+.promo-note {
+  margin-left: 0.5rem;
+  cursor: help;
+}
+.text-danger {
+  color: var(--danger);
+  font-weight: 500;
+}
+
 @media (max-width: 768px) {
   .upgrade-feature-grid { grid-template-columns: 1fr; }
   .upgrade-feature-content h1 { font-size: 1.75rem; }
