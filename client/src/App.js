@@ -632,7 +632,13 @@ const Dashboard = ({ onNavigate }) => {
 
   useEffect(() => { 
     const fetchStats = async () => { 
-      try { const data = await api.get('/stats/dashboard'); setStats(data.stats); } 
+      try {
+        // First sync to pick up any new permit types
+        await api.post('/permits/sync');
+        // Then get dashboard stats
+        const data = await api.get('/stats/dashboard');
+        setStats(data.stats);
+      } 
       catch (error) { console.error(error); } 
       finally { setLoading(false); } 
     }; 
@@ -726,6 +732,17 @@ const PermitsPage = () => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [addingSuggestions, setAddingSuggestions] = useState(false);
 
+  const syncAndFetchPermits = async () => {
+    try {
+      // First sync to pick up any new permit types
+      await api.post('/permits/sync');
+      // Then fetch all permits
+      const data = await api.get('/permits');
+      setPermits(data.permits);
+      setSummary(data.summary);
+    } catch (error) { console.error(error); } finally { setLoading(false); }
+  };
+  
   const fetchPermits = async () => { try { const data = await api.get('/permits'); setPermits(data.permits); setSummary(data.summary); } catch (error) { console.error(error); } finally { setLoading(false); } };
   
   const fetchSuggestedPermits = async () => {
@@ -744,7 +761,7 @@ const PermitsPage = () => {
   };
 
   useEffect(() => { 
-    fetchPermits(); 
+    syncAndFetchPermits(); // Sync on initial load to pick up new permit types
   }, []);
 
   // Show suggestion modal when permits are empty and user has a business
@@ -871,17 +888,33 @@ const AddPermitModal = ({ isOpen, onClose, onSuccess }) => {
 
 const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
   const { subscription } = useAuth();
-  const [editing, setEditing] = useState(false); const [formData, setFormData] = useState({}); const [loading, setLoading] = useState(false); const [uploading, setUploading] = useState(false); const [uploadError, setUploadError] = useState('');
-  const [localPermit, setLocalPermit] = useState(permit);
+  const [editing, setEditing] = useState(false); 
+  const [formData, setFormData] = useState({}); 
+  const [loading, setLoading] = useState(false); 
+  const [uploading, setUploading] = useState(false); 
+  const [uploadError, setUploadError] = useState('');
+  const [localPermit, setLocalPermit] = useState(null);
   
-  useEffect(() => { setLocalPermit(permit); }, [permit]);
-  useEffect(() => { if (permit) { setFormData({ status: permit.status, permitNumber: permit.permitNumber || '', issueDate: permit.issueDate?.split('T')[0] || '', expiryDate: permit.expiryDate?.split('T')[0] || '', notes: permit.notes || '' }); } }, [permit]);
-  if (!permit) return null;
+  useEffect(() => { 
+    if (permit) {
+      setLocalPermit(permit);
+      setFormData({ 
+        status: permit.status, 
+        permitNumber: permit.permitNumber || '', 
+        issueDate: permit.issueDate?.split('T')[0] || '', 
+        expiryDate: permit.expiryDate?.split('T')[0] || '', 
+        notes: permit.notes || '' 
+      });
+    }
+  }, [permit]);
+  
+  // Early return if no permit
+  if (!permit || !localPermit) return null;
   
   const handleSave = async () => { 
     setLoading(true); 
     try { 
-      const response = await api.put(`/permits/${permit._id}`, formData); 
+      const response = await api.put(`/permits/${localPermit._id}`, formData); 
       setLocalPermit(response.permit);
       setFormData({ 
         status: response.permit.status, 
@@ -914,7 +947,7 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
     fd.append('file', file); 
     fd.append('category', 'permit'); 
     fd.append('relatedEntityType', 'permit'); 
-    fd.append('relatedEntityId', permit._id); 
+    fd.append('relatedEntityId', localPermit._id); 
     try { 
       const docResponse = await api.upload('/documents', fd);
       // Update local permit with the new document
@@ -922,7 +955,7 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
       onUpdate(); 
     } catch (error) { setUploadError(error.message); } finally { setUploading(false); e.target.value = ''; } 
   };
-  const handleAutofill = async () => { try { const data = await api.post('/autofill/generate', { permitTypeId: permit.permitTypeId._id }); window.open(getSecureFileUrl(data.downloadUrl), '_blank'); } catch (error) { alert(error.message); } };
+  const handleAutofill = async () => { try { const data = await api.post('/autofill/generate', { permitTypeId: localPermit.permitTypeId._id }); window.open(getSecureFileUrl(data.downloadUrl), '_blank'); } catch (error) { alert(error.message); } };
   
   const getImportanceLabel = (level) => {
     if (level === 'critical') return { text: 'Critical', variant: 'danger' };
