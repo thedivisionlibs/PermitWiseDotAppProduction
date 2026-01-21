@@ -339,8 +339,8 @@ const documentSchema = new mongoose.Schema({
 const subscriptionSchema = new mongoose.Schema({
   vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness', required: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  plan: { type: String, enum: ['basic', 'pro', 'elite', 'trial'], default: 'trial' },
-  status: { type: String, enum: ['trial', 'active', 'past_due', 'canceled', 'paused'], default: 'trial' },
+  plan: { type: String, enum: ['basic', 'pro', 'elite', 'trial', 'promo', 'lifetime'], default: 'trial' },
+  status: { type: String, enum: ['trial', 'active', 'past_due', 'canceled', 'paused', 'promo', 'lifetime'], default: 'trial' },
   stripeCustomerId: { type: String },
   stripeSubscriptionId: { type: String },
   stripePriceId: { type: String },
@@ -348,6 +348,11 @@ const subscriptionSchema = new mongoose.Schema({
   currentPeriodEnd: { type: Date },
   trialEndsAt: { type: Date },
   canceledAt: { type: Date },
+  // Promo/Lifetime fields
+  promoGrantedBy: { type: String }, // Admin who granted the promo
+  promoGrantedAt: { type: Date },
+  promoNote: { type: String }, // Reason for promo (e.g., "Beta tester", "Influencer deal")
+  promoExpiresAt: { type: Date }, // For time-limited promos, null for lifetime
   features: {
     maxCities: { type: Number, default: 1 },
     smsAlerts: { type: Boolean, default: false },
@@ -445,6 +450,12 @@ const eventSchema = new mongoose.Schema({
   eventType: { type: String, enum: ['farmers_market', 'festival', 'fair', 'craft_show', 'food_event', 'night_market', 'other'] },
   requiredVendorTypes: [{ type: String }],
   requiredPermitTypes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'PermitType' }],
+  // Assigned vendors - vendors invited to this event by organizer
+  assignedVendors: [{
+    vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness' },
+    assignedAt: { type: Date, default: Date.now },
+    notes: String
+  }],
   vendorSpots: { type: Number },
   vendorFee: { type: Number },
   applicationDeadline: { type: Date },
@@ -673,6 +684,26 @@ const PLAN_FEATURES = {
     maxTeamMembers: 1,
     eventIntegration: false,
     prioritySupport: false
+  },
+  promo: {
+    maxCities: 999,
+    smsAlerts: true,
+    autofill: true,
+    inspectionChecklists: true,
+    teamAccounts: true,
+    maxTeamMembers: 5,
+    eventIntegration: true,
+    prioritySupport: true
+  },
+  lifetime: {
+    maxCities: 999,
+    smsAlerts: true,
+    autofill: true,
+    inspectionChecklists: true,
+    teamAccounts: true,
+    maxTeamMembers: 10,
+    eventIntegration: true,
+    prioritySupport: true
   }
 };
 
@@ -2219,6 +2250,104 @@ app.get('/api/events', async (req, res) => {
   }
 });
 
+// Get vendor's assigned events with readiness status
+app.get('/api/events/my-events', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.vendorBusinessId) {
+      return res.status(404).json({ error: 'No business found' });
+    }
+    
+    // Find all events where this vendor is assigned
+    const events = await Event.find({
+      'assignedVendors.vendorBusinessId': req.user.vendorBusinessId,
+      status: { $in: ['draft', 'published', 'closed'] }
+    })
+      .populate('requiredPermitTypes')
+      .sort({ startDate: 1 });
+    
+    // Get all vendor's permits
+    const vendorPermits = await VendorPermit.find({
+      vendorBusinessId: req.user.vendorBusinessId
+    }).populate('permitTypeId');
+    
+    // Calculate readiness for each event
+    const eventsWithReadiness = await Promise.all(events.map(async (event) => {
+      const requiredPermits = event.requiredPermitTypes || [];
+      const issues = [];
+      let readyCount = 0;
+      
+      for (const required of requiredPermits) {
+        const vendorPermit = vendorPermits.find(
+          vp => vp.permitTypeId?._id.toString() === required._id.toString()
+        );
+        
+        if (!vendorPermit || vendorPermit.status === 'missing') {
+          issues.push({ type: 'missing', permit: required.name });
+        } else if (vendorPermit.status === 'expired' || (vendorPermit.expiryDate && new Date(vendorPermit.expiryDate) < event.startDate)) {
+          issues.push({ type: 'expired', permit: required.name });
+        } else if (vendorPermit.status === 'in_progress') {
+          issues.push({ type: 'in_progress', permit: required.name });
+        } else if (!vendorPermit.documentId) {
+          issues.push({ type: 'missing_document', permit: required.name });
+        } else {
+          readyCount++;
+        }
+      }
+      
+      // Determine overall status
+      let readinessStatus = 'ready';
+      let readinessLabel = 'Ready';
+      let readinessColor = 'success';
+      
+      if (issues.length > 0) {
+        const hasMissing = issues.some(i => i.type === 'missing');
+        const hasExpired = issues.some(i => i.type === 'expired');
+        const hasMissingDoc = issues.some(i => i.type === 'missing_document');
+        const hasInProgress = issues.some(i => i.type === 'in_progress');
+        
+        if (hasMissing) {
+          readinessStatus = 'missing_permit';
+          readinessLabel = `Missing: ${issues.filter(i => i.type === 'missing').map(i => i.permit).join(', ')}`;
+          readinessColor = 'danger';
+        } else if (hasExpired) {
+          readinessStatus = 'expired_permit';
+          readinessLabel = `Expired: ${issues.filter(i => i.type === 'expired').map(i => i.permit).join(', ')}`;
+          readinessColor = 'danger';
+        } else if (hasMissingDoc) {
+          readinessStatus = 'missing_document';
+          readinessLabel = `Missing document: ${issues.filter(i => i.type === 'missing_document').map(i => i.permit).join(', ')}`;
+          readinessColor = 'warning';
+        } else if (hasInProgress) {
+          readinessStatus = 'in_progress';
+          readinessLabel = `In progress: ${issues.filter(i => i.type === 'in_progress').map(i => i.permit).join(', ')}`;
+          readinessColor = 'warning';
+        }
+      }
+      
+      return {
+        _id: event._id,
+        eventName: event.eventName,
+        organizerName: event.organizerName,
+        description: event.description,
+        startDate: event.startDate,
+        endDate: event.endDate,
+        location: event.location,
+        status: event.status,
+        requiredPermitsCount: requiredPermits.length,
+        readyCount,
+        readinessStatus,
+        readinessLabel,
+        readinessColor,
+        issues
+      };
+    }));
+    
+    res.json({ events: eventsWithReadiness });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get event details
 app.get('/api/events/:id', async (req, res) => {
   try {
@@ -3003,6 +3132,156 @@ app.delete('/api/admin/businesses/:id', masterAdminMiddleware, async (req, res) 
   }
 });
 
+// ===========================================
+// ADMIN SUBSCRIPTION MANAGEMENT
+// ===========================================
+
+// Admin Get Subscription by Business ID
+app.get('/api/admin/subscriptions/:businessId', masterAdminMiddleware, async (req, res) => {
+  try {
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.params.businessId })
+      .populate('vendorBusinessId', 'businessName')
+      .populate('userId', 'email firstName lastName');
+    
+    if (!subscription) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+    
+    res.json({ subscription });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Extend Trial
+app.post('/api/admin/subscriptions/:businessId/extend-trial', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { days, note } = req.body;
+    
+    if (!days || days < 1 || days > 365) {
+      return res.status(400).json({ error: 'Days must be between 1 and 365' });
+    }
+    
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.params.businessId });
+    if (!subscription) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+    
+    // Calculate new trial end date
+    const currentEnd = subscription.trialEndsAt || subscription.currentPeriodEnd || new Date();
+    const newTrialEnd = new Date(Math.max(currentEnd.getTime(), Date.now()));
+    newTrialEnd.setDate(newTrialEnd.getDate() + parseInt(days));
+    
+    subscription.plan = 'trial';
+    subscription.status = 'trial';
+    subscription.trialEndsAt = newTrialEnd;
+    subscription.currentPeriodEnd = newTrialEnd;
+    subscription.promoNote = note || `Trial extended by ${days} days`;
+    subscription.promoGrantedBy = 'admin';
+    subscription.promoGrantedAt = new Date();
+    subscription.updatedAt = new Date();
+    
+    await subscription.save();
+    
+    res.json({ 
+      success: true, 
+      subscription,
+      message: `Trial extended by ${days} days until ${newTrialEnd.toLocaleDateString()}`
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Grant Promo Subscription
+app.post('/api/admin/subscriptions/:businessId/grant-promo', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { plan, durationDays, note } = req.body;
+    
+    // plan can be 'promo' (time-limited) or 'lifetime' (permanent)
+    if (!['promo', 'lifetime', 'pro', 'elite'].includes(plan)) {
+      return res.status(400).json({ error: 'Plan must be promo, lifetime, pro, or elite' });
+    }
+    
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.params.businessId });
+    if (!subscription) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+    
+    // Set expiration for promo plans
+    let promoExpires = null;
+    if (plan === 'promo' && durationDays) {
+      promoExpires = new Date();
+      promoExpires.setDate(promoExpires.getDate() + parseInt(durationDays));
+    }
+    
+    // Use appropriate features
+    const featurePlan = plan === 'lifetime' ? 'lifetime' : (plan === 'promo' ? 'promo' : plan);
+    
+    subscription.plan = plan;
+    subscription.status = plan === 'lifetime' ? 'lifetime' : (plan === 'promo' ? 'promo' : 'active');
+    subscription.features = PLAN_FEATURES[featurePlan];
+    subscription.promoGrantedBy = 'admin';
+    subscription.promoGrantedAt = new Date();
+    subscription.promoNote = note || `Granted ${plan} subscription`;
+    subscription.promoExpiresAt = promoExpires;
+    subscription.currentPeriodEnd = promoExpires || new Date('2099-12-31'); // Far future for lifetime
+    subscription.trialEndsAt = null;
+    subscription.updatedAt = new Date();
+    
+    await subscription.save();
+    
+    const expiryMsg = promoExpires 
+      ? `until ${promoExpires.toLocaleDateString()}` 
+      : 'permanently';
+    
+    res.json({ 
+      success: true, 
+      subscription,
+      message: `Granted ${plan} subscription ${expiryMsg}`
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Revoke Promo/Reset to Trial
+app.post('/api/admin/subscriptions/:businessId/revoke', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { note } = req.body;
+    
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.params.businessId });
+    if (!subscription) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+    
+    // Reset to expired trial
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() - 1); // Expired yesterday
+    
+    subscription.plan = 'trial';
+    subscription.status = 'trial';
+    subscription.features = PLAN_FEATURES.trial;
+    subscription.trialEndsAt = trialEnd;
+    subscription.currentPeriodEnd = trialEnd;
+    subscription.promoExpiresAt = null;
+    subscription.promoNote = note || 'Subscription revoked by admin';
+    subscription.promoGrantedBy = 'admin';
+    subscription.promoGrantedAt = new Date();
+    subscription.updatedAt = new Date();
+    
+    await subscription.save();
+    
+    res.json({ 
+      success: true, 
+      subscription,
+      message: 'Subscription revoked, reset to expired trial'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Admin Jurisdictions List
 app.get('/api/admin/jurisdictions', masterAdminMiddleware, async (req, res) => {
   try {
@@ -3139,6 +3418,289 @@ app.post('/api/admin/permit-types/:id/duplicate', masterAdminMiddleware, async (
     
     const populated = await PermitType.findById(duplicate._id).populate('jurisdictionId', 'name city state');
     res.status(201).json({ permitType: populated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===========================================
+// ADMIN CHECKLISTS MANAGEMENT
+// ===========================================
+
+// Admin Get All Checklists
+app.get('/api/admin/checklists', masterAdminMiddleware, async (req, res) => {
+  try {
+    const checklists = await InspectionChecklist.find()
+      .populate('jurisdictionId', 'name city state')
+      .sort({ createdAt: -1 });
+    res.json({ checklists });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Create Checklist
+app.post('/api/admin/checklists', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { name, description, jurisdictionId, vendorType, category, items } = req.body;
+    
+    if (!name) return res.status(400).json({ error: 'Checklist name is required' });
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'At least one checklist item is required' });
+    }
+    
+    // Validate each item
+    for (let i = 0; i < items.length; i++) {
+      if (!items[i].itemText) {
+        return res.status(400).json({ error: `Item ${i + 1} is missing text` });
+      }
+    }
+    
+    const checklist = new InspectionChecklist({
+      name,
+      description,
+      jurisdictionId: jurisdictionId || null,
+      vendorType: vendorType || null,
+      category: category || 'general',
+      items: items.map((item, index) => ({
+        itemText: item.itemText,
+        description: item.description || '',
+        required: item.required !== false,
+        order: index
+      })),
+      active: true
+    });
+    
+    await checklist.save();
+    const populated = await InspectionChecklist.findById(checklist._id).populate('jurisdictionId', 'name city state');
+    res.status(201).json({ checklist: populated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Update Checklist
+app.put('/api/admin/checklists/:id', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { name, description, jurisdictionId, vendorType, category, items, active } = req.body;
+    
+    const checklist = await InspectionChecklist.findById(req.params.id);
+    if (!checklist) {
+      return res.status(404).json({ error: 'Checklist not found' });
+    }
+    
+    if (name) checklist.name = name;
+    if (description !== undefined) checklist.description = description;
+    if (jurisdictionId !== undefined) checklist.jurisdictionId = jurisdictionId || null;
+    if (vendorType !== undefined) checklist.vendorType = vendorType || null;
+    if (category) checklist.category = category;
+    if (active !== undefined) checklist.active = active;
+    if (items && Array.isArray(items)) {
+      checklist.items = items.map((item, index) => ({
+        itemText: item.itemText,
+        description: item.description || '',
+        required: item.required !== false,
+        order: index
+      }));
+    }
+    checklist.updatedAt = new Date();
+    
+    await checklist.save();
+    const populated = await InspectionChecklist.findById(checklist._id).populate('jurisdictionId', 'name city state');
+    res.json({ checklist: populated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Delete Checklist
+app.delete('/api/admin/checklists/:id', masterAdminMiddleware, async (req, res) => {
+  try {
+    await InspectionChecklist.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Checklist deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===========================================
+// ADMIN EVENTS MANAGEMENT
+// ===========================================
+
+// Admin Get All Events
+app.get('/api/admin/events', masterAdminMiddleware, async (req, res) => {
+  try {
+    const events = await Event.find()
+      .populate('requiredPermitTypes', 'name')
+      .populate('assignedVendors.vendorBusinessId', 'businessName')
+      .sort({ startDate: -1 })
+      .limit(100);
+    res.json({ events });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Create Event
+app.post('/api/admin/events', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { eventName, organizerName, organizerEmail, organizerPhone, description, eventType, startDate, endDate, city, state, address, vendorFee, maxVendors, status, requiredPermitTypes, vendorTypes } = req.body;
+    
+    if (!eventName) return res.status(400).json({ error: 'Event name is required' });
+    if (!startDate) return res.status(400).json({ error: 'Start date is required' });
+    if (!city || !state) return res.status(400).json({ error: 'City and state are required' });
+    
+    const event = new Event({
+      eventName,
+      organizerName: organizerName || 'PermitWise Admin',
+      organizerContact: {
+        email: organizerEmail || '',
+        phone: organizerPhone || ''
+      },
+      description,
+      eventType: eventType || 'festival',
+      startDate: new Date(startDate),
+      endDate: endDate ? new Date(endDate) : new Date(startDate),
+      location: {
+        city,
+        state,
+        address: address || ''
+      },
+      vendorFee: vendorFee ? parseFloat(vendorFee) : null,
+      maxVendors: maxVendors ? parseInt(maxVendors) : null,
+      status: status || 'draft',
+      requiredPermitTypes: requiredPermitTypes || [],
+      vendorTypes: vendorTypes || []
+    });
+    
+    await event.save();
+    res.status(201).json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Update Event
+app.put('/api/admin/events/:id', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { eventName, organizerName, organizerEmail, organizerPhone, description, eventType, startDate, endDate, city, state, address, vendorFee, maxVendors, status, requiredPermitTypes, vendorTypes } = req.body;
+    
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    if (eventName) event.eventName = eventName;
+    if (organizerName) event.organizerName = organizerName;
+    if (organizerEmail !== undefined) event.organizerContact.email = organizerEmail;
+    if (organizerPhone !== undefined) event.organizerContact.phone = organizerPhone;
+    if (description !== undefined) event.description = description;
+    if (eventType) event.eventType = eventType;
+    if (startDate) event.startDate = new Date(startDate);
+    if (endDate) event.endDate = new Date(endDate);
+    if (city) event.location.city = city;
+    if (state) event.location.state = state;
+    if (address !== undefined) event.location.address = address;
+    if (vendorFee !== undefined) event.vendorFee = vendorFee ? parseFloat(vendorFee) : null;
+    if (maxVendors !== undefined) event.maxVendors = maxVendors ? parseInt(maxVendors) : null;
+    if (status) event.status = status;
+    if (requiredPermitTypes) event.requiredPermitTypes = requiredPermitTypes;
+    if (vendorTypes) event.vendorTypes = vendorTypes;
+    event.updatedAt = new Date();
+    
+    await event.save();
+    res.json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Delete Event
+app.delete('/api/admin/events/:id', masterAdminMiddleware, async (req, res) => {
+  try {
+    await Event.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Event deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Assign Vendor to Event
+app.post('/api/admin/events/:id/assign-vendor', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { vendorBusinessId, notes } = req.body;
+    
+    if (!vendorBusinessId) {
+      return res.status(400).json({ error: 'Vendor business ID is required' });
+    }
+    
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    // Check if vendor is already assigned
+    const alreadyAssigned = event.assignedVendors?.some(
+      v => v.vendorBusinessId.toString() === vendorBusinessId
+    );
+    if (alreadyAssigned) {
+      return res.status(400).json({ error: 'Vendor is already assigned to this event' });
+    }
+    
+    // Add vendor to assigned list
+    if (!event.assignedVendors) event.assignedVendors = [];
+    event.assignedVendors.push({
+      vendorBusinessId,
+      assignedAt: new Date(),
+      notes: notes || ''
+    });
+    event.updatedAt = new Date();
+    
+    await event.save();
+    
+    // Populate and return
+    const populated = await Event.findById(event._id)
+      .populate('requiredPermitTypes')
+      .populate('assignedVendors.vendorBusinessId', 'businessName primaryVendorType');
+    
+    res.json({ event: populated, message: 'Vendor assigned to event' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Remove Vendor from Event
+app.delete('/api/admin/events/:id/remove-vendor/:vendorId', masterAdminMiddleware, async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    event.assignedVendors = (event.assignedVendors || []).filter(
+      v => v.vendorBusinessId.toString() !== req.params.vendorId
+    );
+    event.updatedAt = new Date();
+    
+    await event.save();
+    res.json({ message: 'Vendor removed from event' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Get Event Details with Vendors
+app.get('/api/admin/events/:id', masterAdminMiddleware, async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id)
+      .populate('requiredPermitTypes')
+      .populate('assignedVendors.vendorBusinessId', 'businessName primaryVendorType operatingCities');
+    
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    res.json({ event });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
