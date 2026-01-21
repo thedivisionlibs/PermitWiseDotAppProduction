@@ -2435,7 +2435,7 @@ const SuperAdminPage = ({ onBack }) => {
                 <tbody>
                   {data.checklists.map(cl => (
                     <tr key={cl._id}>
-                      <td><strong>{cl.name}</strong>{cl.description && <br /><small>{cl.description}</small>}</td>
+                      <td><strong>{cl.name}</strong>{cl.description && <><br /><small>{cl.description}</small></>}</td>
                       <td><Badge variant={cl.category === 'health' ? 'danger' : cl.category === 'fire' ? 'warning' : 'default'}>{cl.category}</Badge></td>
                       <td>{cl.jurisdictionId ? `${cl.jurisdictionId.city}, ${cl.jurisdictionId.state}` : 'All'}</td>
                       <td>{cl.vendorType || 'All'}</td>
