@@ -2519,7 +2519,7 @@ const SuperAdminPage = ({ onBack }) => {
                 <tbody>
                   {data.events.map(ev => (
                     <tr key={ev._id}>
-                      <td><strong>{ev.eventName}</strong>{ev.organizerName && <><br /><small></>by {ev.organizerName}</small>}</td>
+                      <td><strong>{ev.eventName}</strong>{ev.organizerName && <><br /><small>by {ev.organizerName}</small></>}</td>
                       <td>{formatDate(ev.startDate)}</td>
                       <td>{ev.location?.city}, {ev.location?.state}</td>
                       <td>{ev.requiredPermitTypes?.length || 0} permits</td>
