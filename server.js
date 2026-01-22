@@ -195,10 +195,11 @@ const vendorBusinessSchema = new mongoose.Schema({
   ein: { type: String },
   primaryVendorType: { 
     type: String, 
-    enum: ['food_truck', 'tent_vendor', 'mobile_retail', 'farmers_market', 'craft_vendor', 'mobile_bartender', 'mobile_groomer', 'pop_up_shop', 'other'],
+    enum: ['food_truck', 'food_cart', 'tent_vendor', 'mobile_retail', 'farmers_market', 'craft_vendor', 'mobile_bartender', 'mobile_groomer', 'pop_up_shop', 'other'],
     required: true 
   },
   secondaryVendorTypes: [{ type: String }],
+  handlesFood: { type: Boolean, default: false }, // Whether this vendor handles/serves food
   operatingCities: [{
     city: String,
     state: String,
@@ -386,7 +387,9 @@ const notificationSchema = new mongoose.Schema({
 // Inspection Checklist Schema
 const inspectionChecklistSchema = new mongoose.Schema({
   jurisdictionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Jurisdiction' },
-  vendorType: { type: String },
+  vendorType: { type: String }, // DEPRECATED: use vendorTypes array
+  vendorTypes: [{ type: String }], // Array for multi-select
+  forOrganization: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness' }, // If set, only for this business
   name: { type: String, required: true },
   description: { type: String },
   category: { type: String, enum: ['health', 'fire', 'safety', 'general'], default: 'general' },
@@ -471,6 +474,58 @@ const eventSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
+// Suggestion/Ticket Schema - for user suggestions to admin
+const suggestionSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness' },
+  type: { 
+    type: String, 
+    enum: ['city_request', 'checklist_request', 'checklist_change', 'permit_type_request', 'general_feedback'],
+    required: true 
+  },
+  title: { type: String, required: true },
+  description: { type: String },
+  // For city requests
+  cityDetails: {
+    city: String,
+    state: String
+  },
+  // For checklist requests
+  checklistDetails: {
+    name: String,
+    category: String,
+    isUserSpecific: { type: Boolean, default: false }, // true = just for this user, false = for everyone
+    items: [{ itemText: String, description: String }]
+  },
+  status: { 
+    type: String, 
+    enum: ['pending', 'in_progress', 'completed', 'rejected'],
+    default: 'pending' 
+  },
+  adminNotes: { type: String },
+  resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  resolvedAt: { type: Date },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+// User-created Checklist Schema - for vendor's personal checklists
+const userChecklistSchema = new mongoose.Schema({
+  vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness', required: true },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  name: { type: String, required: true },
+  description: { type: String },
+  category: { type: String, default: 'custom' },
+  items: [{
+    itemText: { type: String, required: true },
+    description: { type: String },
+    required: { type: Boolean, default: true }
+  }],
+  active: { type: Boolean, default: true },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
 // Models
 const User = mongoose.model('User', userSchema);
 const VendorBusiness = mongoose.model('VendorBusiness', vendorBusinessSchema);
@@ -483,6 +538,8 @@ const Notification = mongoose.model('Notification', notificationSchema);
 const InspectionChecklist = mongoose.model('InspectionChecklist', inspectionChecklistSchema);
 const VendorInspection = mongoose.model('VendorInspection', vendorInspectionSchema);
 const Event = mongoose.model('Event', eventSchema);
+const Suggestion = mongoose.model('Suggestion', suggestionSchema);
+const UserChecklist = mongoose.model('UserChecklist', userChecklistSchema);
 
 // ===========================================
 // MIDDLEWARE
@@ -995,6 +1052,7 @@ app.post('/api/onboarding/complete', authMiddleware, async (req, res) => {
       ein,
       primaryVendorType,
       secondaryVendorTypes,
+      handlesFood,
       operatingCities,
       vehicleDetails,
       insurance
@@ -1004,10 +1062,14 @@ app.post('/api/onboarding/complete', authMiddleware, async (req, res) => {
     if (!businessName) return res.status(400).json({ error: 'Business name is required' });
     if (!primaryVendorType) return res.status(400).json({ error: 'Business type is required' });
     
-    const validVendorTypes = ['food_truck', 'tent_vendor', 'mobile_retail', 'farmers_market', 'craft_vendor', 'mobile_bartender', 'mobile_groomer', 'pop_up_shop', 'other'];
+    const validVendorTypes = ['food_truck', 'food_cart', 'tent_vendor', 'mobile_retail', 'farmers_market', 'craft_vendor', 'mobile_bartender', 'mobile_groomer', 'pop_up_shop', 'other'];
     if (!validVendorTypes.includes(primaryVendorType)) {
       return res.status(400).json({ error: 'Invalid business type' });
     }
+    
+    // Auto-detect food handling for certain vendor types
+    const foodVendorTypes = ['food_truck', 'food_cart', 'mobile_bartender', 'farmers_market'];
+    const autoHandlesFood = foodVendorTypes.includes(primaryVendorType) || handlesFood === true;
     
     // Check if user already has a business
     const existingBusiness = await VendorBusiness.findOne({ ownerId: req.userId });
@@ -1026,6 +1088,7 @@ app.post('/api/onboarding/complete', authMiddleware, async (req, res) => {
       ein,
       primaryVendorType,
       secondaryVendorTypes,
+      handlesFood: autoHandlesFood,
       operatingCities,
       vehicleDetails,
       insurance
@@ -2219,6 +2282,123 @@ app.get('/api/inspections', authMiddleware, async (req, res) => {
 });
 
 // ===========================================
+// SUGGESTION/TICKET ROUTES
+// ===========================================
+
+// Create a suggestion/ticket
+app.post('/api/suggestions', authMiddleware, async (req, res) => {
+  try {
+    const { type, title, description, cityDetails, checklistDetails } = req.body;
+    
+    if (!type || !title) {
+      return res.status(400).json({ error: 'Type and title are required' });
+    }
+    
+    const suggestion = new Suggestion({
+      userId: req.userId,
+      vendorBusinessId: req.user.vendorBusinessId,
+      type,
+      title,
+      description,
+      cityDetails,
+      checklistDetails
+    });
+    
+    await suggestion.save();
+    res.status(201).json({ suggestion, message: 'Thank you for your suggestion! Our team will review it.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get user's own suggestions
+app.get('/api/suggestions/mine', authMiddleware, async (req, res) => {
+  try {
+    const suggestions = await Suggestion.find({ userId: req.userId })
+      .sort({ createdAt: -1 });
+    res.json({ suggestions });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===========================================
+// USER CHECKLIST ROUTES (personal checklists)
+// ===========================================
+
+// Get user's personal checklists
+app.get('/api/user-checklists', authMiddleware, async (req, res) => {
+  try {
+    const checklists = await UserChecklist.find({ 
+      vendorBusinessId: req.user.vendorBusinessId,
+      active: true 
+    }).sort({ createdAt: -1 });
+    res.json({ checklists });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create a personal checklist
+app.post('/api/user-checklists', authMiddleware, async (req, res) => {
+  try {
+    const { name, description, category, items } = req.body;
+    
+    if (!name) return res.status(400).json({ error: 'Checklist name is required' });
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Checklist must have at least one item' });
+    }
+    
+    const checklist = new UserChecklist({
+      vendorBusinessId: req.user.vendorBusinessId,
+      createdBy: req.userId,
+      name,
+      description,
+      category: category || 'custom',
+      items
+    });
+    
+    await checklist.save();
+    res.status(201).json({ checklist });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update a personal checklist
+app.put('/api/user-checklists/:id', authMiddleware, async (req, res) => {
+  try {
+    const { name, description, category, items, active } = req.body;
+    
+    const checklist = await UserChecklist.findOneAndUpdate(
+      { _id: req.params.id, vendorBusinessId: req.user.vendorBusinessId },
+      { name, description, category, items, active, updatedAt: Date.now() },
+      { new: true }
+    );
+    
+    if (!checklist) return res.status(404).json({ error: 'Checklist not found' });
+    res.json({ checklist });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a personal checklist
+app.delete('/api/user-checklists/:id', authMiddleware, async (req, res) => {
+  try {
+    const checklist = await UserChecklist.findOneAndDelete({
+      _id: req.params.id,
+      vendorBusinessId: req.user.vendorBusinessId
+    });
+    
+    if (!checklist) return res.status(404).json({ error: 'Checklist not found' });
+    res.json({ message: 'Checklist deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===========================================
 // EVENT ROUTES
 // ===========================================
 
@@ -2461,8 +2641,8 @@ app.post('/api/events/:id/apply', authMiddleware, async (req, res) => {
   }
 });
 
-// Create event (organizer)
-app.post('/api/events', authMiddleware, async (req, res) => {
+// Create event (admin only - not marketplace-style)
+app.post('/api/events', masterAdminMiddleware, async (req, res) => {
   try {
     const { organizerName, eventName, location, startDate, endDate, eventType, vendorSpots, vendorFee, applicationDeadline, description } = req.body;
     
@@ -3442,7 +3622,7 @@ app.get('/api/admin/checklists', masterAdminMiddleware, async (req, res) => {
 // Admin Create Checklist
 app.post('/api/admin/checklists', masterAdminMiddleware, async (req, res) => {
   try {
-    const { name, description, jurisdictionId, vendorType, category, items } = req.body;
+    const { name, description, jurisdictionId, vendorType, vendorTypes, forOrganization, category, items } = req.body;
     
     if (!name) return res.status(400).json({ error: 'Checklist name is required' });
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -3456,11 +3636,19 @@ app.post('/api/admin/checklists', masterAdminMiddleware, async (req, res) => {
       }
     }
     
+    // Support both single vendorType and vendorTypes array
+    let finalVendorTypes = vendorTypes || [];
+    if (vendorType && !finalVendorTypes.length) {
+      finalVendorTypes = [vendorType];
+    }
+    
     const checklist = new InspectionChecklist({
       name,
       description,
       jurisdictionId: jurisdictionId || null,
-      vendorType: vendorType || null,
+      vendorType: vendorType || null, // For backward compatibility
+      vendorTypes: finalVendorTypes,
+      forOrganization: forOrganization || null,
       category: category || 'general',
       items: items.map((item, index) => ({
         itemText: item.itemText,
@@ -3482,7 +3670,7 @@ app.post('/api/admin/checklists', masterAdminMiddleware, async (req, res) => {
 // Admin Update Checklist
 app.put('/api/admin/checklists/:id', masterAdminMiddleware, async (req, res) => {
   try {
-    const { name, description, jurisdictionId, vendorType, category, items, active } = req.body;
+    const { name, description, jurisdictionId, vendorType, vendorTypes, forOrganization, category, items, active } = req.body;
     
     const checklist = await InspectionChecklist.findById(req.params.id);
     if (!checklist) {
@@ -3493,6 +3681,8 @@ app.put('/api/admin/checklists/:id', masterAdminMiddleware, async (req, res) => 
     if (description !== undefined) checklist.description = description;
     if (jurisdictionId !== undefined) checklist.jurisdictionId = jurisdictionId || null;
     if (vendorType !== undefined) checklist.vendorType = vendorType || null;
+    if (vendorTypes !== undefined) checklist.vendorTypes = vendorTypes || [];
+    if (forOrganization !== undefined) checklist.forOrganization = forOrganization || null;
     if (category) checklist.category = category;
     if (active !== undefined) checklist.active = active;
     if (items && Array.isArray(items)) {
@@ -3701,6 +3891,69 @@ app.get('/api/admin/events/:id', masterAdminMiddleware, async (req, res) => {
     }
     
     res.json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===========================================
+// ADMIN SUGGESTION/TICKET MANAGEMENT
+// ===========================================
+
+// Get all suggestions (admin)
+app.get('/api/admin/suggestions', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { status, type } = req.query;
+    const query = {};
+    if (status) query.status = status;
+    if (type) query.type = type;
+    
+    const suggestions = await Suggestion.find(query)
+      .populate('userId', 'firstName lastName email')
+      .populate('vendorBusinessId', 'businessName')
+      .sort({ createdAt: -1 });
+    res.json({ suggestions });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update suggestion status (admin)
+app.put('/api/admin/suggestions/:id', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { status, adminNotes } = req.body;
+    
+    const suggestion = await Suggestion.findById(req.params.id);
+    if (!suggestion) {
+      return res.status(404).json({ error: 'Suggestion not found' });
+    }
+    
+    if (status) suggestion.status = status;
+    if (adminNotes !== undefined) suggestion.adminNotes = adminNotes;
+    
+    if (status === 'completed' || status === 'rejected') {
+      suggestion.resolvedBy = req.userId;
+      suggestion.resolvedAt = new Date();
+    }
+    
+    suggestion.updatedAt = new Date();
+    await suggestion.save();
+    
+    const populated = await Suggestion.findById(suggestion._id)
+      .populate('userId', 'firstName lastName email')
+      .populate('vendorBusinessId', 'businessName');
+    
+    res.json({ suggestion: populated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete suggestion (admin)
+app.delete('/api/admin/suggestions/:id', masterAdminMiddleware, async (req, res) => {
+  try {
+    await Suggestion.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Suggestion deleted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
