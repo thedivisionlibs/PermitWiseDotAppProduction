@@ -141,11 +141,15 @@ const COLORS = {
 };
 
 const VENDOR_TYPES = [
-  { value: 'food_truck', label: 'Food Truck' }, { value: 'tent_vendor', label: 'Tent/Booth Vendor' },
-  { value: 'mobile_retail', label: 'Mobile Retail' }, { value: 'farmers_market', label: "Farmer's Market" },
-  { value: 'craft_vendor', label: 'Craft Vendor' }, { value: 'mobile_bartender', label: 'Mobile Bartender' },
+  { value: 'food_truck', label: 'Food Truck' }, { value: 'food_cart', label: 'Food Cart' },
+  { value: 'tent_vendor', label: 'Tent/Booth Vendor' }, { value: 'mobile_retail', label: 'Mobile Retail' },
+  { value: 'farmers_market', label: "Farmer's Market" }, { value: 'craft_vendor', label: 'Craft Vendor' },
+  { value: 'mobile_bartender', label: 'Mobile Bartender' }, { value: 'mobile_groomer', label: 'Mobile Groomer' },
   { value: 'pop_up_shop', label: 'Pop-Up Shop' }, { value: 'other', label: 'Other' },
 ];
+
+// Vendor types that typically handle food
+const FOOD_VENDOR_TYPES = ['food_truck', 'food_cart', 'mobile_bartender', 'farmers_market'];
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
 
@@ -199,7 +203,7 @@ const SUBSCRIPTION_SKUS = {
 const PLAN_DETAILS = {
   basic: { name: 'Basic', price: '$19/month', priceValue: 19, features: ['Up to 5 permits', 'Email reminders', '1 operating city'] },
   pro: { name: 'Pro', price: '$49/month', priceValue: 49, features: ['Up to 20 permits', 'SMS + Email reminders', '5 operating cities', 'Document storage', 'Inspection checklists'], popular: true },
-  elite: { name: 'Elite', price: '$99/month', priceValue: 99, features: ['Unlimited permits', 'Priority support', 'Unlimited cities', 'Event marketplace', 'Team access'] },
+  elite: { name: 'Elite', price: '$99/month', priceValue: 99, features: ['Unlimited permits', 'Priority support', 'Unlimited cities', 'Event readiness', 'Team access'] },
 };
 
 // Billing service abstraction - handles both Google Play and Stripe
@@ -572,17 +576,26 @@ const OnboardingScreen = () => {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
   const [showTypePicker, setShowTypePicker] = useState(false); const [showStatePicker, setShowStatePicker] = useState(false);
-  const [form, setForm] = useState({ businessName: '', primaryVendorType: '', operatingCities: [{ city: '', state: '', isPrimary: true }] });
+  const [form, setForm] = useState({ businessName: '', primaryVendorType: '', handlesFood: false, operatingCities: [{ city: '', state: '', isPrimary: true }] });
   const [suggestedPermits, setSuggestedPermits] = useState([]);
   const [selectedPermits, setSelectedPermits] = useState([]);
   const [loadingPermits, setLoadingPermits] = useState(false);
   const [coverageStatus, setCoverageStatus] = useState(null);
+  const [suggestionSubmitted, setSuggestionSubmitted] = useState(false);
+
+  // Auto-set handlesFood based on vendor type
+  useEffect(() => {
+    if (form.primaryVendorType) {
+      const autoFood = FOOD_VENDOR_TYPES.includes(form.primaryVendorType);
+      setForm(f => ({ ...f, handlesFood: autoFood }));
+    }
+  }, [form.primaryVendorType]);
 
   const fetchSuggestedPermits = async () => {
     if (!form.operatingCities[0].city || !form.operatingCities[0].state) return;
     setLoadingPermits(true);
     try {
-      const data = await api.get('/permit-types/required?city=' + form.operatingCities[0].city + '&state=' + form.operatingCities[0].state + '&vendorType=' + form.primaryVendorType);
+      const data = await api.get('/permit-types/required?city=' + form.operatingCities[0].city + '&state=' + form.operatingCities[0].state + '&vendorType=' + form.primaryVendorType + '&handlesFood=' + form.handlesFood);
       setSuggestedPermits(data.permitTypes || []);
       setSelectedPermits((data.permitTypes || []).map(p => p._id));
       // Use server-returned coverage status (full if jurisdiction exists, none if not)
@@ -602,6 +615,19 @@ const OnboardingScreen = () => {
 
   const selectAllPermits = () => {
     setSelectedPermits(suggestedPermits.map(p => p._id));
+  };
+
+  const submitCitySuggestion = async () => {
+    try {
+      await api.post('/suggestions', {
+        type: 'city_request',
+        title: 'Add coverage for ' + form.operatingCities[0].city + ', ' + form.operatingCities[0].state,
+        description: 'Vendor type: ' + form.primaryVendorType,
+        cityDetails: { city: form.operatingCities[0].city, state: form.operatingCities[0].state }
+      });
+      setSuggestionSubmitted(true);
+      Alert.alert('Thank You!', 'Your request has been submitted. We\'ll notify you when coverage is ready.');
+    } catch (err) { Alert.alert('Error', err.message); }
   };
 
   const handleSubmit = async () => {
@@ -646,6 +672,16 @@ const OnboardingScreen = () => {
               </Text>
             </TouchableOpacity>
             <PickerModal visible={showTypePicker} onClose={() => setShowTypePicker(false)} title="Business Type" options={VENDOR_TYPES} value={form.primaryVendorType} onSelect={v => setForm(f => ({ ...f, primaryVendorType: v }))} />
+            
+            {form.primaryVendorType && !FOOD_VENDOR_TYPES.includes(form.primaryVendorType) && (
+              <TouchableOpacity style={styles.checkboxRow} onPress={() => setForm(f => ({ ...f, handlesFood: !f.handlesFood }))}>
+                <View style={[styles.checkbox, form.handlesFood && styles.checkboxChecked]}>
+                  {form.handlesFood && <Icons.Check size={14} color="white" />}
+                </View>
+                <Text style={styles.checkboxLabel}>My business handles or serves food</Text>
+              </TouchableOpacity>
+            )}
+            
             <Button title="Continue →" onPress={() => setStep(2)} disabled={!form.businessName || !form.primaryVendorType} style={{ marginTop: 16 }} />
           </View>
         )}
@@ -690,6 +726,12 @@ const OnboardingScreen = () => {
                         ? "We're still adding full coverage for " + form.operatingCities[0].city + ". You can track permits manually."
                         : "We're building coverage for " + form.operatingCities[0].city + ". Add permits manually after setup."}
                     </Text>
+                    {!suggestionSubmitted && (
+                      <TouchableOpacity style={styles.suggestButton} onPress={submitCitySuggestion}>
+                        <Text style={styles.suggestButtonText}>Request Coverage for My City</Text>
+                      </TouchableOpacity>
+                    )}
+                    {suggestionSubmitted && <Badge label="Request Submitted!" variant="success" style={{ marginTop: 8 }} />}
                   </View>
                 )}
                 
@@ -1676,6 +1718,7 @@ const SettingsScreen = ({ navigation }) => {
   const [businessData, setBusinessData] = useState({
     businessName: business?.businessName || '', dbaName: business?.dbaName || '', ein: business?.ein || '',
     phone: business?.phone || '', email: business?.email || '',
+    handlesFood: business?.handlesFood || false,
     address: business?.address || { street: '', city: '', state: '', zip: '' },
     operatingCities: business?.operatingCities || [{ city: '', state: '', isPrimary: true }],
     vehicleDetails: business?.vehicleDetails || { type: '', make: '', model: '', year: '', licensePlate: '' },
@@ -1782,6 +1825,18 @@ const SettingsScreen = ({ navigation }) => {
               <View style={styles.halfInput}><Input label="Phone" value={businessData.phone} onChangeText={v => setBusinessData(d => ({ ...d, phone: v }))} /></View>
               <View style={styles.halfInput}><Input label="Email" value={businessData.email} onChangeText={v => setBusinessData(d => ({ ...d, email: v }))} /></View>
             </View>
+            
+            <Text style={[styles.label, { marginTop: 16 }]}>Food Handling</Text>
+            <TouchableOpacity style={styles.toggleRow} onPress={() => setBusinessData(d => ({ ...d, handlesFood: !d.handlesFood }))}>
+              <View style={styles.toggleInfo}>
+                <Text style={styles.toggleTitle}>My business handles or serves food</Text>
+                <Text style={styles.toggleDesc}>This helps us suggest food safety permits and checklists</Text>
+              </View>
+              <View style={[styles.toggleSwitch, businessData.handlesFood && styles.toggleSwitchActive]}>
+                <View style={[styles.toggleKnob, businessData.handlesFood && styles.toggleKnobActive]} />
+              </View>
+            </TouchableOpacity>
+            
             <Text style={[styles.label, { marginTop: 12 }]}>Business Address</Text>
             <Input placeholder="Street" value={businessData.address.street} onChangeText={v => setBusinessData(d => ({ ...d, address: { ...d.address, street: v } }))} />
             <View style={styles.row}>
@@ -2070,6 +2125,7 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
 const InspectionsScreen = () => {
   const { subscription } = useAuth();
   const [checklists, setChecklists] = useState([]);
+  const [userChecklists, setUserChecklists] = useState([]);
   const [inspections, setInspections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -2077,14 +2133,23 @@ const InspectionsScreen = () => {
   const [inspectionData, setInspectionData] = useState({ items: [], notes: '' });
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('checklists'); // 'checklists' or 'history'
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showSuggestModal, setShowSuggestModal] = useState(false);
+  const [newChecklist, setNewChecklist] = useState({ name: '', description: '', items: [{ itemText: '' }] });
+  const [suggestionText, setSuggestionText] = useState('');
 
   // Plan check: Pro, Elite, Promo, or Lifetime required
   const hasAccess = subscription?.plan === 'pro' || subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.inspectionChecklists;
 
   const fetchData = async () => {
     try {
-      const [cl, insp] = await Promise.all([api.get('/checklists'), api.get('/inspections')]);
+      const [cl, ucl, insp] = await Promise.all([
+        api.get('/checklists'), 
+        api.get('/user-checklists'),
+        api.get('/inspections')
+      ]);
       setChecklists(cl.checklists || []);
+      setUserChecklists(ucl.checklists || []);
       setInspections(insp.inspections || []);
     } catch (error) { console.error(error); }
     finally { setLoading(false); setRefreshing(false); }
@@ -2127,6 +2192,46 @@ const InspectionsScreen = () => {
       fetchData();
     } catch (err) { Alert.alert('Error', err.message); }
     finally { setSubmitting(false); }
+  };
+
+  const createUserChecklist = async () => {
+    try {
+      await api.post('/user-checklists', {
+        name: newChecklist.name,
+        description: newChecklist.description,
+        items: newChecklist.items.filter(i => i.itemText.trim())
+      });
+      setNewChecklist({ name: '', description: '', items: [{ itemText: '' }] });
+      setShowCreateModal(false);
+      fetchData();
+      Alert.alert('Success', 'Checklist created!');
+    } catch (err) { Alert.alert('Error', err.message); }
+  };
+
+  const deleteUserChecklist = async (id) => {
+    Alert.alert('Delete Checklist', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try {
+          await api.delete('/user-checklists/' + id);
+          fetchData();
+        } catch (err) { Alert.alert('Error', err.message); }
+      }}
+    ]);
+  };
+
+  const submitSuggestion = async () => {
+    try {
+      await api.post('/suggestions', {
+        type: 'checklist_request',
+        title: 'Checklist suggestion/request',
+        description: suggestionText,
+        checklistDetails: { isUserSpecific: false }
+      });
+      setSuggestionText('');
+      setShowSuggestModal(false);
+      Alert.alert('Thank You!', 'Your suggestion has been submitted.');
+    } catch (err) { Alert.alert('Error', err.message); }
   };
 
   // Show upgrade modal for non-Pro users
@@ -2289,7 +2394,17 @@ const InspectionsScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.pageHeader}><Text style={styles.pageTitle}>Inspections</Text></View>
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageTitle}>Inspections</Text>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity style={styles.headerIconBtn} onPress={() => setShowSuggestModal(true)}>
+            <Icons.Plus size={20} color={COLORS.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerIconBtn} onPress={() => setShowCreateModal(true)}>
+            <Icons.Checklist size={20} color={COLORS.primary} />
+          </TouchableOpacity>
+        </View>
+      </View>
       
       {/* Tab Buttons */}
       <View style={styles.inspectionTabs}>
@@ -2308,12 +2423,13 @@ const InspectionsScreen = () => {
       </View>
 
       {activeTab === 'checklists' ? (
-        <FlatList
-          data={checklists}
-          keyExtractor={item => item._id}
+        <ScrollView
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchData(); }} />}
-          renderItem={({ item }) => (
-            <Card style={styles.checklistCard} onPress={() => startInspection(item)}>
+          contentContainerStyle={styles.listContent}
+        >
+          <Text style={styles.sectionTitle}>Recommended</Text>
+          {checklists.length > 0 ? checklists.map(item => (
+            <Card key={item._id} style={styles.checklistCard} onPress={() => startInspection(item)}>
               <View style={styles.checklistHeader}>
                 <Icons.Checklist size={24} color={COLORS.primary} />
                 <View style={styles.checklistInfo}>
@@ -2324,16 +2440,39 @@ const InspectionsScreen = () => {
               </View>
               {item.description && <Text style={styles.checklistDesc}>{item.description}</Text>}
             </Card>
+          )) : (
+            <Text style={styles.emptyText}>No recommended checklists yet</Text>
           )}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Icons.Checklist size={48} color={COLORS.gray300} />
-              <Text style={styles.emptyTitle}>No checklists yet</Text>
-              <Text style={styles.emptyText}>Checklists will appear based on your operating cities</Text>
+          
+          <Text style={[styles.sectionTitle, { marginTop: 24 }]}>My Checklists</Text>
+          {userChecklists.length > 0 ? userChecklists.map(item => (
+            <Card key={item._id} style={styles.checklistCard}>
+              <View style={styles.checklistHeader}>
+                <Icons.Checklist size={24} color={COLORS.primary} />
+                <View style={styles.checklistInfo}>
+                  <Text style={styles.checklistName}>{item.name}</Text>
+                  <Text style={styles.checklistMeta}>{item.items?.length || 0} items • Custom</Text>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity style={styles.startBtnSmall} onPress={() => startInspection(item)}>
+                    <Text style={styles.startBtnText}>Start</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => deleteUserChecklist(item._id)}>
+                    <Icons.Trash size={18} color={COLORS.danger} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+              {item.description && <Text style={styles.checklistDesc}>{item.description}</Text>}
+            </Card>
+          )) : (
+            <View style={styles.emptyContainerSmall}>
+              <Text style={styles.emptyText}>No custom checklists yet</Text>
+              <TouchableOpacity onPress={() => setShowCreateModal(true)}>
+                <Text style={styles.linkText}>Create your first checklist</Text>
+              </TouchableOpacity>
             </View>
-          }
-          contentContainerStyle={styles.listContent}
-        />
+          )}
+        </ScrollView>
       ) : (
         <FlatList
           data={inspections}
@@ -2373,6 +2512,75 @@ const InspectionsScreen = () => {
           contentContainerStyle={styles.listContent}
         />
       )}
+
+      {/* Create Checklist Modal */}
+      <Modal visible={showCreateModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Create Custom Checklist</Text>
+              <TouchableOpacity onPress={() => setShowCreateModal(false)}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 400 }}>
+              <Input label="Checklist Name *" placeholder="e.g., Pre-Event Safety Check" value={newChecklist.name} onChangeText={v => setNewChecklist(c => ({ ...c, name: v }))} />
+              <Input label="Description" placeholder="What is this checklist for?" value={newChecklist.description} onChangeText={v => setNewChecklist(c => ({ ...c, description: v }))} />
+              <Text style={styles.label}>Checklist Items</Text>
+              {newChecklist.items.map((item, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                  <Text style={{ marginRight: 8 }}>{i + 1}.</Text>
+                  <TextInput
+                    style={[styles.input, { flex: 1 }]}
+                    placeholder="Item text"
+                    value={item.itemText}
+                    onChangeText={v => {
+                      const items = [...newChecklist.items];
+                      items[i] = { itemText: v };
+                      setNewChecklist(c => ({ ...c, items }));
+                    }}
+                  />
+                  {newChecklist.items.length > 1 && (
+                    <TouchableOpacity onPress={() => setNewChecklist(c => ({ ...c, items: c.items.filter((_, idx) => idx !== i) }))} style={{ marginLeft: 8 }}>
+                      <Icons.Trash size={18} color={COLORS.danger} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+              <TouchableOpacity style={styles.addItemBtn} onPress={() => setNewChecklist(c => ({ ...c, items: [...c.items, { itemText: '' }] }))}>
+                <Icons.Plus size={16} color={COLORS.primary} />
+                <Text style={styles.addItemBtnText}>Add Item</Text>
+              </TouchableOpacity>
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <Button title="Cancel" variant="outline" onPress={() => setShowCreateModal(false)} style={{ flex: 1 }} />
+              <Button title="Create" onPress={createUserChecklist} disabled={!newChecklist.name || !newChecklist.items.some(i => i.itemText.trim())} style={{ flex: 1 }} />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Suggest Checklist Modal */}
+      <Modal visible={showSuggestModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Suggest a Checklist</Text>
+              <TouchableOpacity onPress={() => setShowSuggestModal(false)}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
+            </View>
+            <Text style={styles.modalDesc}>Is there a checklist you'd like us to add for all vendors? Let us know!</Text>
+            <TextInput
+              style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+              placeholder="e.g., Fire safety checklist for Austin food trucks..."
+              value={suggestionText}
+              onChangeText={setSuggestionText}
+              multiline
+            />
+            <View style={styles.modalActions}>
+              <Button title="Cancel" variant="outline" onPress={() => setShowSuggestModal(false)} style={{ flex: 1 }} />
+              <Button title="Submit" onPress={submitSuggestion} disabled={!suggestionText.trim()} style={{ flex: 1 }} />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -3109,4 +3317,30 @@ const styles = StyleSheet.create({
   addCityDescription: { fontSize: 14, color: COLORS.gray600, marginBottom: 20, lineHeight: 20 },
   successMessage: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#dcfce7', padding: 12, borderRadius: 8, marginBottom: 16 },
   successText: { fontSize: 14, color: '#166534', flex: 1 },
+  // Toggle styles for settings
+  toggleRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
+  toggleInfo: { flex: 1 },
+  toggleTitle: { fontSize: 15, fontWeight: '500', color: COLORS.gray700 },
+  toggleDesc: { fontSize: 12, color: COLORS.gray500, marginTop: 2 },
+  toggleSwitch: { width: 50, height: 28, borderRadius: 14, backgroundColor: COLORS.gray200, padding: 2, justifyContent: 'center' },
+  toggleSwitchActive: { backgroundColor: COLORS.primary },
+  toggleKnob: { width: 24, height: 24, borderRadius: 12, backgroundColor: COLORS.white },
+  toggleKnobActive: { transform: [{ translateX: 22 }] },
+  // Checkbox row styles for onboarding
+  checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16, marginTop: 8 },
+  checkboxLabel: { flex: 1, fontSize: 15, color: COLORS.gray700 },
+  // Suggest button styles
+  suggestButton: { backgroundColor: COLORS.white, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, marginTop: 12, borderWidth: 1, borderColor: '#d97706' },
+  suggestButtonText: { fontSize: 14, fontWeight: '500', color: '#92400e', textAlign: 'center' },
+  // Inspections header icon buttons
+  headerIconBtn: { width: 36, height: 36, borderRadius: 8, backgroundColor: COLORS.gray100, justifyContent: 'center', alignItems: 'center' },
+  // Empty container small for inline empty states
+  emptyContainerSmall: { alignItems: 'center', paddingVertical: 20 },
+  linkText: { fontSize: 14, color: COLORS.primary, fontWeight: '500', marginTop: 8 },
+  // Add item button for checklist creation
+  addItemBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 },
+  addItemBtnText: { fontSize: 14, color: COLORS.primary, fontWeight: '500' },
+  // Modal styles for create/suggest checklist
+  modalDesc: { fontSize: 14, color: COLORS.gray600, marginBottom: 16, lineHeight: 20 },
 });
+
