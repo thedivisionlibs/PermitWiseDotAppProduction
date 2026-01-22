@@ -93,6 +93,7 @@ const Icons = {
 // ===========================================
 const VENDOR_TYPES = [
   { value: 'food_truck', label: 'Food Truck' },
+  { value: 'food_cart', label: 'Food Cart' },
   { value: 'tent_vendor', label: 'Tent/Booth Vendor' },
   { value: 'mobile_retail', label: 'Mobile Retail' },
   { value: 'farmers_market', label: "Farmer's Market Seller" },
@@ -102,6 +103,9 @@ const VENDOR_TYPES = [
   { value: 'pop_up_shop', label: 'Pop-Up Shop' },
   { value: 'other', label: 'Other' },
 ];
+
+// Vendor types that typically handle food (auto-suggest food permits)
+const FOOD_VENDOR_TYPES = ['food_truck', 'food_cart', 'mobile_bartender', 'farmers_market'];
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
 
@@ -482,17 +486,27 @@ const OnboardingPage = ({ onComplete }) => {
   const { updateBusiness } = useAuth();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
-  const [formData, setFormData] = useState({ businessName: '', primaryVendorType: '', operatingCities: [{ city: '', state: '', isPrimary: true }] });
+  const [formData, setFormData] = useState({ businessName: '', primaryVendorType: '', handlesFood: false, operatingCities: [{ city: '', state: '', isPrimary: true }] });
   const [suggestedPermits, setSuggestedPermits] = useState([]);
   const [selectedPermits, setSelectedPermits] = useState([]);
   const [loadingPermits, setLoadingPermits] = useState(false);
   const [coverageStatus, setCoverageStatus] = useState(null); // 'full', 'partial', 'none'
+  const [showSuggestionModal, setShowSuggestionModal] = useState(false);
+  const [suggestionSubmitted, setSuggestionSubmitted] = useState(false);
+
+  // Auto-set handlesFood based on vendor type
+  useEffect(() => {
+    if (formData.primaryVendorType) {
+      const autoFood = FOOD_VENDOR_TYPES.includes(formData.primaryVendorType);
+      setFormData(f => ({ ...f, handlesFood: autoFood }));
+    }
+  }, [formData.primaryVendorType]);
 
   const fetchSuggestedPermits = async () => {
     if (!formData.operatingCities[0].city || !formData.operatingCities[0].state) return;
     setLoadingPermits(true);
     try {
-      const data = await api.get(`/permit-types/required?city=${formData.operatingCities[0].city}&state=${formData.operatingCities[0].state}&vendorType=${formData.primaryVendorType}`);
+      const data = await api.get(`/permit-types/required?city=${formData.operatingCities[0].city}&state=${formData.operatingCities[0].state}&vendorType=${formData.primaryVendorType}&handlesFood=${formData.handlesFood}`);
       setSuggestedPermits(data.permitTypes || []);
       setSelectedPermits((data.permitTypes || []).map(p => p._id));
       // Use server-returned coverage status (full if jurisdiction exists, none if not)
@@ -512,6 +526,22 @@ const OnboardingPage = ({ onComplete }) => {
 
   const selectAllPermits = () => {
     setSelectedPermits(suggestedPermits.map(p => p._id));
+  };
+
+  const submitCitySuggestion = async () => {
+    try {
+      await api.post('/suggestions', {
+        type: 'city_request',
+        title: `Add coverage for ${formData.operatingCities[0].city}, ${formData.operatingCities[0].state}`,
+        description: `Vendor type: ${formData.primaryVendorType}`,
+        cityDetails: {
+          city: formData.operatingCities[0].city,
+          state: formData.operatingCities[0].state
+        }
+      });
+      setSuggestionSubmitted(true);
+      setShowSuggestionModal(false);
+    } catch (err) { console.error(err); }
   };
 
   const handleSubmit = async () => {
@@ -545,6 +575,14 @@ const OnboardingPage = ({ onComplete }) => {
           <p className="step-subtitle">This helps us find the right permits for you</p>
           <Input label="Business Name *" placeholder="e.g. Taco Express" value={formData.businessName} onChange={(e) => setFormData(f => ({ ...f, businessName: e.target.value }))} />
           <Select label="What type of vendor are you? *" value={formData.primaryVendorType} onChange={(e) => setFormData(f => ({ ...f, primaryVendorType: e.target.value }))} options={[{ value: '', label: 'Select your business type' }, ...VENDOR_TYPES]} />
+          
+          {formData.primaryVendorType && !FOOD_VENDOR_TYPES.includes(formData.primaryVendorType) && (
+            <label className="checkbox-row">
+              <input type="checkbox" checked={formData.handlesFood} onChange={(e) => setFormData(f => ({ ...f, handlesFood: e.target.checked }))} />
+              <span>My business handles or serves food</span>
+            </label>
+          )}
+          
           <Button onClick={() => setStep(2)} disabled={!formData.businessName || !formData.primaryVendorType} className="full-width">Continue →</Button>
         </div>
       )}
@@ -577,12 +615,16 @@ const OnboardingPage = ({ onComplete }) => {
                 <div className="coverage-notice">
                   <Icons.Alert />
                   <p>We're still adding full permit coverage for {formData.operatingCities[0].city}. You can still track all your permits manually. We'll notify you as soon as full support is ready.</p>
+                  {!suggestionSubmitted && <Button variant="outline" size="sm" onClick={() => setShowSuggestionModal(true)}>Request Full Coverage</Button>}
+                  {suggestionSubmitted && <Badge variant="success">Request Submitted!</Badge>}
                 </div>
               )}
               {coverageStatus === 'none' && (
                 <div className="coverage-notice">
                   <Icons.Alert />
                   <p>We're still building coverage for {formData.operatingCities[0].city}. You can still track all your permits manually — just add them after setup. We'll notify you when full support is ready!</p>
+                  {!suggestionSubmitted && <Button variant="outline" size="sm" onClick={() => setShowSuggestionModal(true)}>Request Coverage for My City</Button>}
+                  {suggestionSubmitted && <Badge variant="success">Request Submitted - Thanks!</Badge>}
                 </div>
               )}
               
@@ -620,6 +662,16 @@ const OnboardingPage = ({ onComplete }) => {
           </div>
         </div>
       )}
+      
+      {/* City Coverage Suggestion Modal */}
+      <Modal isOpen={showSuggestionModal} onClose={() => setShowSuggestionModal(false)} title="Request City Coverage">
+        <p>We'll prioritize adding permit data for <strong>{formData.operatingCities[0].city}, {formData.operatingCities[0].state}</strong>.</p>
+        <p>Once coverage is ready, you'll be able to see suggested permits and get renewal reminders specific to your city's requirements.</p>
+        <div className="modal-actions">
+          <Button variant="outline" onClick={() => setShowSuggestionModal(false)}>Cancel</Button>
+          <Button onClick={submitCitySuggestion}>Submit Request</Button>
+        </div>
+      </Modal>
     </div></div>
   );
 };
@@ -1092,24 +1144,42 @@ const UploadModal = UploadDocumentModal; // Alias for Dashboard use
 
 const InspectionsPage = () => {
   const { subscription } = useAuth();
-  const [checklists, setChecklists] = useState([]); const [inspections, setInspections] = useState([]);
+  const [checklists, setChecklists] = useState([]); // Recommended checklists
+  const [userChecklists, setUserChecklists] = useState([]); // User's custom checklists
+  const [inspections, setInspections] = useState([]);
   const [loading, setLoading] = useState(true); const [activeChecklist, setActiveChecklist] = useState(null);
   const [inspectionData, setInspectionData] = useState({ items: [], notes: '' });
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showSuggestModal, setShowSuggestModal] = useState(false);
+  const [newChecklist, setNewChecklist] = useState({ name: '', description: '', items: [{ itemText: '' }] });
+  const [suggestionText, setSuggestionText] = useState('');
 
   // Plan check: Pro, Elite, Promo, or Lifetime required
   const hasAccess = subscription?.plan === 'pro' || subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.inspectionChecklists;
 
+  const fetchData = async () => {
+    try { 
+      const [cl, ucl, insp] = await Promise.all([
+        api.get('/checklists'), 
+        api.get('/user-checklists'),
+        api.get('/inspections')
+      ]); 
+      setChecklists(cl.checklists || []); 
+      setUserChecklists(ucl.checklists || []);
+      setInspections(insp.inspections || []); 
+    }
+    catch (error) { console.error(error); } finally { setLoading(false); }
+  };
+
   useEffect(() => {
     if (!hasAccess) { setLoading(false); return; }
-    const fetchData = async () => {
-      try { const [cl, insp] = await Promise.all([api.get('/checklists'), api.get('/inspections')]); setChecklists(cl.checklists || []); setInspections(insp.inspections || []); }
-      catch (error) { console.error(error); } finally { setLoading(false); }
-    }; fetchData();
+    fetchData();
   }, [hasAccess]);
 
-  const startInspection = (checklist) => {
-    setActiveChecklist(checklist);
-    setInspectionData({ items: checklist.items.map(item => ({ ...item, passed: null, notes: '', photos: [] })), notes: '' });
+  const startInspection = (checklist, isUserChecklist = false) => {
+    setActiveChecklist({ ...checklist, isUserChecklist });
+    const items = checklist.items || [];
+    setInspectionData({ items: items.map(item => ({ itemText: item.itemText || item.name, description: item.description, passed: null, notes: '', photos: [] })), notes: '' });
   };
 
   const updateItem = (index, field, value) => {
@@ -1122,7 +1192,42 @@ const InspectionsPage = () => {
     try {
       await api.post('/inspections', { checklistId: activeChecklist._id, items: inspectionData.items, notes: inspectionData.notes, inspectionDate: new Date() });
       setActiveChecklist(null);
-      const insp = await api.get('/inspections'); setInspections(insp.inspections || []);
+      fetchData();
+    } catch (err) { alert(err.message); }
+  };
+
+  const createUserChecklist = async () => {
+    try {
+      await api.post('/user-checklists', {
+        name: newChecklist.name,
+        description: newChecklist.description,
+        items: newChecklist.items.filter(i => i.itemText.trim())
+      });
+      setNewChecklist({ name: '', description: '', items: [{ itemText: '' }] });
+      setShowCreateModal(false);
+      fetchData();
+    } catch (err) { alert(err.message); }
+  };
+
+  const deleteUserChecklist = async (id) => {
+    if (!window.confirm('Delete this checklist?')) return;
+    try {
+      await api.delete(`/user-checklists/${id}`);
+      fetchData();
+    } catch (err) { alert(err.message); }
+  };
+
+  const submitSuggestion = async () => {
+    try {
+      await api.post('/suggestions', {
+        type: 'checklist_request',
+        title: 'Checklist suggestion/request',
+        description: suggestionText,
+        checklistDetails: { isUserSpecific: false }
+      });
+      setSuggestionText('');
+      setShowSuggestModal(false);
+      alert('Thank you! Your suggestion has been submitted.');
     } catch (err) { alert(err.message); }
   };
 
@@ -1180,7 +1285,7 @@ const InspectionsPage = () => {
         <div className="inspection-items">
           {inspectionData.items.map((item, i) => (
             <Card key={i} className={`inspection-item ${item.passed === true ? 'passed' : item.passed === false ? 'failed' : ''}`}>
-              <div className="item-header"><span className="item-number">{i + 1}</span><h3>{item.name}</h3></div>
+              <div className="item-header"><span className="item-number">{i + 1}</span><h3>{item.itemText || item.name}</h3></div>
               {item.description && <p className="item-description">{item.description}</p>}
               <div className="item-actions">
                 <button className={`pass-btn ${item.passed === true ? 'active' : ''}`} onClick={() => updateItem(i, 'passed', true)}><Icons.Check /> Pass</button>
@@ -1206,16 +1311,42 @@ const InspectionsPage = () => {
 
   return (
     <div className="inspections-page">
-      <div className="page-header"><h1>Inspections</h1></div>
+      <div className="page-header">
+        <h1>Inspections</h1>
+        <div className="page-header-actions">
+          <Button variant="outline" onClick={() => setShowSuggestModal(true)}><Icons.Plus /> Suggest Checklist</Button>
+          <Button onClick={() => setShowCreateModal(true)}><Icons.Plus /> Create My Own</Button>
+        </div>
+      </div>
       <div className="inspections-grid">
         <div className="checklists-section">
-          <h2>Available Checklists</h2>
+          <h2>Recommended Checklists</h2>
           {checklists.length > 0 ? checklists.map(cl => (
             <Card key={cl._id} className="checklist-card">
-              <div className="checklist-info"><h3>{cl.name}</h3><p>{cl.description}</p><span className="item-count">{cl.items?.length || 0} items</span></div>
+              <div className="checklist-info">
+                <h3>{cl.name}</h3>
+                <p>{cl.description}</p>
+                <span className="item-count">{cl.items?.length || 0} items</span>
+                {cl.category && <Badge variant={cl.category === 'health' ? 'danger' : cl.category === 'fire' ? 'warning' : 'default'}>{cl.category}</Badge>}
+              </div>
               <Button onClick={() => startInspection(cl)}>Start</Button>
             </Card>
-          )) : <EmptyState icon={Icons.Checklist} title="No checklists available" description="Checklists for your jurisdiction coming soon" />}
+          )) : <EmptyState icon={Icons.Checklist} title="No recommended checklists" description="Checklists for your jurisdiction coming soon. You can create your own!" />}
+          
+          <h2 style={{ marginTop: '2rem' }}>My Checklists</h2>
+          {userChecklists.length > 0 ? userChecklists.map(cl => (
+            <Card key={cl._id} className="checklist-card user-checklist">
+              <div className="checklist-info">
+                <h3>{cl.name} <Badge variant="primary">Custom</Badge></h3>
+                <p>{cl.description || 'Custom checklist'}</p>
+                <span className="item-count">{cl.items?.length || 0} items</span>
+              </div>
+              <div className="checklist-actions">
+                <Button onClick={() => startInspection(cl, true)}>Start</Button>
+                <button className="delete-btn" onClick={() => deleteUserChecklist(cl._id)}><Icons.Trash /></button>
+              </div>
+            </Card>
+          )) : <p className="empty-text">No custom checklists yet. Create one above!</p>}
         </div>
         <div className="history-section">
           <h2>Recent Inspections</h2>
@@ -1232,6 +1363,51 @@ const InspectionsPage = () => {
           )) : <p className="empty-text">No inspections recorded yet</p>}
         </div>
       </div>
+
+      {/* Create Checklist Modal */}
+      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create Custom Checklist" size="lg">
+        <Input label="Checklist Name *" placeholder="e.g., Pre-Event Safety Check" value={newChecklist.name} onChange={(e) => setNewChecklist(c => ({ ...c, name: e.target.value }))} />
+        <Input label="Description" placeholder="What is this checklist for?" value={newChecklist.description} onChange={(e) => setNewChecklist(c => ({ ...c, description: e.target.value }))} />
+        <div className="form-section">
+          <label>Checklist Items</label>
+          {newChecklist.items.map((item, i) => (
+            <div key={i} className="checklist-item-row" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+              <span style={{ minWidth: '30px' }}>{i + 1}.</span>
+              <Input placeholder="Item text" value={item.itemText} onChange={(e) => {
+                const items = [...newChecklist.items];
+                items[i] = { itemText: e.target.value };
+                setNewChecklist(c => ({ ...c, items }));
+              }} />
+              {newChecklist.items.length > 1 && (
+                <button type="button" className="delete-btn" onClick={() => setNewChecklist(c => ({ ...c, items: c.items.filter((_, idx) => idx !== i) }))}><Icons.Trash /></button>
+              )}
+            </div>
+          ))}
+          <Button variant="outline" size="sm" onClick={() => setNewChecklist(c => ({ ...c, items: [...c.items, { itemText: '' }] }))}>
+            <Icons.Plus /> Add Item
+          </Button>
+        </div>
+        <div className="modal-actions">
+          <Button variant="outline" onClick={() => setShowCreateModal(false)}>Cancel</Button>
+          <Button onClick={createUserChecklist} disabled={!newChecklist.name || !newChecklist.items.some(i => i.itemText.trim())}>Create Checklist</Button>
+        </div>
+      </Modal>
+
+      {/* Suggest Checklist Modal */}
+      <Modal isOpen={showSuggestModal} onClose={() => setShowSuggestModal(false)} title="Suggest a Checklist">
+        <p>Is there a checklist you'd like us to add for all vendors in your area? Let us know!</p>
+        <Input 
+          label="Your Suggestion" 
+          placeholder="e.g., Fire safety checklist for Austin food trucks, or specific items to add to existing checklists" 
+          value={suggestionText} 
+          onChange={(e) => setSuggestionText(e.target.value)}
+          multiline
+        />
+        <div className="modal-actions">
+          <Button variant="outline" onClick={() => setShowSuggestModal(false)}>Cancel</Button>
+          <Button onClick={submitSuggestion} disabled={!suggestionText.trim()}>Submit Suggestion</Button>
+        </div>
+      </Modal>
     </div>
   );
 };
@@ -1411,6 +1587,7 @@ const SettingsPage = () => {
   const [businessData, setBusinessData] = useState({ 
     businessName: business?.businessName || '', dbaName: business?.dbaName || '', 
     phone: business?.phone || '', email: business?.email || '', ein: business?.ein || '',
+    handlesFood: business?.handlesFood || false,
     address: business?.address || { street: '', city: '', state: '', zip: '' },
     operatingCities: business?.operatingCities || [{ city: '', state: '', isPrimary: true }],
     vehicleDetails: business?.vehicleDetails || { type: '', make: '', model: '', year: '', licensePlate: '' },
@@ -1461,6 +1638,16 @@ const SettingsPage = () => {
               <Input label="DBA Name (Doing Business As)" value={businessData.dbaName} onChange={(e) => setBusinessData(d => ({ ...d, dbaName: e.target.value }))} />
               <Input label="EIN (Tax ID)" value={businessData.ein} onChange={(e) => setBusinessData(d => ({ ...d, ein: e.target.value }))} placeholder="XX-XXXXXXX" />
               <div className="form-row"><Input label="Business Phone" value={businessData.phone} onChange={(e) => setBusinessData(d => ({ ...d, phone: e.target.value }))} /><Input label="Business Email" value={businessData.email} onChange={(e) => setBusinessData(d => ({ ...d, email: e.target.value }))} /></div>
+              
+              <h3>Food Handling</h3>
+              <Card className="notification-card">
+                <label className="toggle-row">
+                  <span>My business handles or serves food</span>
+                  <input type="checkbox" checked={businessData.handlesFood || false} onChange={(e) => setBusinessData(d => ({ ...d, handlesFood: e.target.checked }))} />
+                </label>
+                <p className="toggle-description">Enable this if your business prepares, serves, or sells food. This helps us suggest the right food safety permits and health inspection checklists.</p>
+              </Card>
+              
               <h3>Business Address</h3>
               <Input label="Street Address" value={businessData.address.street} onChange={(e) => setBusinessData(d => ({ ...d, address: { ...d.address, street: e.target.value } }))} />
               <div className="form-row">
@@ -1563,7 +1750,7 @@ const SettingsPage = () => {
                 {[
                   { id: 'basic', name: 'Starter', price: 19, features: ['Permit tracking', 'Email reminders', 'Document vault', '1 user'] },
                   { id: 'pro', name: 'Pro', price: 49, features: ['Everything in Starter', 'SMS alerts', 'PDF autofill', 'Inspection checklists', 'Multi-city support'] },
-                  { id: 'elite', name: 'Elite', price: 99, features: ['Everything in Pro', 'Event marketplace', 'Team accounts (5 users)', 'Priority support', 'API access'] }
+                  { id: 'elite', name: 'Elite', price: 99, features: ['Everything in Pro', 'Event readiness', 'Team accounts (5 users)', 'Priority support', 'API access'] }
                 ].map(plan => (
                   <Card key={plan.id} className={`plan-card ${subscription?.plan === plan.id ? 'current' : ''}`}>
                     <h3>{plan.name}</h3>
@@ -1751,7 +1938,12 @@ const SuperAdminPage = ({ onBack }) => {
   const [subscriptionForm, setSubscriptionForm] = useState({ days: 30, plan: 'promo', durationDays: 90, note: '' });
   
   // Checklist management state
-  const [newChecklist, setNewChecklist] = useState({ name: '', description: '', jurisdictionId: '', vendorType: '', category: 'health', items: [{ itemText: '', description: '', required: true }] });
+  const [newChecklist, setNewChecklist] = useState({ name: '', description: '', jurisdictionId: '', vendorTypes: [], category: 'health', items: [{ itemText: '', description: '', required: true }] });
+  const [editingChecklist, setEditingChecklist] = useState(null);
+  
+  // Suggestion/ticket management state
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionFilter, setSuggestionFilter] = useState('pending');
   
   // Event management state
   const [newEvent, setNewEvent] = useState({ eventName: '', organizerName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', vendorFee: '', maxVendors: '', status: 'draft', requiredPermits: [] });
@@ -1834,6 +2026,7 @@ const SuperAdminPage = ({ onBack }) => {
       else if (type === 'permitTypes') { const result = await adminApi('/admin/permit-types'); setData(d => ({ ...d, permitTypes: result.permitTypes || [] })); }
       else if (type === 'checklists') { const result = await adminApi('/admin/checklists'); setData(d => ({ ...d, checklists: result.checklists || [] })); }
       else if (type === 'events') { const result = await adminApi('/admin/events'); setData(d => ({ ...d, events: result.events || [] })); }
+      else if (type === 'suggestions') { const result = await adminApi(`/admin/suggestions?status=${suggestionFilter}`); setSuggestions(result.suggestions || []); }
       else if (type === 'stats') { const result = await adminApi('/admin/stats'); setData(d => ({ ...d, stats: result })); }
     } catch (err) { setMessage(err.message); }
     finally { setLoading(false); }
@@ -1887,16 +2080,45 @@ const SuperAdminPage = ({ onBack }) => {
         name: newChecklist.name,
         description: newChecklist.description,
         jurisdictionId: newChecklist.jurisdictionId || null,
-        vendorType: newChecklist.vendorType || null,
+        vendorTypes: newChecklist.vendorTypes || [],
         category: newChecklist.category,
         items: newChecklist.items.filter(i => i.itemText.trim())
       });
-      setNewChecklist({ name: '', description: '', jurisdictionId: '', vendorType: '', category: 'health', items: [{ itemText: '', description: '', required: true }] });
+      setNewChecklist({ name: '', description: '', jurisdictionId: '', vendorTypes: [], category: 'health', items: [{ itemText: '', description: '', required: true }] });
       fetchData('checklists');
       setMessage('Checklist created');
     } catch (err) { setMessage(err.message); }
   };
+  
+  const updateChecklist = async () => {
+    if (!editingChecklist) return;
+    try {
+      await adminApi(`/admin/checklists/${editingChecklist._id}`, 'PUT', {
+        name: editingChecklist.name,
+        description: editingChecklist.description,
+        jurisdictionId: editingChecklist.jurisdictionId || null,
+        vendorTypes: editingChecklist.vendorTypes || [],
+        category: editingChecklist.category,
+        items: editingChecklist.items?.filter(i => i.itemText?.trim()) || [],
+        active: editingChecklist.active
+      });
+      setEditingChecklist(null);
+      fetchData('checklists');
+      setMessage('Checklist updated');
+    } catch (err) { setMessage(err.message); }
+  };
+  
   const deleteChecklist = async (id) => { if (window.confirm('Delete this checklist?')) { try { await adminApi(`/admin/checklists/${id}`, 'DELETE'); fetchData('checklists'); setMessage('Checklist deleted'); } catch (err) { setMessage(err.message); } } };
+
+  // Suggestion functions
+  const updateSuggestion = async (id, status, adminNotes) => {
+    try {
+      await adminApi(`/admin/suggestions/${id}`, 'PUT', { status, adminNotes });
+      fetchData('suggestions');
+      setMessage(`Suggestion marked as ${status}`);
+    } catch (err) { setMessage(err.message); }
+  };
+  const deleteSuggestion = async (id) => { if (window.confirm('Delete this suggestion?')) { try { await adminApi(`/admin/suggestions/${id}`, 'DELETE'); fetchData('suggestions'); setMessage('Suggestion deleted'); } catch (err) { setMessage(err.message); } } };
 
   // Event CRUD functions
   const createEvent = async () => {
@@ -2092,7 +2314,7 @@ const SuperAdminPage = ({ onBack }) => {
       {message && <Alert type="info" onClose={() => setMessage('')}>{message}</Alert>}
       
       <div className="admin-tabs">
-        {['stats', 'users', 'businesses', 'jurisdictions', 'permitTypes', 'checklists', 'events'].map(tab => (
+        {['stats', 'users', 'businesses', 'jurisdictions', 'permitTypes', 'checklists', 'events', 'suggestions'].map(tab => (
           <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>
             {tab === 'permitTypes' ? 'Permit Types' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
@@ -2395,7 +2617,28 @@ const SuperAdminPage = ({ onBack }) => {
                     { value: 'general', label: '📋 General' }
                   ]} />
                   <Select label="Jurisdiction (optional)" value={newChecklist.jurisdictionId} onChange={(e) => setNewChecklist(c => ({ ...c, jurisdictionId: e.target.value }))} options={[{ value: '', label: 'All Jurisdictions' }, ...data.jurisdictions.map(j => ({ value: j._id, label: `${j.city}, ${j.state}` }))]} />
-                  <Select label="Vendor Type (optional)" value={newChecklist.vendorType} onChange={(e) => setNewChecklist(c => ({ ...c, vendorType: e.target.value }))} options={[{ value: '', label: 'All Vendor Types' }, ...VENDOR_TYPES]} />
+                  <Select label="For Organization (optional)" value={newChecklist.forOrganization || ''} onChange={(e) => setNewChecklist(c => ({ ...c, forOrganization: e.target.value }))} options={[{ value: '', label: 'All Vendors (Public)' }, ...data.businesses.map(b => ({ value: b._id, label: b.businessName }))]} />
+                </div>
+                <div className="form-section-title">Applicable Vendor Types</div>
+                <p className="form-hint">Select which vendor types this checklist applies to. Leave all unchecked for "All Vendor Types".</p>
+                <div className="vendor-type-checkboxes">
+                  {VENDOR_TYPES.map(vt => (
+                    <label key={vt.value} className="checkbox-inline">
+                      <input 
+                        type="checkbox" 
+                        checked={newChecklist.vendorTypes?.includes(vt.value) || false} 
+                        onChange={(e) => {
+                          const types = newChecklist.vendorTypes || [];
+                          if (e.target.checked) {
+                            setNewChecklist(c => ({ ...c, vendorTypes: [...types, vt.value] }));
+                          } else {
+                            setNewChecklist(c => ({ ...c, vendorTypes: types.filter(t => t !== vt.value) }));
+                          }
+                        }}
+                      />
+                      <span>{vt.label}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
               <div className="form-section">
@@ -2431,22 +2674,92 @@ const SuperAdminPage = ({ onBack }) => {
             </div>
             <div className="admin-table-container">
               <table className="admin-table">
-                <thead><tr><th>Name</th><th>Category</th><th>Jurisdiction</th><th>Vendor Type</th><th>Items</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Name</th><th>Category</th><th>Jurisdiction</th><th>Vendor Types</th><th>Items</th><th>Status</th><th>Actions</th></tr></thead>
                 <tbody>
                   {data.checklists.map(cl => (
                     <tr key={cl._id}>
-                      <td><strong>{cl.name}</strong>{cl.description && <><br /><small>{cl.description}</small></>}</td>
+                      <td>
+                        <strong>{cl.name}</strong>
+                        {cl.description && <><br /><small>{cl.description}</small></>}
+                        {cl.forOrganization && <><br /><Badge variant="info">Organization-Specific</Badge></>}
+                      </td>
                       <td><Badge variant={cl.category === 'health' ? 'danger' : cl.category === 'fire' ? 'warning' : 'default'}>{cl.category}</Badge></td>
                       <td>{cl.jurisdictionId ? `${cl.jurisdictionId.city}, ${cl.jurisdictionId.state}` : 'All'}</td>
-                      <td>{cl.vendorType || 'All'}</td>
+                      <td>{cl.vendorTypes?.length > 0 ? cl.vendorTypes.map(vt => VENDOR_TYPES.find(v => v.value === vt)?.label || vt).join(', ') : (cl.vendorType || 'All')}</td>
                       <td>{cl.items?.length || 0}</td>
                       <td><Badge variant={cl.active ? 'success' : 'default'}>{cl.active ? 'Active' : 'Inactive'}</Badge></td>
-                      <td><button className="delete-btn" onClick={() => deleteChecklist(cl._id)}><Icons.Trash /></button></td>
+                      <td className="actions-cell">
+                        <button className="action-btn edit" onClick={() => setEditingChecklist({...cl, vendorTypes: cl.vendorTypes || (cl.vendorType ? [cl.vendorType] : [])})} title="Edit"><Icons.Edit /></button>
+                        <button className="delete-btn" onClick={() => deleteChecklist(cl._id)} title="Delete"><Icons.Trash /></button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            
+            {/* Edit Checklist Modal */}
+            {editingChecklist && (
+              <Modal isOpen={!!editingChecklist} onClose={() => setEditingChecklist(null)} title="Edit Checklist" size="lg">
+                <Input label="Checklist Name *" value={editingChecklist.name} onChange={(e) => setEditingChecklist(c => ({ ...c, name: e.target.value }))} />
+                <Input label="Description" value={editingChecklist.description || ''} onChange={(e) => setEditingChecklist(c => ({ ...c, description: e.target.value }))} />
+                <div className="form-row">
+                  <Select label="Category" value={editingChecklist.category} onChange={(e) => setEditingChecklist(c => ({ ...c, category: e.target.value }))} options={[
+                    { value: 'health', label: '🏥 Health' },
+                    { value: 'fire', label: '🔥 Fire Safety' },
+                    { value: 'safety', label: '⚠️ General Safety' },
+                    { value: 'general', label: '📋 General' }
+                  ]} />
+                  <Select label="Status" value={editingChecklist.active ? 'active' : 'inactive'} onChange={(e) => setEditingChecklist(c => ({ ...c, active: e.target.value === 'active' }))} options={[
+                    { value: 'active', label: 'Active' },
+                    { value: 'inactive', label: 'Inactive' }
+                  ]} />
+                </div>
+                <div className="form-section-title">Applicable Vendor Types</div>
+                <div className="vendor-type-checkboxes">
+                  {VENDOR_TYPES.map(vt => (
+                    <label key={vt.value} className="checkbox-inline">
+                      <input 
+                        type="checkbox" 
+                        checked={editingChecklist.vendorTypes?.includes(vt.value) || false} 
+                        onChange={(e) => {
+                          const types = editingChecklist.vendorTypes || [];
+                          if (e.target.checked) {
+                            setEditingChecklist(c => ({ ...c, vendorTypes: [...types, vt.value] }));
+                          } else {
+                            setEditingChecklist(c => ({ ...c, vendorTypes: types.filter(t => t !== vt.value) }));
+                          }
+                        }}
+                      />
+                      <span>{vt.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="form-section-title">Checklist Items</div>
+                {editingChecklist.items?.map((item, i) => (
+                  <div key={i} className="checklist-item-row" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <span style={{ minWidth: '30px' }}>{i + 1}.</span>
+                    <Input placeholder="Item text" value={item.itemText || ''} onChange={(e) => {
+                      const items = [...(editingChecklist.items || [])];
+                      items[i] = { ...items[i], itemText: e.target.value };
+                      setEditingChecklist(c => ({ ...c, items }));
+                    }} />
+                    <button type="button" className="delete-btn" onClick={() => {
+                      if (editingChecklist.items?.length > 1) {
+                        setEditingChecklist(c => ({ ...c, items: c.items.filter((_, idx) => idx !== i) }));
+                      }
+                    }}><Icons.Trash /></button>
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" onClick={() => setEditingChecklist(c => ({ ...c, items: [...(c.items || []), { itemText: '', description: '', required: true }] }))}>
+                  <Icons.Plus /> Add Item
+                </Button>
+                <div className="modal-actions">
+                  <Button variant="outline" onClick={() => setEditingChecklist(null)}>Cancel</Button>
+                  <Button onClick={updateChecklist}>Save Changes</Button>
+                </div>
+              </Modal>
+            )}
           </div>
         )}
 
@@ -2528,6 +2841,59 @@ const SuperAdminPage = ({ onBack }) => {
                       <td className="actions-cell">
                         <button className="action-btn edit" onClick={() => setManagingEvent(ev)} title="Manage Vendors"><Icons.Settings /></button>
                         <button className="delete-btn" onClick={() => deleteEvent(ev._id)} title="Delete"><Icons.Trash /></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'suggestions' && (
+          <div>
+            <div className="admin-section-header">
+              <h3>📬 User Suggestions & Requests</h3>
+              <div className="filter-tabs">
+                {['pending', 'in_progress', 'completed', 'rejected'].map(status => (
+                  <button 
+                    key={status} 
+                    className={suggestionFilter === status ? 'active' : ''} 
+                    onClick={() => { setSuggestionFilter(status); fetchData('suggestions'); }}
+                  >
+                    {status.replace('_', ' ').charAt(0).toUpperCase() + status.replace('_', ' ').slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="admin-table-container">
+              <table className="admin-table">
+                <thead><tr><th>Type</th><th>Title</th><th>User</th><th>Business</th><th>Details</th><th>Date</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {suggestions.length === 0 ? (
+                    <tr><td colSpan="7" className="empty-row">No {suggestionFilter} suggestions</td></tr>
+                  ) : suggestions.map(s => (
+                    <tr key={s._id}>
+                      <td><Badge variant={s.type === 'city_request' ? 'primary' : s.type === 'checklist_request' ? 'warning' : 'default'}>{s.type.replace('_', ' ')}</Badge></td>
+                      <td><strong>{s.title}</strong>{s.description && <><br /><small>{s.description.substring(0, 80)}...</small></>}</td>
+                      <td>{s.userId?.firstName} {s.userId?.lastName}<br /><small>{s.userId?.email}</small></td>
+                      <td>{s.vendorBusinessId?.businessName || 'N/A'}</td>
+                      <td>
+                        {s.cityDetails && <small>City: {s.cityDetails.city}, {s.cityDetails.state}</small>}
+                        {s.checklistDetails?.name && <small>Checklist: {s.checklistDetails.name}</small>}
+                      </td>
+                      <td>{formatDate(s.createdAt)}</td>
+                      <td className="actions-cell">
+                        {suggestionFilter === 'pending' && (
+                          <>
+                            <button className="action-btn edit" onClick={() => updateSuggestion(s._id, 'in_progress')} title="Mark In Progress"><Icons.Clock /></button>
+                            <button className="action-btn success" onClick={() => updateSuggestion(s._id, 'completed')} title="Mark Completed"><Icons.Check /></button>
+                          </>
+                        )}
+                        {suggestionFilter === 'in_progress' && (
+                          <button className="action-btn success" onClick={() => updateSuggestion(s._id, 'completed')} title="Mark Completed"><Icons.Check /></button>
+                        )}
+                        <button className="delete-btn" onClick={() => deleteSuggestion(s._id)} title="Delete"><Icons.Trash /></button>
                       </td>
                     </tr>
                   ))}
