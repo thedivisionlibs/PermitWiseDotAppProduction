@@ -1631,6 +1631,105 @@ app.post('/api/permits/sync', authMiddleware, async (req, res) => {
   }
 });
 
+// Sync food handling permits - add or remove based on toggle
+app.post('/api/permits/sync-food-handling', authMiddleware, async (req, res) => {
+  try {
+    const { handlesFood } = req.body;
+    
+    if (!req.user.vendorBusinessId) {
+      return res.status(404).json({ error: 'No business found' });
+    }
+    
+    const business = await VendorBusiness.findById(req.user.vendorBusinessId);
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+    
+    let addedCount = 0;
+    let removedCount = 0;
+    const addedPermits = [];
+    const removedPermits = [];
+    
+    if (handlesFood) {
+      // Adding food handling - find and add all food handling permit types
+      const existingPermits = await VendorPermit.find({ vendorBusinessId: business._id });
+      const existingPermitTypeIds = new Set(existingPermits.map(p => p.permitTypeId.toString()));
+      
+      // Check each operating city for food handling permit types
+      for (const city of (business.operatingCities || [])) {
+        const jurisdiction = await Jurisdiction.findOne({
+          $or: [
+            { city: new RegExp(`^${city.city}$`, 'i'), state: city.state },
+            { name: new RegExp(`^${city.city}$`, 'i'), state: city.state }
+          ],
+          active: true
+        });
+        
+        if (!jurisdiction) continue;
+        
+        // Find permit types that require food handling
+        const foodPermitTypes = await PermitType.find({
+          jurisdictionId: jurisdiction._id,
+          requiresFoodHandling: true,
+          active: true
+        });
+        
+        for (const pt of foodPermitTypes) {
+          if (!existingPermitTypeIds.has(pt._id.toString())) {
+            const newPermit = new VendorPermit({
+              vendorBusinessId: business._id,
+              permitTypeId: pt._id,
+              jurisdictionId: jurisdiction._id,
+              status: 'missing'
+            });
+            await newPermit.save();
+            existingPermitTypeIds.add(pt._id.toString());
+            addedCount++;
+            
+            const populated = await VendorPermit.findById(newPermit._id)
+              .populate('permitTypeId')
+              .populate('jurisdictionId');
+            addedPermits.push(populated);
+          }
+        }
+      }
+    } else {
+      // Removing food handling - only remove "missing" food permits without documents
+      const existingPermits = await VendorPermit.find({ 
+        vendorBusinessId: business._id 
+      }).populate('permitTypeId');
+      
+      for (const permit of existingPermits) {
+        // Only remove if:
+        // 1. The permit type requires food handling
+        // 2. The permit status is 'missing' (no data entered yet)
+        // 3. The permit has no document attached
+        if (permit.permitTypeId?.requiresFoodHandling && 
+            permit.status === 'missing' && 
+            !permit.documentId) {
+          removedPermits.push(permit);
+          await VendorPermit.findByIdAndDelete(permit._id);
+          removedCount++;
+        }
+      }
+    }
+    
+    res.json({
+      synced: true,
+      handlesFood,
+      addedCount,
+      removedCount,
+      addedPermits,
+      removedPermits: removedPermits.map(p => p._id),
+      message: handlesFood 
+        ? (addedCount > 0 ? `Added ${addedCount} food safety permit(s)` : 'No new food permits to add')
+        : (removedCount > 0 ? `Removed ${removedCount} unused food permit(s)` : 'No permits removed')
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get all vendor permits (dashboard)
 app.get('/api/permits', authMiddleware, async (req, res) => {
   try {
@@ -2187,10 +2286,76 @@ app.post('/api/autofill/generate', authMiddleware, checkFeature('autofill'), asy
 app.get('/api/checklists', authMiddleware, async (req, res) => {
   try {
     const { jurisdictionId, vendorType, category } = req.query;
-    const query = { active: true };
     
+    // Get user's business to filter checklists by their operating cities
+    const business = await VendorBusiness.findById(req.user.vendorBusinessId);
+    
+    // Find jurisdictions matching user's operating cities
+    let userJurisdictionIds = [];
+    if (business?.operatingCities?.length > 0) {
+      const jurisdictions = await Jurisdiction.find({
+        $or: business.operatingCities.map(city => ({
+          $or: [
+            { city: new RegExp(`^${city.city}$`, 'i'), state: city.state },
+            { name: new RegExp(`^${city.city}$`, 'i'), state: city.state }
+          ]
+        })),
+        active: true
+      });
+      userJurisdictionIds = jurisdictions.map(j => j._id);
+    }
+    
+    // Build query - only show checklists that:
+    // 1. Match user's jurisdictions OR have no jurisdiction (global checklists)
+    // 2. Match user's vendor type OR have no vendor type filter
+    // 3. Are organization-specific to this business OR are public (no forOrganization)
+    let query = { 
+      active: true,
+      $or: [
+        { jurisdictionId: { $in: userJurisdictionIds } },
+        { jurisdictionId: null },
+        { jurisdictionId: { $exists: false } }
+      ]
+    };
+    
+    // Organization filter - only show public checklists or ones for this specific business
+    if (business?._id) {
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { forOrganization: null },
+          { forOrganization: { $exists: false } },
+          { forOrganization: business._id }
+        ]
+      });
+    }
+    
+    // Additional filters from query params
     if (jurisdictionId) query.jurisdictionId = jurisdictionId;
-    if (vendorType) query.$or = [{ vendorType }, { vendorType: null }];
+    if (vendorType) {
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { vendorTypes: vendorType },
+          { vendorTypes: { $size: 0 } },
+          { vendorTypes: { $exists: false } },
+          { vendorType: vendorType }, // Legacy field
+          { vendorType: null }
+        ]
+      });
+    } else if (business?.primaryVendorType) {
+      // Auto-filter by user's vendor type
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { vendorTypes: { $in: [business.primaryVendorType, ...(business.secondaryVendorTypes || [])] } },
+          { vendorTypes: { $size: 0 } },
+          { vendorTypes: { $exists: false } },
+          { vendorType: { $in: [business.primaryVendorType, ...(business.secondaryVendorTypes || [])] } },
+          { vendorType: null }
+        ]
+      });
+    }
     if (category) query.category = category;
     
     const checklists = await InspectionChecklist.find(query)
