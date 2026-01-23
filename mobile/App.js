@@ -87,10 +87,32 @@ const Icons = {
       <Path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
     </Svg>
   ),
+  Truck: ({ size = 24, color = '#64748b' }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <Path d="M1 3h15v13H1z" /><Path d="M16 8h4l3 3v5h-7V8z" />
+      <Circle cx="5.5" cy="18.5" r="2.5" /><Circle cx="18.5" cy="18.5" r="2.5" />
+    </Svg>
+  ),
   Event: ({ size = 24, color = '#64748b' }) => (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
       <Rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
       <Line x1="16" y1="2" x2="16" y2="6" /><Line x1="8" y1="2" x2="8" y2="6" /><Line x1="3" y1="10" x2="21" y2="10" />
+    </Svg>
+  ),
+  Calendar: ({ size = 24, color = '#64748b' }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <Rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <Line x1="16" y1="2" x2="16" y2="6" /><Line x1="8" y1="2" x2="8" y2="6" /><Line x1="3" y1="10" x2="21" y2="10" />
+    </Svg>
+  ),
+  ChevronLeft: ({ size = 24, color = '#64748b' }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <Polyline points="15,18 9,12 15,6" />
+    </Svg>
+  ),
+  ChevronDown: ({ size = 24, color = '#64748b' }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <Polyline points="6,9 12,15 18,9" />
     </Svg>
   ),
   Checklist: ({ size = 24, color = '#64748b' }) => (
@@ -582,7 +604,7 @@ const LoginScreen = ({ navigation }) => {
 
 const RegisterScreen = ({ navigation }) => {
   const { register } = useAuth();
-  const [form, setForm] = useState({ email: '', password: '', confirmPassword: '', firstName: '', lastName: '', phone: '' });
+  const [form, setForm] = useState({ email: '', password: '', confirmPassword: '', firstName: '', lastName: '', phone: '', accountType: 'vendor' });
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
 
   const handleRegister = async () => {
@@ -590,7 +612,7 @@ const RegisterScreen = ({ navigation }) => {
     if (form.password !== form.confirmPassword) { setError('Passwords do not match'); return; }
     if (form.password.length < 8) { setError('Password must be at least 8 characters'); return; }
     setLoading(true);
-    try { await register(form); } catch (err) { setError(err.message); }
+    try { await register({ ...form, isOrganizer: form.accountType === 'organizer' }); } catch (err) { setError(err.message); }
     finally { setLoading(false); }
   };
 
@@ -603,6 +625,35 @@ const RegisterScreen = ({ navigation }) => {
           <Text style={styles.trialBadge}>Full access for 14 days before payment</Text>
         </View>
         {error ? <View style={styles.alertError}><Text style={styles.alertText}>{error}</Text></View> : null}
+        
+        <Text style={styles.accountTypeLabel}>I am a:</Text>
+        <View style={styles.accountTypeOptions}>
+          <TouchableOpacity 
+            style={[styles.accountTypeOption, form.accountType === 'vendor' && styles.accountTypeOptionActive]} 
+            onPress={() => setForm(f => ({ ...f, accountType: 'vendor' }))}
+          >
+            <View style={[styles.accountTypeIcon, form.accountType === 'vendor' && styles.accountTypeIconActive]}>
+              <Icons.Truck size={20} color={form.accountType === 'vendor' ? COLORS.white : COLORS.primary} />
+            </View>
+            <View style={styles.accountTypeInfo}>
+              <Text style={styles.accountTypeTitle}>Mobile Vendor</Text>
+              <Text style={styles.accountTypeDesc}>Food truck, cart, or mobile business</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.accountTypeOption, form.accountType === 'organizer' && styles.accountTypeOptionActive]} 
+            onPress={() => setForm(f => ({ ...f, accountType: 'organizer' }))}
+          >
+            <View style={[styles.accountTypeIcon, form.accountType === 'organizer' && styles.accountTypeIconActive]}>
+              <Icons.Event size={20} color={form.accountType === 'organizer' ? COLORS.white : COLORS.primary} />
+            </View>
+            <View style={styles.accountTypeInfo}>
+              <Text style={styles.accountTypeTitle}>Event Organizer</Text>
+              <Text style={styles.accountTypeDesc}>Manage events & vendor compliance</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+        
         <View style={styles.row}>
           <View style={styles.halfInput}><Input label="First Name" value={form.firstName} onChangeText={v => setForm(f => ({ ...f, firstName: v }))} /></View>
           <View style={styles.halfInput}><Input label="Last Name" value={form.lastName} onChangeText={v => setForm(f => ({ ...f, lastName: v }))} /></View>
@@ -2806,19 +2857,41 @@ const InspectionsScreen = () => {
 };
 
 const EventsScreen = () => {
-  const { subscription } = useAuth();
+  const { user, subscription } = useAuth();
   const [events, setEvents] = useState([]);
+  const [organizerEvents, setOrganizerEvents] = useState([]);
+  const [vendorApplications, setVendorApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [selectedOrgEvent, setSelectedOrgEvent] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [requestForm, setRequestForm] = useState({ eventName: '', organizerName: '', city: '', state: '', startDate: '', additionalInfo: '' });
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [requestSubmitted, setRequestSubmitted] = useState(false);
+  const [organizerTab, setOrganizerTab] = useState('my-events');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [newEvent, setNewEvent] = useState({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', eventType: 'food_event', maxVendors: '', status: 'draft' });
+  const [showStatePicker, setShowStatePicker] = useState(false);
+  const [showTypePicker, setShowTypePicker] = useState(false);
 
-  // Plan check: Elite, Promo, or Lifetime required
-  const hasAccess = subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration;
+  // Check if user is an organizer
+  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
 
+  // Plan check for vendors: Elite, Promo, or Lifetime required
+  const hasAccess = isOrganizer || subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration;
+
+  // Fetch organizer's events
+  const fetchOrganizerEvents = async () => {
+    try {
+      const data = await api.get('/events/organizer/my-events');
+      setOrganizerEvents(data.events || []);
+    } catch (error) { console.error(error); }
+    finally { setLoading(false); setRefreshing(false); }
+  };
+
+  // Fetch vendor's events
   const fetchMyEvents = async () => {
     try {
       const data = await api.get('/events/my-events');
@@ -2827,7 +2900,65 @@ const EventsScreen = () => {
     finally { setLoading(false); setRefreshing(false); }
   };
 
-  useEffect(() => { if (hasAccess) fetchMyEvents(); else setLoading(false); }, [hasAccess]);
+  // Fetch applications for an event
+  const fetchEventApplications = async (eventId) => {
+    try {
+      const data = await api.get(`/events/organizer/${eventId}/applications`);
+      setVendorApplications(data.applications || []);
+      const event = organizerEvents.find(e => e._id === eventId);
+      setSelectedOrgEvent(event);
+    } catch (error) { Alert.alert('Error', error.message); }
+  };
+
+  // Handle vendor application
+  const handleApplication = async (applicationId, status) => {
+    try {
+      await api.put(`/events/organizer/applications/${applicationId}`, { status });
+      fetchEventApplications(selectedOrgEvent._id);
+      Alert.alert('Success', `Application ${status}`);
+    } catch (error) { Alert.alert('Error', error.message); }
+  };
+
+  // Invite vendor
+  const inviteVendor = async () => {
+    if (!inviteEmail || !selectedOrgEvent) return;
+    try {
+      await api.post(`/events/organizer/${selectedOrgEvent._id}/invite`, { email: inviteEmail });
+      setInviteEmail('');
+      Alert.alert('Success', 'Invitation sent');
+      fetchEventApplications(selectedOrgEvent._id);
+    } catch (error) { Alert.alert('Error', error.message); }
+  };
+
+  // Update event status
+  const updateEventStatus = async (eventId, status) => {
+    try {
+      await api.put(`/events/organizer/${eventId}/status`, { status });
+      fetchOrganizerEvents();
+      Alert.alert('Success', `Event ${status}`);
+    } catch (error) { Alert.alert('Error', error.message); }
+  };
+
+  // Create event
+  const createEvent = async () => {
+    if (!newEvent.eventName || !newEvent.startDate || !newEvent.city || !newEvent.state) {
+      Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+    try {
+      await api.post('/events/organizer/create', newEvent);
+      setShowCreateModal(false);
+      setNewEvent({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', eventType: 'food_event', maxVendors: '', status: 'draft' });
+      fetchOrganizerEvents();
+      Alert.alert('Success', 'Event created');
+    } catch (error) { Alert.alert('Error', error.message); }
+  };
+
+  useEffect(() => {
+    if (isOrganizer) fetchOrganizerEvents();
+    else if (hasAccess) fetchMyEvents();
+    else setLoading(false);
+  }, [isOrganizer, hasAccess]);
 
   const submitEventRequest = async () => {
     setRequestSubmitting(true);
@@ -2836,14 +2967,7 @@ const EventsScreen = () => {
         type: 'event_request',
         title: `Event Request: ${requestForm.eventName}`,
         description: requestForm.additionalInfo,
-        eventDetails: {
-          eventName: requestForm.eventName,
-          organizerName: requestForm.organizerName,
-          city: requestForm.city,
-          state: requestForm.state,
-          startDate: requestForm.startDate,
-          additionalInfo: requestForm.additionalInfo
-        }
+        eventDetails: requestForm
       });
       setRequestSubmitted(true);
       setTimeout(() => { setShowRequestModal(false); setRequestSubmitted(false); setRequestForm({ eventName: '', organizerName: '', city: '', state: '', startDate: '', additionalInfo: '' }); }, 2000);
@@ -2851,6 +2975,256 @@ const EventsScreen = () => {
     finally { setRequestSubmitting(false); }
   };
 
+  // ============ ORGANIZER PORTAL VIEW ============
+  if (isOrganizer) {
+    if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
+
+    // Get all pending applications across events
+    const allPendingApplications = organizerEvents.flatMap(event => 
+      (event.vendorApplications || []).filter(a => a.status === 'pending').map(a => ({ ...a, eventName: event.eventName, eventId: event._id }))
+    );
+
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.pageHeader}>
+          <View>
+            <Text style={styles.pageTitle}>Organizer Portal</Text>
+            <Text style={styles.pageSubtitle}>Manage your events and vendors</Text>
+          </View>
+          <View style={styles.organizerBadge}><Text style={styles.organizerBadgeText}>ORGANIZER</Text></View>
+        </View>
+
+        {/* Organizer Tabs */}
+        <View style={styles.organizerTabs}>
+          {[{ key: 'my-events', label: '🎪 Events' }, { key: 'applications', label: '📋 Applications' }].map(tab => (
+            <TouchableOpacity key={tab.key} style={[styles.organizerTab, organizerTab === tab.key && styles.organizerTabActive]} onPress={() => { setOrganizerTab(tab.key); setSelectedOrgEvent(null); }}>
+              <Text style={[styles.organizerTabText, organizerTab === tab.key && styles.organizerTabTextActive]}>{tab.label}</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity style={styles.createEventButton} onPress={() => setShowCreateModal(true)}>
+            <Icons.Plus size={18} color={COLORS.white} />
+          </TouchableOpacity>
+        </View>
+
+        {/* My Events Tab */}
+        {organizerTab === 'my-events' && !selectedOrgEvent && (
+          <FlatList
+            data={organizerEvents}
+            keyExtractor={item => item._id}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchOrganizerEvents(); }} />}
+            renderItem={({ item }) => (
+              <Card style={styles.organizerEventCard}>
+                <View style={styles.organizerEventHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.organizerEventName}>{item.eventName}</Text>
+                    <View style={styles.organizerEventMeta}>
+                      <Icons.Calendar size={14} color={COLORS.gray500} />
+                      <Text style={styles.organizerEventMetaText}>{formatDate(item.startDate)}</Text>
+                    </View>
+                    <View style={styles.organizerEventMeta}>
+                      <Icons.MapPin size={14} color={COLORS.gray500} />
+                      <Text style={styles.organizerEventMetaText}>{item.location?.city}, {item.location?.state}</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.statusBadge, { backgroundColor: item.status === 'published' ? '#dcfce7' : item.status === 'closed' ? '#fef3c7' : '#f3f4f6' }]}>
+                    <Text style={[styles.statusBadgeText, { color: item.status === 'published' ? '#166534' : item.status === 'closed' ? '#92400e' : '#374151' }]}>{item.status?.toUpperCase()}</Text>
+                  </View>
+                </View>
+                <View style={styles.organizerEventStats}>
+                  <Text style={styles.organizerEventStat}>{item.vendorApplications?.length || 0} applications</Text>
+                  <Text style={styles.organizerEventStat}>{item.assignedVendors?.length || 0} vendors</Text>
+                </View>
+                <View style={styles.organizerEventActions}>
+                  <Button title="Manage" variant="outline" size="sm" onPress={() => fetchEventApplications(item._id)} style={{ flex: 1 }} />
+                  {item.status === 'draft' && <Button title="Publish" size="sm" onPress={() => updateEventStatus(item._id, 'published')} style={{ flex: 1 }} />}
+                  {item.status === 'published' && <Button title="Close" variant="outline" size="sm" onPress={() => updateEventStatus(item._id, 'closed')} style={{ flex: 1 }} />}
+                </View>
+              </Card>
+            )}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Icons.Event size={48} color={COLORS.gray300} />
+                <Text style={styles.emptyTitle}>No events yet</Text>
+                <Text style={styles.emptyText}>Create your first event to start accepting vendor applications.</Text>
+                <Button title="Create Event" onPress={() => setShowCreateModal(true)} style={{ marginTop: 16 }} />
+              </View>
+            }
+            contentContainerStyle={styles.listContent}
+          />
+        )}
+
+        {/* Event Management View */}
+        {organizerTab === 'my-events' && selectedOrgEvent && (
+          <ScrollView style={styles.listContent}>
+            <TouchableOpacity style={styles.backButton} onPress={() => setSelectedOrgEvent(null)}>
+              <Icons.ChevronLeft size={20} color={COLORS.primary} />
+              <Text style={styles.backButtonText}>Back to Events</Text>
+            </TouchableOpacity>
+            
+            <Card style={styles.eventManagementCard}>
+              <Text style={styles.eventManagementTitle}>{selectedOrgEvent.eventName}</Text>
+              <Text style={styles.eventManagementMeta}>{formatDate(selectedOrgEvent.startDate)} • {selectedOrgEvent.location?.city}, {selectedOrgEvent.location?.state}</Text>
+              
+              <View style={styles.inviteSection}>
+                <Text style={styles.inviteSectionTitle}>Invite Vendor</Text>
+                <View style={styles.inviteForm}>
+                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Vendor email" value={inviteEmail} onChangeText={setInviteEmail} keyboardType="email-address" autoCapitalize="none" />
+                  <Button title="Invite" onPress={inviteVendor} disabled={!inviteEmail} />
+                </View>
+              </View>
+            </Card>
+
+            <Text style={styles.sectionTitle}>Applications & Invitations</Text>
+            {vendorApplications.length > 0 ? vendorApplications.map(app => (
+              <Card key={app._id} style={[styles.applicationCard, { borderLeftWidth: 3, borderLeftColor: app.status === 'pending' ? COLORS.warning : app.status === 'approved' ? COLORS.success : COLORS.danger }]}>
+                <View style={styles.applicationInfo}>
+                  <Text style={styles.applicationBusinessName}>{app.vendorBusinessId?.businessName || 'Unknown Vendor'}</Text>
+                  <Text style={styles.applicationVendorType}>{app.vendorBusinessId?.primaryVendorType}</Text>
+                  {app.applicationNotes && <Text style={styles.applicationNotes}>"{app.applicationNotes}"</Text>}
+                </View>
+                <View style={styles.applicationActions}>
+                  <View style={[styles.complianceBadge, { backgroundColor: app.complianceStatus === 'ready' ? '#dcfce7' : app.complianceStatus === 'partial' ? '#fef3c7' : '#fee2e2' }]}>
+                    <Text style={[styles.complianceBadgeText, { color: app.complianceStatus === 'ready' ? '#166534' : app.complianceStatus === 'partial' ? '#92400e' : '#dc2626' }]}>
+                      {app.complianceStatus === 'ready' ? '✓ Compliant' : app.complianceStatus === 'partial' ? '⚠ Partial' : '✗ Missing'}
+                    </Text>
+                  </View>
+                  {app.status === 'pending' && (
+                    <View style={styles.applicationButtonRow}>
+                      <TouchableOpacity style={[styles.appActionBtn, styles.appActionApprove]} onPress={() => handleApplication(app._id, 'approved')}><Text style={styles.appActionBtnText}>Approve</Text></TouchableOpacity>
+                      <TouchableOpacity style={[styles.appActionBtn, styles.appActionReject]} onPress={() => handleApplication(app._id, 'rejected')}><Text style={[styles.appActionBtnText, { color: COLORS.danger }]}>Reject</Text></TouchableOpacity>
+                    </View>
+                  )}
+                  {app.status !== 'pending' && (
+                    <View style={[styles.statusBadge, { backgroundColor: app.status === 'approved' ? '#dcfce7' : app.status === 'rejected' ? '#fee2e2' : '#fef3c7' }]}>
+                      <Text style={[styles.statusBadgeText, { color: app.status === 'approved' ? '#166534' : app.status === 'rejected' ? '#dc2626' : '#92400e' }]}>{app.status?.toUpperCase()}</Text>
+                    </View>
+                  )}
+                </View>
+              </Card>
+            )) : (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>No applications yet</Text>
+              </View>
+            )}
+          </ScrollView>
+        )}
+
+        {/* Applications Tab */}
+        {organizerTab === 'applications' && (
+          <FlatList
+            data={allPendingApplications}
+            keyExtractor={item => item._id}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchOrganizerEvents(); }} />}
+            renderItem={({ item }) => (
+              <Card style={[styles.applicationCard, { borderLeftWidth: 3, borderLeftColor: COLORS.warning }]}>
+                <Text style={styles.applicationEventName}>{item.eventName}</Text>
+                <View style={styles.applicationInfo}>
+                  <Text style={styles.applicationBusinessName}>{item.vendorBusinessId?.businessName || 'Unknown Vendor'}</Text>
+                  <Text style={styles.applicationVendorType}>{item.vendorBusinessId?.primaryVendorType}</Text>
+                </View>
+                <View style={styles.applicationButtonRow}>
+                  <TouchableOpacity style={[styles.appActionBtn, styles.appActionApprove]} onPress={() => { fetchEventApplications(item.eventId).then(() => handleApplication(item._id, 'approved')); }}><Text style={styles.appActionBtnText}>Approve</Text></TouchableOpacity>
+                  <TouchableOpacity style={[styles.appActionBtn, styles.appActionReject]} onPress={() => { fetchEventApplications(item.eventId).then(() => handleApplication(item._id, 'rejected')); }}><Text style={[styles.appActionBtnText, { color: COLORS.danger }]}>Reject</Text></TouchableOpacity>
+                </View>
+              </Card>
+            )}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Icons.Check size={48} color={COLORS.gray300} />
+                <Text style={styles.emptyTitle}>All caught up!</Text>
+                <Text style={styles.emptyText}>No pending applications to review.</Text>
+              </View>
+            }
+            contentContainerStyle={styles.listContent}
+          />
+        )}
+
+        {/* Create Event Modal */}
+        <Modal visible={showCreateModal} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Create Event</Text>
+                <TouchableOpacity onPress={() => setShowCreateModal(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+              </View>
+              <ScrollView style={styles.modalBody}>
+                <Input label="Event Name *" placeholder="Downtown Food Festival" value={newEvent.eventName} onChangeText={v => setNewEvent(f => ({ ...f, eventName: v }))} />
+                <Input label="Description" placeholder="Annual food truck festival..." value={newEvent.description} onChangeText={v => setNewEvent(f => ({ ...f, description: v }))} multiline />
+                <View style={styles.row}>
+                  <View style={styles.halfInput}>
+                    <Text style={styles.label}>Start Date *</Text>
+                    <TextInput style={styles.input} placeholder="YYYY-MM-DD" value={newEvent.startDate} onChangeText={v => setNewEvent(f => ({ ...f, startDate: v }))} />
+                  </View>
+                  <View style={styles.halfInput}>
+                    <Text style={styles.label}>End Date</Text>
+                    <TextInput style={styles.input} placeholder="YYYY-MM-DD" value={newEvent.endDate} onChangeText={v => setNewEvent(f => ({ ...f, endDate: v }))} />
+                  </View>
+                </View>
+                <View style={styles.row}>
+                  <View style={styles.halfInput}><Input label="City *" placeholder="Austin" value={newEvent.city} onChangeText={v => setNewEvent(f => ({ ...f, city: v }))} /></View>
+                  <View style={styles.halfInput}>
+                    <Text style={styles.label}>State *</Text>
+                    <TouchableOpacity style={styles.pickerButton} onPress={() => setShowStatePicker(true)}>
+                      <Text style={newEvent.state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{newEvent.state || 'Select'}</Text>
+                      <Icons.ChevronDown size={16} color={COLORS.gray400} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <Text style={styles.label}>Event Type</Text>
+                <TouchableOpacity style={styles.pickerButton} onPress={() => setShowTypePicker(true)}>
+                  <Text style={styles.pickerButtonText}>{newEvent.eventType.replace('_', ' ')}</Text>
+                  <Icons.ChevronDown size={16} color={COLORS.gray400} />
+                </TouchableOpacity>
+                <Input label="Max Vendors" placeholder="50" value={newEvent.maxVendors} onChangeText={v => setNewEvent(f => ({ ...f, maxVendors: v }))} keyboardType="number-pad" />
+                <View style={styles.modalFooter}>
+                  <Button title="Cancel" variant="outline" onPress={() => setShowCreateModal(false)} style={{ flex: 1 }} />
+                  <Button title="Create Event" onPress={createEvent} disabled={!newEvent.eventName || !newEvent.startDate || !newEvent.city || !newEvent.state} style={{ flex: 1 }} />
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* State Picker Modal */}
+        <Modal visible={showStatePicker} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: '70%' }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select State</Text>
+                <TouchableOpacity onPress={() => setShowStatePicker(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+              </View>
+              <FlatList data={US_STATES} keyExtractor={item => item} renderItem={({ item }) => (
+                <TouchableOpacity style={styles.pickerItem} onPress={() => { setNewEvent(f => ({ ...f, state: item })); setShowStatePicker(false); }}>
+                  <Text style={styles.pickerItemText}>{item}</Text>
+                  {newEvent.state === item && <Icons.Check size={20} color={COLORS.primary} />}
+                </TouchableOpacity>
+              )} />
+            </View>
+          </View>
+        </Modal>
+
+        {/* Event Type Picker Modal */}
+        <Modal visible={showTypePicker} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Event Type</Text>
+                <TouchableOpacity onPress={() => setShowTypePicker(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+              </View>
+              <FlatList data={[{ value: 'food_event', label: 'Food Event' }, { value: 'farmers_market', label: 'Farmers Market' }, { value: 'festival', label: 'Festival' }, { value: 'fair', label: 'Fair' }, { value: 'craft_show', label: 'Craft Show' }, { value: 'night_market', label: 'Night Market' }, { value: 'other', label: 'Other' }]} keyExtractor={item => item.value} renderItem={({ item }) => (
+                <TouchableOpacity style={styles.pickerItem} onPress={() => { setNewEvent(f => ({ ...f, eventType: item.value })); setShowTypePicker(false); }}>
+                  <Text style={styles.pickerItemText}>{item.label}</Text>
+                  {newEvent.eventType === item.value && <Icons.Check size={20} color={COLORS.primary} />}
+                </TouchableOpacity>
+              )} />
+            </View>
+          </View>
+        </Modal>
+      </SafeAreaView>
+    );
+  }
+
+  // ============ VENDOR VIEW ============
   // Show upgrade modal for non-Elite users
   if (!hasAccess) {
     return (
@@ -2917,7 +3291,7 @@ const EventsScreen = () => {
           </View>
         </ScrollView>
         
-        {/* Event Request Modal - available even without Elite */}
+        {/* Event Request Modal */}
         <Modal visible={showRequestModal} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
@@ -2941,15 +3315,13 @@ const EventsScreen = () => {
                     <View style={styles.halfInput}><Input label="City *" placeholder="Austin" value={requestForm.city} onChangeText={v => setRequestForm(f => ({ ...f, city: v }))} /></View>
                     <View style={styles.halfInput}>
                       <Text style={styles.label}>State *</Text>
-                      <TouchableOpacity style={styles.pickerButton} onPress={() => {}}>
-                        <Text style={requestForm.state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{requestForm.state || 'Select State'}</Text>
-                      </TouchableOpacity>
+                      <TextInput style={styles.input} placeholder="TX" value={requestForm.state} onChangeText={v => setRequestForm(f => ({ ...f, state: v }))} />
                     </View>
                   </View>
-                  <Input label="Additional Info" placeholder="Any other details about the event..." value={requestForm.additionalInfo} onChangeText={v => setRequestForm(f => ({ ...f, additionalInfo: v }))} multiline />
+                  <Input label="Additional Info" placeholder="Any other details..." value={requestForm.additionalInfo} onChangeText={v => setRequestForm(f => ({ ...f, additionalInfo: v }))} multiline />
                   <View style={styles.modalFooter}>
                     <Button title="Cancel" variant="outline" onPress={() => setShowRequestModal(false)} style={{ flex: 1 }} />
-                    <Button title={requestSubmitting ? "Submitting..." : "Submit Request"} onPress={submitEventRequest} disabled={!requestForm.eventName || !requestForm.city || requestSubmitting} style={{ flex: 1 }} />
+                    <Button title={requestSubmitting ? "Submitting..." : "Submit"} onPress={submitEventRequest} disabled={!requestForm.eventName || !requestForm.city || requestSubmitting} style={{ flex: 1 }} />
                   </View>
                 </ScrollView>
               )}
@@ -2974,7 +3346,7 @@ const EventsScreen = () => {
       <View style={styles.pageHeader}>
         <View>
           <Text style={styles.pageTitle}>Event Readiness</Text>
-          <Text style={styles.pageSubtitle}>Your compliance status for assigned events</Text>
+          <Text style={styles.pageSubtitle}>Your compliance status for events</Text>
         </View>
         <TouchableOpacity style={styles.requestEventButtonSmall} onPress={() => setShowRequestModal(true)}>
           <Icons.Plus size={16} color={COLORS.primary} />
@@ -3064,9 +3436,9 @@ const EventsScreen = () => {
                   {selectedEvent.issues.map((issue, i) => (
                     <View key={i} style={[styles.issueItem, { borderLeftColor: issue.type === 'missing' || issue.type === 'expired' ? COLORS.danger : COLORS.warning }]}>
                       {issue.type === 'missing' && <Text style={styles.issueItemText}>🚫 <Text style={styles.issueBold}>{issue.permit}</Text> - Permit not found</Text>}
-                      {issue.type === 'expired' && <Text style={styles.issueItemText}>⏰ <Text style={styles.issueBold}>{issue.permit}</Text> - Expired or will expire before event</Text>}
-                      {issue.type === 'missing_document' && <Text style={styles.issueItemText}>📄 <Text style={styles.issueBold}>{issue.permit}</Text> - Document not uploaded</Text>}
-                      {issue.type === 'in_progress' && <Text style={styles.issueItemText}>⏳ <Text style={styles.issueBold}>{issue.permit}</Text> - Application in progress</Text>}
+                      {issue.type === 'expired' && <Text style={styles.issueItemText}>⏰ <Text style={styles.issueBold}>{issue.permit}</Text> - Expired</Text>}
+                      {issue.type === 'missing_document' && <Text style={styles.issueItemText}>📄 <Text style={styles.issueBold}>{issue.permit}</Text> - Document missing</Text>}
+                      {issue.type === 'in_progress' && <Text style={styles.issueItemText}>⏳ <Text style={styles.issueBold}>{issue.permit}</Text> - In progress</Text>}
                     </View>
                   ))}
                 </View>
@@ -3102,7 +3474,7 @@ const EventsScreen = () => {
               </View>
             ) : (
               <ScrollView style={styles.modalBody}>
-                <Text style={styles.requestIntro}>Tell us about an event you'd like to see on PermitWise for permit compliance tracking.</Text>
+                <Text style={styles.requestIntro}>Tell us about an event you'd like to see on PermitWise.</Text>
                 <Input label="Event Name *" placeholder="Downtown Food Festival" value={requestForm.eventName} onChangeText={v => setRequestForm(f => ({ ...f, eventName: v }))} />
                 <Input label="Organizer Name" placeholder="City Events Department" value={requestForm.organizerName} onChangeText={v => setRequestForm(f => ({ ...f, organizerName: v }))} />
                 <View style={styles.row}>
@@ -3112,10 +3484,10 @@ const EventsScreen = () => {
                     <TextInput style={styles.input} placeholder="TX" value={requestForm.state} onChangeText={v => setRequestForm(f => ({ ...f, state: v }))} />
                   </View>
                 </View>
-                <Input label="Additional Info" placeholder="Any other details about the event..." value={requestForm.additionalInfo} onChangeText={v => setRequestForm(f => ({ ...f, additionalInfo: v }))} multiline />
+                <Input label="Additional Info" placeholder="Any other details..." value={requestForm.additionalInfo} onChangeText={v => setRequestForm(f => ({ ...f, additionalInfo: v }))} multiline />
                 <View style={styles.modalFooter}>
                   <Button title="Cancel" variant="outline" onPress={() => setShowRequestModal(false)} style={{ flex: 1 }} />
-                  <Button title={requestSubmitting ? "Submitting..." : "Submit Request"} onPress={submitEventRequest} disabled={!requestForm.eventName || !requestForm.city || requestSubmitting} style={{ flex: 1 }} />
+                  <Button title={requestSubmitting ? "Submitting..." : "Submit"} onPress={submitEventRequest} disabled={!requestForm.eventName || !requestForm.city || requestSubmitting} style={{ flex: 1 }} />
                 </View>
               </ScrollView>
             )}
@@ -3439,6 +3811,16 @@ const styles = StyleSheet.create({
   forgotPasswordText: { fontSize: 14, color: COLORS.primary },
   trialBadge: { backgroundColor: '#dbeafe', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginTop: 12 },
   trialBadgeText: { fontSize: 13, color: COLORS.primary, fontWeight: '500' },
+  // Account Type Selector
+  accountTypeLabel: { fontSize: 15, fontWeight: '500', color: COLORS.gray700, marginBottom: 8, marginTop: 16 },
+  accountTypeOptions: { flexDirection: 'column', gap: 12, marginBottom: 16 },
+  accountTypeOption: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, backgroundColor: COLORS.gray50, borderWidth: 2, borderColor: COLORS.gray200, borderRadius: 12 },
+  accountTypeOptionActive: { borderColor: COLORS.primary, backgroundColor: COLORS.white },
+  accountTypeIcon: { width: 44, height: 44, backgroundColor: '#e0e7ff', borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  accountTypeIconActive: { backgroundColor: COLORS.primary },
+  accountTypeInfo: { flex: 1 },
+  accountTypeTitle: { fontSize: 15, fontWeight: '600', color: COLORS.gray800 },
+  accountTypeDesc: { fontSize: 13, color: COLORS.gray500, marginTop: 2 },
   successContainer: { alignItems: 'center', padding: 24 },
   successIcon: { width: 80, height: 80, backgroundColor: '#dcfce7', borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
   successText: { fontSize: 15, color: COLORS.gray700, textAlign: 'center', lineHeight: 22, marginBottom: 8 },
@@ -3689,6 +4071,48 @@ const styles = StyleSheet.create({
   requestSuccessTitle: { fontSize: 18, fontWeight: '600', color: COLORS.gray800, marginBottom: 8 },
   requestSuccessText: { fontSize: 14, color: COLORS.gray600, textAlign: 'center' },
   requestIntro: { fontSize: 14, color: COLORS.gray600, marginBottom: 16, lineHeight: 20 },
+  // Organizer Portal Styles
+  organizerBadge: { backgroundColor: '#dbeafe', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
+  organizerBadgeText: { fontSize: 11, fontWeight: '600', color: COLORS.primary },
+  organizerTabs: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, marginBottom: 16 },
+  organizerTab: { flex: 1, paddingVertical: 10, paddingHorizontal: 16, backgroundColor: COLORS.gray100, borderRadius: 8, alignItems: 'center' },
+  organizerTabActive: { backgroundColor: COLORS.primary },
+  organizerTabText: { fontSize: 14, fontWeight: '500', color: COLORS.gray600 },
+  organizerTabTextActive: { color: COLORS.white },
+  createEventButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },
+  organizerEventCard: { marginBottom: 12, marginHorizontal: 16 },
+  organizerEventHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  organizerEventName: { fontSize: 16, fontWeight: '600', color: COLORS.gray800, marginBottom: 4 },
+  organizerEventMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  organizerEventMetaText: { fontSize: 13, color: COLORS.gray500 },
+  organizerEventStats: { flexDirection: 'row', gap: 16, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.gray100 },
+  organizerEventStat: { fontSize: 13, color: COLORS.gray500 },
+  organizerEventActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 16 },
+  backButtonText: { fontSize: 15, color: COLORS.primary, fontWeight: '500' },
+  eventManagementCard: { marginBottom: 16 },
+  eventManagementTitle: { fontSize: 18, fontWeight: '600', color: COLORS.gray800, marginBottom: 4 },
+  eventManagementMeta: { fontSize: 14, color: COLORS.gray500, marginBottom: 16 },
+  inviteSection: { paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.gray100 },
+  inviteSectionTitle: { fontSize: 14, fontWeight: '600', color: COLORS.gray700, marginBottom: 8 },
+  inviteForm: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  sectionTitle: { fontSize: 16, fontWeight: '600', color: COLORS.gray800, marginBottom: 12, paddingHorizontal: 16 },
+  applicationCard: { marginBottom: 12, marginHorizontal: 16 },
+  applicationEventName: { fontSize: 12, color: COLORS.primary, fontWeight: '500', marginBottom: 4 },
+  applicationInfo: { flex: 1 },
+  applicationBusinessName: { fontSize: 15, fontWeight: '600', color: COLORS.gray800 },
+  applicationVendorType: { fontSize: 13, color: COLORS.gray500, marginTop: 2 },
+  applicationNotes: { fontSize: 13, fontStyle: 'italic', color: COLORS.gray600, marginTop: 6 },
+  applicationActions: { marginTop: 12, alignItems: 'flex-start', gap: 8 },
+  complianceBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
+  complianceBadgeText: { fontSize: 12, fontWeight: '500' },
+  applicationButtonRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  appActionBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6, borderWidth: 1 },
+  appActionApprove: { backgroundColor: '#dcfce7', borderColor: '#16a34a' },
+  appActionReject: { backgroundColor: COLORS.white, borderColor: COLORS.gray200 },
+  appActionBtnText: { fontSize: 14, fontWeight: '500', color: '#16a34a' },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
+  statusBadgeText: { fontSize: 11, fontWeight: '600' },
   // Legacy upgrade styles (keeping for compatibility)
   upgradeContainer: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   upgradeIcon: { width: 80, height: 80, backgroundColor: '#e0e7ff', borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
