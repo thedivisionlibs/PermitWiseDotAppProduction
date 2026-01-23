@@ -2050,6 +2050,166 @@ img { max-width: 100%; display: block; }
   align-items: center;
   gap: 0.5rem;
 }
+.events-section-header h2 .section-count {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--gray-500);
+  background: var(--gray-100);
+  padding: 0.125rem 0.5rem;
+  border-radius: 10px;
+}
+.section-description {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--gray-500);
+}
+.section-empty {
+  padding: 2rem;
+  background: var(--gray-50);
+  border-radius: 8px;
+  text-align: center;
+}
+.section-empty p {
+  margin: 0;
+  color: var(--gray-500);
+  font-size: 0.875rem;
+}
+/* Invitation Cards */
+.invitation-card.pending-response {
+  border: 2px solid var(--warning);
+  background: #fffbeb;
+}
+.invitation-actions {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--gray-200);
+}
+.invitation-prompt {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--gray-700);
+  font-weight: 500;
+}
+.invitation-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+/* Event Detail Modal */
+.event-detail-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+.event-detail-section {
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--gray-200);
+}
+.event-detail-section:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.event-detail-section h4 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+  color: var(--gray-800);
+}
+.event-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+.event-info-grid .info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.event-info-grid .info-item.full-width {
+  grid-column: 1 / -1;
+}
+.event-info-grid .info-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--gray-500);
+  font-weight: 500;
+}
+.event-info-grid .info-value {
+  font-size: 0.9375rem;
+  color: var(--gray-800);
+}
+.invitation-section {
+  background: #eff6ff;
+  border-radius: 8px;
+  padding: 1rem;
+  margin: -0.5rem;
+}
+.invitation-banner {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.invitation-banner svg {
+  width: 24px;
+  height: 24px;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.invitation-banner h4 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  color: var(--primary);
+}
+.invitation-banner p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.invitation-response-buttons {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.required-permits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.required-permit-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--gray-50);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: var(--gray-700);
+}
+.required-permit-item svg {
+  width: 16px;
+  height: 16px;
+  color: var(--gray-400);
+}
+.compliance-overview {
+  margin-bottom: 1rem;
+}
+.compliance-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.progress-bar.large {
+  height: 10px;
+  border-radius: 5px;
+}
+.progress-label {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.issues-intro {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
 .available-events-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
