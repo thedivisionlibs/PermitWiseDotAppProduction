@@ -225,14 +225,18 @@ img { max-width: 100%; display: block; }
 .auth-success p.muted { font-size: 0.875rem; color: var(--gray-500); }
 
 /* Password Input with Toggle */
-.password-input-wrapper { position: relative; }
+.password-input-wrapper { position: relative; margin-bottom: 0.25rem; }
 .password-input-wrapper .form-group { margin-bottom: 0; }
-.password-toggle { position: absolute; right: 12px; top: 38px; padding: 4px; color: var(--gray-400); background: transparent; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.password-toggle { position: absolute; right: 12px; top: 36px; padding: 4px; color: var(--gray-400); background: transparent; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 1; }
 .password-toggle:hover { color: var(--gray-600); }
 .password-toggle svg { width: 20px; height: 20px; }
 
+/* Input validation states */
+.form-input.input-success { border-color: var(--success); }
+.form-input.input-error { border-color: var(--danger); }
+
 /* Forgot Password Link */
-.forgot-password-link { text-align: right; margin-top: -0.5rem; margin-bottom: 1rem; }
+.forgot-password-link { text-align: right; margin-top: 0.5rem; margin-bottom: 1rem; }
 .forgot-password-link button { font-size: 0.875rem; color: var(--primary); }
 .forgot-password-link button:hover { text-decoration: underline; }
 
@@ -638,6 +642,28 @@ img { max-width: 100%; display: block; }
 .inspection-history-card { display: flex; justify-content: space-between; align-items: center; }
 .inspection-history-card h3 { margin: 0; font-size: 1rem; }
 .inspection-history-card p { margin: 0; font-size: 0.875rem; color: var(--gray-500); }
+.inspection-history-card.clickable { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+.inspection-history-card.clickable:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); }
+
+/* Inspection View Modal */
+.inspection-view-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--gray-200); }
+.inspection-view-header h3 { margin: 0 0 0.25rem; font-size: 1.25rem; }
+.inspection-view-header .inspection-date { margin: 0; color: var(--gray-500); font-size: 0.875rem; }
+.inspection-items-list h4, .inspection-notes h4 { font-size: 0.875rem; text-transform: uppercase; color: var(--gray-500); margin: 0 0 1rem; letter-spacing: 0.5px; }
+.inspection-item-result { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; margin-bottom: 0.5rem; border-radius: 8px; background: var(--gray-50); }
+.inspection-item-result.passed { background: #f0fdf4; }
+.inspection-item-result.failed { background: #fef2f2; }
+.inspection-item-result.pending { background: #fffbeb; }
+.inspection-item-status { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.inspection-item-result.passed .inspection-item-status { background: #22c55e; color: white; }
+.inspection-item-result.failed .inspection-item-status { background: #ef4444; color: white; }
+.inspection-item-result.pending .inspection-item-status { background: #f59e0b; color: white; }
+.inspection-item-status svg { width: 14px; height: 14px; }
+.inspection-item-content { flex: 1; }
+.inspection-item-text { font-weight: 500; }
+.inspection-item-notes { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--gray-600); font-style: italic; }
+.inspection-notes { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--gray-200); }
+.inspection-notes p { margin: 0; color: var(--gray-700); line-height: 1.5; }
 
 /* Active Inspection */
 .inspection-active .page-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
