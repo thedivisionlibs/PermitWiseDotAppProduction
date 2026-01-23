@@ -1554,21 +1554,337 @@ const InspectionsPage = () => {
 };
 
 const EventsPage = () => {
-  const { subscription } = useAuth();
+  const { user, subscription, business } = useAuth();
   const [events, setEvents] = useState([]); const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [requestForm, setRequestForm] = useState({ eventName: '', organizerName: '', city: '', state: '', startDate: '', endDate: '', eventType: '', website: '', additionalInfo: '' });
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [requestSubmitted, setRequestSubmitted] = useState(false);
+  
+  // Organizer portal state
+  const [organizerEvents, setOrganizerEvents] = useState([]);
+  const [organizerTab, setOrganizerTab] = useState('my-events'); // 'my-events', 'applications', 'create'
+  const [newOrgEvent, setNewOrgEvent] = useState({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', eventType: 'food_event', maxVendors: '', applicationDeadline: '', feeStructure: { applicationFee: 0, boothFee: 0, electricityFee: 0, description: '' }, requiredPermitTypes: [], customPermitRequirements: [], status: 'draft' });
+  const [selectedOrgEvent, setSelectedOrgEvent] = useState(null);
+  const [vendorApplications, setVendorApplications] = useState([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [availablePermitTypes, setAvailablePermitTypes] = useState([]);
+  
+  // Vendor events discovery
+  const [publishedEvents, setPublishedEvents] = useState([]);
+  const [showApplyModal, setShowApplyModal] = useState(null);
+  const [applicationNotes, setApplicationNotes] = useState('');
 
-  // Plan check: Elite, Promo, or Lifetime required
+  // Plan check: Elite, Promo, or Lifetime required for vendors
   const hasAccess = subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration;
+  
+  // Check if user is an organizer
+  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
 
   useEffect(() => {
-    if (!hasAccess) { setLoading(false); return; }
-    const fetchMyEvents = async () => {
-      try { const data = await api.get('/events/my-events'); setEvents(data.events || []); }
-      catch (error) { console.error(error); } finally { setLoading(false); }
-    }; fetchMyEvents();
-  }, [hasAccess]);
+    const fetchData = async () => {
+      try {
+        if (isOrganizer) {
+          // Fetch organizer's events
+          const orgData = await api.get('/events/organizer/my-events');
+          setOrganizerEvents(orgData.events || []);
+          // Fetch available permit types for event requirements
+          const ptData = await api.get('/permit-types/all');
+          setAvailablePermitTypes(ptData.permitTypes || []);
+        }
+        if (hasAccess) {
+          // Fetch vendor's assigned events
+          const data = await api.get('/events/my-events');
+          setEvents(data.events || []);
+          // Fetch published events vendor can apply to
+          const pubData = await api.get('/events/published');
+          setPublishedEvents(pubData.events || []);
+        }
+      } catch (error) { console.error(error); }
+      finally { setLoading(false); }
+    };
+    fetchData();
+  }, [hasAccess, isOrganizer]);
 
+  const submitEventRequest = async () => {
+    setRequestSubmitting(true);
+    try {
+      await api.post('/suggestions', {
+        type: 'event_request',
+        title: `Event Request: ${requestForm.eventName}`,
+        description: requestForm.additionalInfo,
+        eventDetails: {
+          eventName: requestForm.eventName,
+          organizerName: requestForm.organizerName,
+          city: requestForm.city,
+          state: requestForm.state,
+          startDate: requestForm.startDate,
+          endDate: requestForm.endDate,
+          eventType: requestForm.eventType,
+          website: requestForm.website,
+          additionalInfo: requestForm.additionalInfo
+        }
+      });
+      setRequestSubmitted(true);
+      setTimeout(() => { setShowRequestModal(false); setRequestSubmitted(false); setRequestForm({ eventName: '', organizerName: '', city: '', state: '', startDate: '', endDate: '', eventType: '', website: '', additionalInfo: '' }); }, 2000);
+    } catch (err) { alert(err.message); }
+    finally { setRequestSubmitting(false); }
+  };
+
+  // Organizer functions
+  const createOrganizerEvent = async () => {
+    try {
+      const eventData = {
+        ...newOrgEvent,
+        location: { city: newOrgEvent.city, state: newOrgEvent.state, address: newOrgEvent.address }
+      };
+      await api.post('/events/organizer/create', eventData);
+      const orgData = await api.get('/events/organizer/my-events');
+      setOrganizerEvents(orgData.events || []);
+      setNewOrgEvent({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', eventType: 'food_event', maxVendors: '', applicationDeadline: '', feeStructure: { applicationFee: 0, boothFee: 0, electricityFee: 0, description: '' }, requiredPermitTypes: [], customPermitRequirements: [], status: 'draft' });
+      setOrganizerTab('my-events');
+      alert('Event created successfully!');
+    } catch (err) { alert(err.message); }
+  };
+
+  const updateEventStatus = async (eventId, status) => {
+    try {
+      await api.put(`/events/organizer/${eventId}/status`, { status });
+      const orgData = await api.get('/events/organizer/my-events');
+      setOrganizerEvents(orgData.events || []);
+    } catch (err) { alert(err.message); }
+  };
+
+  const fetchEventApplications = async (eventId) => {
+    try {
+      const data = await api.get(`/events/organizer/${eventId}/applications`);
+      setVendorApplications(data.applications || []);
+      setSelectedOrgEvent(organizerEvents.find(e => e._id === eventId));
+    } catch (err) { alert(err.message); }
+  };
+
+  const handleApplication = async (applicationId, action) => {
+    try {
+      await api.put(`/events/organizer/applications/${applicationId}`, { status: action });
+      if (selectedOrgEvent) fetchEventApplications(selectedOrgEvent._id);
+    } catch (err) { alert(err.message); }
+  };
+
+  const inviteVendor = async (eventId) => {
+    if (!inviteEmail) return;
+    try {
+      await api.post(`/events/organizer/${eventId}/invite`, { email: inviteEmail });
+      setInviteEmail('');
+      alert('Invitation sent!');
+      fetchEventApplications(eventId);
+    } catch (err) { alert(err.message); }
+  };
+
+  // Vendor functions
+  const applyToEvent = async (eventId) => {
+    try {
+      await api.post(`/events/${eventId}/apply`, { applicationNotes });
+      setShowApplyModal(null);
+      setApplicationNotes('');
+      const pubData = await api.get('/events/published');
+      setPublishedEvents(pubData.events || []);
+      const data = await api.get('/events/my-events');
+      setEvents(data.events || []);
+      alert('Application submitted!');
+    } catch (err) { alert(err.message); }
+  };
+
+  const respondToInvitation = async (eventId, accept) => {
+    try {
+      await api.put(`/events/${eventId}/respond-invitation`, { accept });
+      const data = await api.get('/events/my-events');
+      setEvents(data.events || []);
+    } catch (err) { alert(err.message); }
+  };
+
+  // ORGANIZER PORTAL VIEW
+  if (isOrganizer) {
+    return (
+      <div className="events-page organizer-portal">
+        <div className="page-header">
+          <div>
+            <h1>Event Organizer Portal</h1>
+            <p>Manage your events, vendors, and compliance</p>
+          </div>
+          <Badge variant="primary">Organizer Account</Badge>
+        </div>
+        
+        <div className="organizer-tabs">
+          {['my-events', 'applications', 'create'].map(tab => (
+            <button key={tab} className={organizerTab === tab ? 'active' : ''} onClick={() => { setOrganizerTab(tab); setSelectedOrgEvent(null); }}>
+              {tab === 'my-events' ? '🎪 My Events' : tab === 'applications' ? '📋 Applications' : '➕ Create Event'}
+            </button>
+          ))}
+        </div>
+
+        {organizerTab === 'my-events' && !selectedOrgEvent && (
+          <div className="organizer-events-list">
+            {organizerEvents.length > 0 ? organizerEvents.map(event => (
+              <Card key={event._id} className="organizer-event-card">
+                <div className="event-header">
+                  <div>
+                    <h3>{event.eventName}</h3>
+                    <p className="event-date"><Icons.Calendar /> {formatDate(event.startDate)} {event.endDate && event.endDate !== event.startDate && `- ${formatDate(event.endDate)}`}</p>
+                    <p className="event-location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
+                  </div>
+                  <div className="event-status-actions">
+                    <Badge variant={event.status === 'published' ? 'success' : event.status === 'closed' ? 'warning' : 'default'}>{event.status}</Badge>
+                    <div className="event-stats">
+                      <span>{event.vendorApplications?.length || 0} applications</span>
+                      <span>{event.assignedVendors?.length || 0} vendors</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="event-actions">
+                  <Button size="sm" variant="outline" onClick={() => fetchEventApplications(event._id)}>Manage Vendors</Button>
+                  {event.status === 'draft' && <Button size="sm" onClick={() => updateEventStatus(event._id, 'published')}>Publish</Button>}
+                  {event.status === 'published' && <Button size="sm" variant="outline" onClick={() => updateEventStatus(event._id, 'closed')}>Close Applications</Button>}
+                </div>
+              </Card>
+            )) : (
+              <EmptyState icon={Icons.Event} title="No events yet" description="Create your first event to start accepting vendor applications." />
+            )}
+          </div>
+        )}
+
+        {organizerTab === 'my-events' && selectedOrgEvent && (
+          <div className="event-management">
+            <button className="back-link" onClick={() => setSelectedOrgEvent(null)}>← Back to Events</button>
+            <Card className="event-management-header">
+              <h2>{selectedOrgEvent.eventName}</h2>
+              <p>{formatDate(selectedOrgEvent.startDate)} • {selectedOrgEvent.location?.city}, {selectedOrgEvent.location?.state}</p>
+              <div className="invite-vendor-form">
+                <Input placeholder="Vendor email to invite" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
+                <Button onClick={() => inviteVendor(selectedOrgEvent._id)} disabled={!inviteEmail}>Invite Vendor</Button>
+              </div>
+            </Card>
+            
+            <h3>Vendor Applications & Invitations</h3>
+            {vendorApplications.length > 0 ? (
+              <div className="applications-list">
+                {vendorApplications.map(app => (
+                  <Card key={app._id} className={`application-card ${app.status}`}>
+                    <div className="application-info">
+                      <h4>{app.vendorBusinessId?.businessName || 'Unknown Vendor'}</h4>
+                      <p className="vendor-type">{app.vendorBusinessId?.primaryVendorType}</p>
+                      <p className="applied-date">Applied: {formatDate(app.appliedAt)}</p>
+                      {app.applicationNotes && <p className="app-notes">"{app.applicationNotes}"</p>}
+                    </div>
+                    <div className="compliance-status">
+                      <Badge variant={app.complianceStatus === 'ready' ? 'success' : app.complianceStatus === 'partial' ? 'warning' : 'danger'}>
+                        {app.complianceStatus === 'ready' ? 'Compliant' : app.complianceStatus === 'partial' ? 'Partial' : 'Missing Permits'}
+                      </Badge>
+                      {app.missingPermits?.length > 0 && <small>{app.missingPermits.length} missing</small>}
+                    </div>
+                    <div className="application-actions">
+                      <Badge variant={app.status === 'approved' ? 'success' : app.status === 'rejected' ? 'danger' : app.status === 'waitlist' ? 'warning' : 'default'}>{app.status}</Badge>
+                      {app.status === 'pending' && (
+                        <>
+                          <Button size="sm" onClick={() => handleApplication(app._id, 'approved')}>Approve</Button>
+                          <Button size="sm" variant="outline" onClick={() => handleApplication(app._id, 'waitlist')}>Waitlist</Button>
+                          <Button size="sm" variant="danger" onClick={() => handleApplication(app._id, 'rejected')}>Reject</Button>
+                        </>
+                      )}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-text">No applications yet</p>
+            )}
+          </div>
+        )}
+
+        {organizerTab === 'applications' && (
+          <div className="all-applications">
+            <h3>All Pending Applications</h3>
+            <p className="section-description">Review applications across all your events</p>
+            {organizerEvents.flatMap(e => (e.vendorApplications || []).filter(a => a.status === 'pending').map(a => ({ ...a, eventName: e.eventName, eventId: e._id }))).length > 0 ? (
+              <div className="applications-list">
+                {organizerEvents.flatMap(e => (e.vendorApplications || []).filter(a => a.status === 'pending').map(a => ({ ...a, eventName: e.eventName, eventId: e._id }))).map(app => (
+                  <Card key={app._id} className="application-card pending">
+                    <div className="application-info">
+                      <small className="event-name">{app.eventName}</small>
+                      <h4>{app.vendorBusinessId?.businessName || 'Unknown Vendor'}</h4>
+                      <p className="applied-date">Applied: {formatDate(app.appliedAt)}</p>
+                    </div>
+                    <div className="application-actions">
+                      <Button size="sm" onClick={() => { fetchEventApplications(app.eventId); setOrganizerTab('my-events'); }}>Review</Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <EmptyState icon={Icons.Checklist} title="No pending applications" description="All applications have been reviewed" />
+            )}
+          </div>
+        )}
+
+        {organizerTab === 'create' && (
+          <Card className="create-event-form">
+            <h3>Create New Event</h3>
+            <div className="form-section">
+              <Input label="Event Name *" placeholder="Downtown Food Festival 2024" value={newOrgEvent.eventName} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, eventName: e.target.value }))} />
+              <Input label="Description" placeholder="Annual food truck festival..." value={newOrgEvent.description} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, description: e.target.value }))} />
+            </div>
+            <div className="form-section">
+              <div className="form-section-title">Date & Location</div>
+              <div className="form-row">
+                <Input label="Start Date *" type="date" value={newOrgEvent.startDate} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, startDate: e.target.value }))} />
+                <Input label="End Date" type="date" value={newOrgEvent.endDate} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, endDate: e.target.value }))} />
+                <Input label="Application Deadline" type="date" value={newOrgEvent.applicationDeadline} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, applicationDeadline: e.target.value }))} />
+              </div>
+              <div className="form-row">
+                <Input label="City *" placeholder="Austin" value={newOrgEvent.city} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, city: e.target.value }))} />
+                <Select label="State *" value={newOrgEvent.state} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+              </div>
+              <Input label="Venue Address" placeholder="123 Main Street" value={newOrgEvent.address} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, address: e.target.value }))} />
+            </div>
+            <div className="form-section">
+              <div className="form-section-title">Event Details</div>
+              <div className="form-row">
+                <Select label="Event Type" value={newOrgEvent.eventType} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, eventType: e.target.value }))} options={[
+                  { value: 'food_event', label: 'Food Event' },
+                  { value: 'farmers_market', label: 'Farmers Market' },
+                  { value: 'festival', label: 'Festival' },
+                  { value: 'fair', label: 'Fair' },
+                  { value: 'craft_show', label: 'Craft Show' },
+                  { value: 'night_market', label: 'Night Market' },
+                  { value: 'other', label: 'Other' }
+                ]} />
+                <Input label="Max Vendors" type="number" placeholder="50" value={newOrgEvent.maxVendors} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, maxVendors: e.target.value }))} />
+                <Select label="Status" value={newOrgEvent.status} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, status: e.target.value }))} options={[
+                  { value: 'draft', label: 'Draft (not visible)' },
+                  { value: 'published', label: 'Published (accepting applications)' }
+                ]} />
+              </div>
+            </div>
+            <div className="form-section">
+              <div className="form-section-title">Fees</div>
+              <div className="form-row">
+                <Input label="Application Fee ($)" type="number" value={newOrgEvent.feeStructure.applicationFee} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, applicationFee: parseFloat(e.target.value) || 0 } }))} />
+                <Input label="Booth Fee ($)" type="number" value={newOrgEvent.feeStructure.boothFee} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, boothFee: parseFloat(e.target.value) || 0 } }))} />
+                <Input label="Electricity Fee ($)" type="number" value={newOrgEvent.feeStructure.electricityFee} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, electricityFee: parseFloat(e.target.value) || 0 } }))} />
+              </div>
+            </div>
+            <div className="form-actions">
+              <Button onClick={createOrganizerEvent} disabled={!newOrgEvent.eventName || !newOrgEvent.startDate || !newOrgEvent.city || !newOrgEvent.state}>
+                Create Event
+              </Button>
+            </div>
+          </Card>
+        )}
+      </div>
+    );
+  }
+
+  // VENDOR VIEW - requires Elite plan
   if (!hasAccess) {
     return (
       <div className="upgrade-feature-page">
@@ -1586,18 +1902,18 @@ const EventsPage = () => {
             </div>
             <div className="upgrade-feature-item">
               <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>Apply to Events</h3>
+              <p>Browse and apply to events looking for vendors like you</p>
+            </div>
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
               <h3>Missing Permit Alerts</h3>
               <p>Know exactly which permits or documents you need for each event</p>
             </div>
             <div className="upgrade-feature-item">
               <div className="upgrade-feature-item-icon"><Icons.Check /></div>
-              <h3>Expiration Warnings</h3>
-              <p>Get alerted if any permits will expire before an event date</p>
-            </div>
-            <div className="upgrade-feature-item">
-              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
               <h3>Organizer Integration</h3>
-              <p>Event organizers using PermitWise can verify your compliance directly</p>
+              <p>Event organizers can verify your compliance directly</p>
             </div>
           </div>
 
@@ -1609,7 +1925,43 @@ const EventsPage = () => {
 
           <Button size="lg" onClick={() => window.location.hash = 'settings'}>Upgrade to Elite</Button>
           <p className="upgrade-note">14-day free trial • Cancel anytime</p>
+          
+          <div className="request-event-section">
+            <p>Know of an event that should be on PermitWise?</p>
+            <Button variant="outline" onClick={() => setShowRequestModal(true)}>Request an Event</Button>
+          </div>
         </div>
+        
+        {/* Event Request Modal - available even without Elite */}
+        <Modal isOpen={showRequestModal} onClose={() => setShowRequestModal(false)} title="Request an Event">
+          {requestSubmitted ? (
+            <div className="request-success">
+              <div className="success-icon"><Icons.Check /></div>
+              <h3>Request Submitted!</h3>
+              <p>We'll review your event request and add it to PermitWise soon.</p>
+            </div>
+          ) : (
+            <>
+              <p className="modal-intro">Tell us about an event you'd like to see on PermitWise for permit compliance tracking.</p>
+              <Input label="Event Name *" placeholder="Downtown Food Festival" value={requestForm.eventName} onChange={(e) => setRequestForm(f => ({ ...f, eventName: e.target.value }))} />
+              <Input label="Organizer Name" placeholder="City Events Department" value={requestForm.organizerName} onChange={(e) => setRequestForm(f => ({ ...f, organizerName: e.target.value }))} />
+              <div className="form-row">
+                <Input label="City *" placeholder="Austin" value={requestForm.city} onChange={(e) => setRequestForm(f => ({ ...f, city: e.target.value }))} />
+                <Select label="State *" value={requestForm.state} onChange={(e) => setRequestForm(f => ({ ...f, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+              </div>
+              <div className="form-row">
+                <Input label="Start Date" type="date" value={requestForm.startDate} onChange={(e) => setRequestForm(f => ({ ...f, startDate: e.target.value }))} />
+                <Input label="End Date" type="date" value={requestForm.endDate} onChange={(e) => setRequestForm(f => ({ ...f, endDate: e.target.value }))} />
+              </div>
+              <Input label="Event Website" placeholder="https://example.com" value={requestForm.website} onChange={(e) => setRequestForm(f => ({ ...f, website: e.target.value }))} />
+              <Input label="Additional Info" placeholder="Any other details about the event..." value={requestForm.additionalInfo} onChange={(e) => setRequestForm(f => ({ ...f, additionalInfo: e.target.value }))} />
+              <div className="modal-actions">
+                <Button variant="outline" onClick={() => setShowRequestModal(false)}>Cancel</Button>
+                <Button onClick={submitEventRequest} loading={requestSubmitting} disabled={!requestForm.eventName || !requestForm.city || !requestForm.state}>Submit Request</Button>
+              </div>
+            </>
+          )}
+        </Modal>
       </div>
     );
   }
@@ -1622,15 +1974,54 @@ const EventsPage = () => {
     return <Icons.Clock />;
   };
 
+  // Check for events vendor can still apply to (not already applied or invited)
+  const appliedEventIds = new Set([
+    ...events.map(e => e._id),
+    ...publishedEvents.filter(e => e.vendorApplications?.some(a => a.vendorBusinessId === business?._id)).map(e => e._id)
+  ]);
+  const availableEvents = publishedEvents.filter(e => !appliedEventIds.has(e._id) && e.status === 'published');
+
   return (
     <div className="events-page">
       <div className="page-header">
-        <h1>Event Readiness</h1>
-        <p>Your compliance status for assigned events</p>
+        <div>
+          <h1>Event Readiness</h1>
+          <p>Your compliance status for assigned events</p>
+        </div>
+        <Button variant="outline" onClick={() => setShowRequestModal(true)}>
+          <Icons.Plus /> Request Event
+        </Button>
       </div>
       
+      {/* Available Events to Apply */}
+      {availableEvents.length > 0 && (
+        <div className="available-events-section">
+          <h2>Available Events</h2>
+          <p className="section-description">Events accepting vendor applications</p>
+          <div className="available-events-grid">
+            {availableEvents.map(event => (
+              <Card key={event._id} className="available-event-card">
+                <div className="event-date-badge">
+                  <span className="month">{new Date(event.startDate).toLocaleDateString('en-US', { month: 'short' })}</span>
+                  <span className="day">{new Date(event.startDate).getDate()}</span>
+                </div>
+                <div className="event-info">
+                  <h3>{event.eventName}</h3>
+                  <p className="location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
+                  <p className="organizer">By {event.organizerName}</p>
+                  {event.applicationDeadline && <p className="deadline">Apply by {formatDate(event.applicationDeadline)}</p>}
+                </div>
+                <Button size="sm" onClick={() => setShowApplyModal(event)}>Apply</Button>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {/* Assigned/Invited Events */}
       {events.length > 0 ? (
         <div className="events-readiness-list">
+          <h2>Your Events</h2>
           {events.map(event => (
             <Card key={event._id} className={`event-readiness-card ${event.readinessStatus}`}>
               <div className="event-readiness-header">
@@ -1642,6 +2033,13 @@ const EventsPage = () => {
                   <h3>{event.eventName}</h3>
                   <p className="organizer">Organized by {event.organizerName}</p>
                   <p className="location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
+                  {event.invitationStatus === 'invited' && (
+                    <div className="invitation-actions">
+                      <Badge variant="warning">Invitation Pending</Badge>
+                      <Button size="sm" onClick={() => respondToInvitation(event._id, true)}>Accept</Button>
+                      <Button size="sm" variant="outline" onClick={() => respondToInvitation(event._id, false)}>Decline</Button>
+                    </div>
+                  )}
                 </div>
                 <div className={`readiness-badge ${event.readinessColor}`}>
                   {getReadinessIcon(event.readinessStatus)}
@@ -1677,10 +2075,11 @@ const EventsPage = () => {
         <EmptyState 
           icon={Icons.Event} 
           title="No events assigned" 
-          description="You haven't been assigned to any events yet. When event organizers using PermitWise add you to their vendor list, you'll see your compliance status here."
+          description="You haven't been assigned to any events yet. Browse available events above or wait for organizers to invite you."
         />
       )}
 
+      {/* Event Details Modal */}
       <Modal isOpen={!!selectedEvent} onClose={() => setSelectedEvent(null)} title={`${selectedEvent?.eventName} - Readiness Details`}>
         {selectedEvent && (
           <div className="readiness-detail-modal">
@@ -1715,6 +2114,55 @@ const EventsPage = () => {
               )}
             </div>
           </div>
+        )}
+      </Modal>
+
+      {/* Apply to Event Modal */}
+      <Modal isOpen={!!showApplyModal} onClose={() => setShowApplyModal(null)} title={`Apply to ${showApplyModal?.eventName}`}>
+        {showApplyModal && (
+          <div className="apply-modal">
+            <div className="event-summary">
+              <p><strong>Date:</strong> {formatDate(showApplyModal.startDate)}</p>
+              <p><strong>Location:</strong> {showApplyModal.location?.city}, {showApplyModal.location?.state}</p>
+              {showApplyModal.feeStructure?.boothFee > 0 && <p><strong>Booth Fee:</strong> ${showApplyModal.feeStructure.boothFee}</p>}
+            </div>
+            <Input label="Application Notes (optional)" placeholder="Tell the organizer about your business..." value={applicationNotes} onChange={(e) => setApplicationNotes(e.target.value)} />
+            <div className="modal-actions">
+              <Button variant="outline" onClick={() => setShowApplyModal(null)}>Cancel</Button>
+              <Button onClick={() => applyToEvent(showApplyModal._id)}>Submit Application</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Event Request Modal */}
+      <Modal isOpen={showRequestModal} onClose={() => setShowRequestModal(false)} title="Request an Event">
+        {requestSubmitted ? (
+          <div className="request-success">
+            <div className="success-icon"><Icons.Check /></div>
+            <h3>Request Submitted!</h3>
+            <p>We'll review your event request and add it to PermitWise soon.</p>
+          </div>
+        ) : (
+          <>
+            <p className="modal-intro">Tell us about an event you'd like to see on PermitWise for permit compliance tracking.</p>
+            <Input label="Event Name *" placeholder="Downtown Food Festival" value={requestForm.eventName} onChange={(e) => setRequestForm(f => ({ ...f, eventName: e.target.value }))} />
+            <Input label="Organizer Name" placeholder="City Events Department" value={requestForm.organizerName} onChange={(e) => setRequestForm(f => ({ ...f, organizerName: e.target.value }))} />
+            <div className="form-row">
+              <Input label="City *" placeholder="Austin" value={requestForm.city} onChange={(e) => setRequestForm(f => ({ ...f, city: e.target.value }))} />
+              <Select label="State *" value={requestForm.state} onChange={(e) => setRequestForm(f => ({ ...f, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+            </div>
+            <div className="form-row">
+              <Input label="Start Date" type="date" value={requestForm.startDate} onChange={(e) => setRequestForm(f => ({ ...f, startDate: e.target.value }))} />
+              <Input label="End Date" type="date" value={requestForm.endDate} onChange={(e) => setRequestForm(f => ({ ...f, endDate: e.target.value }))} />
+            </div>
+            <Input label="Event Website" placeholder="https://example.com" value={requestForm.website} onChange={(e) => setRequestForm(f => ({ ...f, website: e.target.value }))} />
+            <Input label="Additional Info" placeholder="Any other details about the event..." value={requestForm.additionalInfo} onChange={(e) => setRequestForm(f => ({ ...f, additionalInfo: e.target.value }))} />
+            <div className="modal-actions">
+              <Button variant="outline" onClick={() => setShowRequestModal(false)}>Cancel</Button>
+              <Button onClick={submitEventRequest} loading={requestSubmitting} disabled={!requestForm.eventName || !requestForm.city || !requestForm.state}>Submit Request</Button>
+            </div>
+          </>
         )}
       </Modal>
     </div>
@@ -2096,7 +2544,7 @@ const SuperAdminPage = ({ onBack }) => {
   // Admin panel state
   const [activeTab, setActiveTab] = useState('stats');
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState({ users: [], businesses: [], permits: [], jurisdictions: [], permitTypes: [], checklists: [], events: [], stats: null });
+  const [data, setData] = useState({ users: [], businesses: [], permits: [], jurisdictions: [], permitTypes: [], checklists: [], events: [], organizers: [], stats: null });
   const [message, setMessage] = useState('');
   const [newJurisdiction, setNewJurisdiction] = useState({ name: '', city: '', state: '', county: '', type: 'city' });
   const [newPermitType, setNewPermitType] = useState({ name: '', description: '', jurisdictionId: '', vendorTypes: [], requiresFoodHandling: false, renewalPeriodMonths: 12, importanceLevel: 'critical', issuingAuthorityName: '', estimatedCost: '', requiredDocuments: '', fees: { application: 0, renewal: 0 } });
@@ -2195,6 +2643,7 @@ const SuperAdminPage = ({ onBack }) => {
     try {
       if (type === 'users') { const result = await adminApi('/admin/users'); setData(d => ({ ...d, users: result.users || [] })); }
       else if (type === 'businesses') { const result = await adminApi('/admin/businesses'); setData(d => ({ ...d, businesses: result.businesses || [] })); }
+      else if (type === 'organizers') { const result = await adminApi('/admin/organizers'); setData(d => ({ ...d, organizers: result.organizers || [] })); }
       else if (type === 'jurisdictions') { const result = await adminApi('/admin/jurisdictions'); setData(d => ({ ...d, jurisdictions: result.jurisdictions || [] })); }
       else if (type === 'permitTypes') { const result = await adminApi('/admin/permit-types'); setData(d => ({ ...d, permitTypes: result.permitTypes || [] })); }
       else if (type === 'checklists') { const result = await adminApi('/admin/checklists'); setData(d => ({ ...d, checklists: result.checklists || [] })); }
@@ -2203,6 +2652,41 @@ const SuperAdminPage = ({ onBack }) => {
       else if (type === 'stats') { const result = await adminApi('/admin/stats'); setData(d => ({ ...d, stats: result })); }
     } catch (err) { setMessage(err.message); }
     finally { setLoading(false); }
+  };
+
+  // Organizer management
+  const toggleOrganizerStatus = async (userId, disabled) => {
+    try {
+      await adminApi(`/admin/organizers/${userId}/status`, 'PUT', { disabled });
+      fetchData('organizers');
+      setMessage(disabled ? 'Organizer disabled' : 'Organizer enabled');
+    } catch (err) { setMessage(err.message); }
+  };
+
+  const createOrganizerAccount = async (email) => {
+    try {
+      await adminApi('/admin/organizers', 'POST', { email });
+      fetchData('organizers');
+      setMessage('Organizer account created');
+    } catch (err) { setMessage(err.message); }
+  };
+
+  const convertEventRequestToEvent = async (suggestion) => {
+    try {
+      const eventDetails = suggestion.eventDetails;
+      await adminApi('/admin/events', 'POST', {
+        eventName: eventDetails.eventName,
+        organizerName: eventDetails.organizerName || 'TBD',
+        description: eventDetails.additionalInfo,
+        startDate: eventDetails.startDate,
+        endDate: eventDetails.endDate || eventDetails.startDate,
+        city: eventDetails.city,
+        state: eventDetails.state,
+        status: 'draft'
+      });
+      await updateSuggestion(suggestion._id, 'completed', 'Converted to event');
+      setMessage('Event created from request');
+    } catch (err) { setMessage(err.message); }
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2487,7 +2971,7 @@ const SuperAdminPage = ({ onBack }) => {
       {message && <Alert type="info" onClose={() => setMessage('')}>{message}</Alert>}
       
       <div className="admin-tabs">
-        {['stats', 'users', 'businesses', 'jurisdictions', 'permitTypes', 'checklists', 'events', 'suggestions'].map(tab => (
+        {['stats', 'users', 'businesses', 'organizers', 'jurisdictions', 'permitTypes', 'checklists', 'events', 'suggestions'].map(tab => (
           <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>
             {tab === 'permitTypes' ? 'Permit Types' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
@@ -2571,6 +3055,58 @@ const SuperAdminPage = ({ onBack }) => {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {activeTab === 'organizers' && (
+          <div>
+            <Card className="create-form admin-form-enhanced">
+              <div className="form-header">
+                <h3>👤 Make User an Organizer</h3>
+                <p className="form-hint">Enter the email of an existing user to grant them organizer access.</p>
+              </div>
+              <div className="form-section">
+                <div className="form-row">
+                  <Input label="User Email" placeholder="organizer@example.com" id="newOrganizerEmail" />
+                  <Button onClick={() => createOrganizerAccount(document.getElementById('newOrganizerEmail').value)}>
+                    <Icons.Plus /> Make Organizer
+                  </Button>
+                </div>
+              </div>
+            </Card>
+            
+            <div className="admin-section-header">
+              <h3>🎪 Event Organizers ({data.organizers.length})</h3>
+            </div>
+            <div className="admin-table-container">
+              <table className="admin-table">
+                <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Events</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {data.organizers.length === 0 ? (
+                    <tr><td colSpan="6" className="empty-row">No organizers yet</td></tr>
+                  ) : data.organizers.map(org => (
+                    <tr key={org._id}>
+                      <td><strong>{org.firstName} {org.lastName}</strong></td>
+                      <td>{org.email}</td>
+                      <td>{org.organizerProfile?.companyName || 'N/A'}</td>
+                      <td>{org.eventCount || 0} events</td>
+                      <td>
+                        <Badge variant={org.organizerProfile?.disabled ? 'danger' : org.organizerProfile?.verified ? 'success' : 'warning'}>
+                          {org.organizerProfile?.disabled ? 'Disabled' : org.organizerProfile?.verified ? 'Verified' : 'Pending'}
+                        </Badge>
+                      </td>
+                      <td className="actions-cell">
+                        {org.organizerProfile?.disabled ? (
+                          <Button size="sm" onClick={() => toggleOrganizerStatus(org._id, false)}>Enable</Button>
+                        ) : (
+                          <Button size="sm" variant="danger" onClick={() => toggleOrganizerStatus(org._id, true)}>Disable</Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -3056,24 +3592,41 @@ const SuperAdminPage = ({ onBack }) => {
                     <tr><td colSpan="7" className="empty-row">No {suggestionFilter} suggestions</td></tr>
                   ) : suggestions.map(s => (
                     <tr key={s._id}>
-                      <td><Badge variant={s.type === 'city_request' ? 'primary' : s.type === 'checklist_request' ? 'warning' : 'default'}>{s.type.replace('_', ' ')}</Badge></td>
+                      <td><Badge variant={s.type === 'city_request' ? 'primary' : s.type === 'checklist_request' ? 'warning' : s.type === 'event_request' ? 'success' : 'default'}>{s.type.replace(/_/g, ' ')}</Badge></td>
                       <td><strong>{s.title}</strong>{s.description && <><br /><small>{s.description.substring(0, 80)}...</small></>}</td>
                       <td>{s.userId?.firstName} {s.userId?.lastName}<br /><small>{s.userId?.email}</small></td>
                       <td>{s.vendorBusinessId?.businessName || 'N/A'}</td>
                       <td>
                         {s.cityDetails && <small>City: {s.cityDetails.city}, {s.cityDetails.state}</small>}
                         {s.checklistDetails?.name && <small>Checklist: {s.checklistDetails.name}</small>}
+                        {s.eventDetails && (
+                          <div className="event-request-details">
+                            <small><strong>{s.eventDetails.eventName}</strong></small><br />
+                            <small>{s.eventDetails.city}, {s.eventDetails.state}</small><br />
+                            {s.eventDetails.startDate && <small>Date: {formatDate(s.eventDetails.startDate)}</small>}
+                            {s.eventDetails.organizerName && <><br /><small>Organizer: {s.eventDetails.organizerName}</small></>}
+                            {s.eventDetails.website && <><br /><small><a href={s.eventDetails.website} target="_blank" rel="noopener noreferrer">Website</a></small></>}
+                          </div>
+                        )}
                       </td>
                       <td>{formatDate(s.createdAt)}</td>
                       <td className="actions-cell">
                         {suggestionFilter === 'pending' && (
                           <>
+                            {s.type === 'event_request' && s.eventDetails && (
+                              <button className="action-btn primary" onClick={() => convertEventRequestToEvent(s)} title="Convert to Event"><Icons.Plus /></button>
+                            )}
                             <button className="action-btn edit" onClick={() => updateSuggestion(s._id, 'in_progress')} title="Mark In Progress"><Icons.Clock /></button>
                             <button className="action-btn success" onClick={() => updateSuggestion(s._id, 'completed')} title="Mark Completed"><Icons.Check /></button>
                           </>
                         )}
                         {suggestionFilter === 'in_progress' && (
-                          <button className="action-btn success" onClick={() => updateSuggestion(s._id, 'completed')} title="Mark Completed"><Icons.Check /></button>
+                          <>
+                            {s.type === 'event_request' && s.eventDetails && (
+                              <button className="action-btn primary" onClick={() => convertEventRequestToEvent(s)} title="Convert to Event"><Icons.Plus /></button>
+                            )}
+                            <button className="action-btn success" onClick={() => updateSuggestion(s._id, 'completed')} title="Mark Completed"><Icons.Check /></button>
+                          </>
                         )}
                         <button className="delete-btn" onClick={() => deleteSuggestion(s._id)} title="Delete"><Icons.Trash /></button>
                       </td>
