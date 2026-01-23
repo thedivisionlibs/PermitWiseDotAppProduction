@@ -1569,6 +1569,7 @@ const EventsPage = () => {
   const [selectedOrgEvent, setSelectedOrgEvent] = useState(null);
   const [vendorApplications, setVendorApplications] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
+  // eslint-disable-next-line
   const [availablePermitTypes, setAvailablePermitTypes] = useState([]);
   
   // Vendor events discovery
