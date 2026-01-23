@@ -138,10 +138,10 @@ const Button = ({ children, variant = 'primary', size = 'md', loading, disabled,
   </button>
 );
 
-const Input = ({ label, error, ...props }) => (
+const Input = ({ label, error, className = '', ...props }) => (
   <div className="form-group">
     {label && <label className="form-label">{label}</label>}
-    <input className={`form-input ${error ? 'error' : ''}`} {...props} />
+    <input className={`form-input ${error ? 'error' : ''} ${className}`} {...props} />
     {error && <span className="form-error">{error}</span>}
   </div>
 );
@@ -1248,6 +1248,7 @@ const InspectionsPage = () => {
   const [inspectionData, setInspectionData] = useState({ items: [], notes: '' });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showSuggestModal, setShowSuggestModal] = useState(false);
+  const [viewingInspection, setViewingInspection] = useState(null); // For viewing completed inspection
   const [newChecklist, setNewChecklist] = useState({ name: '', description: '', items: [{ itemText: '' }] });
   const [suggestionText, setSuggestionText] = useState('');
 
@@ -1448,18 +1449,61 @@ const InspectionsPage = () => {
         <div className="history-section">
           <h2>Recent Inspections</h2>
           {inspections.length > 0 ? inspections.map(insp => (
-            <Card key={insp._id} className="inspection-history-card">
-              <h3>{insp.checklistId?.name}</h3>
+            <Card key={insp._id} className="inspection-history-card clickable" onClick={() => setViewingInspection(insp)}>
+              <h3>{insp.checklistId?.name || 'Inspection'}</h3>
               <p>{formatDate(insp.inspectionDate)}</p>
               <div className="inspection-result">
-                <Badge variant={insp.overallStatus === 'passed' ? 'success' : insp.overallStatus === 'failed' ? 'danger' : 'warning'}>
-                  {insp.overallStatus?.toUpperCase() || 'PENDING'}
+                <Badge variant={insp.overallStatus === 'pass' ? 'success' : insp.overallStatus === 'fail' ? 'danger' : 'warning'}>
+                  {insp.overallStatus === 'pass' ? 'PASSED' : insp.overallStatus === 'fail' ? 'FAILED' : 'INCOMPLETE'}
                 </Badge>
               </div>
             </Card>
           )) : <p className="empty-text">No inspections recorded yet</p>}
         </div>
       </div>
+
+      {/* View Inspection Modal */}
+      <Modal isOpen={!!viewingInspection} onClose={() => setViewingInspection(null)} title="Inspection Results" size="lg">
+        {viewingInspection && (
+          <div className="inspection-view">
+            <div className="inspection-view-header">
+              <div>
+                <h3>{viewingInspection.checklistId?.name || 'Inspection'}</h3>
+                <p className="inspection-date">{formatDate(viewingInspection.inspectionDate)}</p>
+              </div>
+              <Badge variant={viewingInspection.overallStatus === 'pass' ? 'success' : viewingInspection.overallStatus === 'fail' ? 'danger' : 'warning'} size="lg">
+                {viewingInspection.overallStatus === 'pass' ? 'PASSED' : viewingInspection.overallStatus === 'fail' ? 'FAILED' : 'INCOMPLETE'}
+              </Badge>
+            </div>
+            
+            <div className="inspection-items-list">
+              <h4>Checklist Items</h4>
+              {viewingInspection.results?.map((item, i) => (
+                <div key={i} className={`inspection-item-result ${item.passed === true ? 'passed' : item.passed === false ? 'failed' : 'pending'}`}>
+                  <div className="inspection-item-status">
+                    {item.passed === true ? <Icons.Check /> : item.passed === false ? <Icons.X /> : <Icons.Clock />}
+                  </div>
+                  <div className="inspection-item-content">
+                    <span className="inspection-item-text">{item.itemText}</span>
+                    {item.notes && <p className="inspection-item-notes">{item.notes}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            {viewingInspection.notes && (
+              <div className="inspection-notes">
+                <h4>Notes</h4>
+                <p>{viewingInspection.notes}</p>
+              </div>
+            )}
+            
+            <div className="modal-actions">
+              <Button variant="outline" onClick={() => setViewingInspection(null)}>Close</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Create Checklist Modal */}
       <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create Custom Checklist" size="lg">
@@ -1700,6 +1744,32 @@ const SettingsPage = () => {
 
   const handleProfileSave = async () => { setLoading(true); try { await api.put('/auth/profile', profileData); await fetchUser(); setMessage('Profile updated'); } catch (err) { setMessage(err.message); } finally { setLoading(false); } };
   const handleBusinessSave = async () => { setLoading(true); try { const data = await api.put('/business', businessData); updateBusiness(data.business); setMessage('Business updated'); } catch (err) { setMessage(err.message); } finally { setLoading(false); } };
+  
+  const handleFoodHandlingToggle = async (checked) => {
+    setBusinessData(d => ({ ...d, handlesFood: checked }));
+    setLoading(true);
+    try {
+      // First save the business with the new handlesFood value
+      const data = await api.put('/business', { ...businessData, handlesFood: checked });
+      updateBusiness(data.business);
+      
+      // Then sync permits to add/remove food handling permits
+      const syncResult = await api.post('/permits/sync-food-handling', { handlesFood: checked });
+      
+      if (checked && syncResult.addedCount > 0) {
+        setMessage(`Food handling enabled! Added ${syncResult.addedCount} food safety permit(s) to your dashboard.`);
+      } else if (!checked && syncResult.removedCount > 0) {
+        setMessage(`Food handling disabled. Removed ${syncResult.removedCount} empty food safety permit(s). Permits with documents were kept.`);
+      } else {
+        setMessage(checked ? 'Food handling enabled.' : 'Food handling disabled.');
+      }
+    } catch (err) { 
+      setMessage(err.message); 
+      // Revert on error
+      setBusinessData(d => ({ ...d, handlesFood: !checked }));
+    } finally { setLoading(false); }
+  };
+  
   const handleUpgrade = async (plan) => { try { const data = await api.post('/subscription/checkout', { plan }); if (data.url) window.location.href = data.url; } catch (err) { alert(err.message); } };
   const addCity = () => setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
@@ -1740,9 +1810,9 @@ const SettingsPage = () => {
               <Card className="notification-card">
                 <label className="toggle-row">
                   <span>My business handles or serves food</span>
-                  <input type="checkbox" checked={businessData.handlesFood || false} onChange={(e) => setBusinessData(d => ({ ...d, handlesFood: e.target.checked }))} />
+                  <input type="checkbox" checked={businessData.handlesFood || false} onChange={(e) => handleFoodHandlingToggle(e.target.checked)} disabled={loading} />
                 </label>
-                <p className="toggle-description">Enable this if your business prepares, serves, or sells food. This helps us suggest the right food safety permits and health inspection checklists.</p>
+                <p className="toggle-description">Enable this if your business prepares, serves, or sells food. This will automatically add or remove food safety permits from your dashboard.</p>
               </Card>
               
               <h3>Business Address</h3>
