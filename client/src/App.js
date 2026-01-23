@@ -66,6 +66,7 @@ const Icons = {
   Document: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13,2 13,9 20,9"/></svg>,
   Checklist: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>,
   Event: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+  Truck: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>,
   Settings: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
   Logout: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
   Plus: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
@@ -384,7 +385,7 @@ const PasswordStrengthIndicator = ({ password }) => {
 
 const RegisterPage = ({ onSwitch, onSuccess }) => {
   const { register } = useAuth();
-  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '', firstName: '', lastName: '', phone: '' });
+  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '', firstName: '', lastName: '', phone: '', accountType: 'vendor' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
@@ -397,7 +398,7 @@ const RegisterPage = ({ onSwitch, onSuccess }) => {
     if (formData.password !== formData.confirmPassword) { setError('Passwords do not match'); return; }
     if (formData.password.length < 8) { setError('Password must be at least 8 characters'); return; }
     setLoading(true);
-    try { await register(formData); onSuccess(); } catch (err) { setError(err.message); } finally { setLoading(false); }
+    try { await register({ ...formData, isOrganizer: formData.accountType === 'organizer' }); onSuccess(); } catch (err) { setError(err.message); } finally { setLoading(false); }
   };
 
   return (
@@ -405,6 +406,27 @@ const RegisterPage = ({ onSwitch, onSuccess }) => {
       <div className="auth-header"><div className="logo"><Icons.Shield /><span>PermitWise</span></div><h1>Create account</h1><p>14-day free trial</p></div>
       <form onSubmit={handleSubmit} className="auth-form">
         {error && <Alert type="error">{error}</Alert>}
+        
+        <div className="account-type-selector">
+          <label className="account-type-label">I am a:</label>
+          <div className="account-type-options">
+            <button type="button" className={`account-type-option ${formData.accountType === 'vendor' ? 'active' : ''}`} onClick={() => setFormData(f => ({ ...f, accountType: 'vendor' }))}>
+              <div className="account-type-icon"><Icons.Truck /></div>
+              <div className="account-type-info">
+                <span className="account-type-title">Mobile Vendor</span>
+                <span className="account-type-desc">Food truck, cart, or mobile business</span>
+              </div>
+            </button>
+            <button type="button" className={`account-type-option ${formData.accountType === 'organizer' ? 'active' : ''}`} onClick={() => setFormData(f => ({ ...f, accountType: 'organizer' }))}>
+              <div className="account-type-icon"><Icons.Event /></div>
+              <div className="account-type-info">
+                <span className="account-type-title">Event Organizer</span>
+                <span className="account-type-desc">Manage events & vendor compliance</span>
+              </div>
+            </button>
+          </div>
+        </div>
+        
         <div className="form-row"><Input label="First Name" value={formData.firstName} onChange={(e) => setFormData(f => ({ ...f, firstName: e.target.value }))} required /><Input label="Last Name" value={formData.lastName} onChange={(e) => setFormData(f => ({ ...f, lastName: e.target.value }))} required /></div>
         <Input label="Email" type="email" value={formData.email} onChange={(e) => setFormData(f => ({ ...f, email: e.target.value }))} required />
         <Input label="Phone" type="tel" value={formData.phone} onChange={(e) => setFormData(f => ({ ...f, phone: e.target.value }))} />
@@ -1569,7 +1591,6 @@ const EventsPage = () => {
   const [selectedOrgEvent, setSelectedOrgEvent] = useState(null);
   const [vendorApplications, setVendorApplications] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
-  // eslint-disable-next-line
   const [availablePermitTypes, setAvailablePermitTypes] = useState([]);
   
   // Vendor events discovery
@@ -1874,6 +1895,28 @@ const EventsPage = () => {
                 <Input label="Electricity Fee ($)" type="number" value={newOrgEvent.feeStructure.electricityFee} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, electricityFee: parseFloat(e.target.value) || 0 } }))} />
               </div>
             </div>
+            <div className="form-section">
+              <div className="form-section-title">Required Permits</div>
+              <p className="form-hint">Select permits vendors must have to participate in your event</p>
+              {availablePermitTypes.length > 0 ? (
+                <div className="permit-type-checkboxes">
+                  {availablePermitTypes.slice(0, 30).map(pt => (
+                    <label key={pt._id} className="checkbox-label">
+                      <input type="checkbox" checked={newOrgEvent.requiredPermitTypes?.includes(pt._id)} onChange={(e) => {
+                        if (e.target.checked) {
+                          setNewOrgEvent(ev => ({ ...ev, requiredPermitTypes: [...(ev.requiredPermitTypes || []), pt._id] }));
+                        } else {
+                          setNewOrgEvent(ev => ({ ...ev, requiredPermitTypes: (ev.requiredPermitTypes || []).filter(id => id !== pt._id) }));
+                        }
+                      }} />
+                      <span>{pt.name} <small>({pt.jurisdictionId?.city}, {pt.jurisdictionId?.state})</small></span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-text">Loading permit types...</p>
+              )}
+            </div>
             <div className="form-actions">
               <Button onClick={createOrganizerEvent} disabled={!newOrgEvent.eventName || !newOrgEvent.startDate || !newOrgEvent.city || !newOrgEvent.state}>
                 Create Event
@@ -1975,6 +2018,10 @@ const EventsPage = () => {
     return <Icons.Clock />;
   };
 
+  // Separate events by source
+  const organizerInvitations = events.filter(e => e.eventSource === 'organizer_invitation');
+  const marketplaceEvents = events.filter(e => e.eventSource === 'admin_added' || e.eventSource === 'vendor_application');
+
   // Check for events vendor can still apply to (not already applied or invited)
   const appliedEventIds = new Set([
     ...events.map(e => e._id),
@@ -1982,23 +2029,87 @@ const EventsPage = () => {
   ]);
   const availableEvents = publishedEvents.filter(e => !appliedEventIds.has(e._id) && e.status === 'published');
 
+  const renderEventCard = (event) => (
+    <Card key={event._id} className={`event-readiness-card ${event.readinessStatus}`}>
+      <div className="event-readiness-header">
+        <div className="event-date-badge">
+          <span className="month">{new Date(event.startDate).toLocaleDateString('en-US', { month: 'short' })}</span>
+          <span className="day">{new Date(event.startDate).getDate()}</span>
+        </div>
+        <div className="event-info">
+          <h3>{event.eventName}</h3>
+          <p className="organizer">Organized by {event.organizerName}</p>
+          <p className="location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
+          {event.invitationStatus === 'invited' && (
+            <div className="invitation-actions">
+              <Badge variant="warning">Invitation Pending</Badge>
+              <Button size="sm" onClick={() => respondToInvitation(event._id, true)}>Accept</Button>
+              <Button size="sm" variant="outline" onClick={() => respondToInvitation(event._id, false)}>Decline</Button>
+            </div>
+          )}
+        </div>
+        <div className={`readiness-badge ${event.readinessColor}`}>
+          {getReadinessIcon(event.readinessStatus)}
+          <span>{event.readinessStatus === 'ready' ? 'Ready' : 'Action Needed'}</span>
+        </div>
+      </div>
+      
+      <div className="event-readiness-details">
+        <div className="permit-progress">
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${event.requiredPermitsCount > 0 ? (event.readyCount / event.requiredPermitsCount) * 100 : 100}%` }}></div>
+          </div>
+          <span className="progress-text">{event.readyCount}/{event.requiredPermitsCount} permits ready</span>
+        </div>
+        
+        {event.readinessStatus !== 'ready' && (
+          <div className="readiness-issues">
+            <p className="readiness-label">{event.readinessLabel}</p>
+            <Button variant="outline" size="sm" onClick={() => setSelectedEvent(event)}>View Details</Button>
+          </div>
+        )}
+        
+        {event.readinessStatus === 'ready' && (
+          <div className="readiness-success">
+            <Icons.Check /> All permits and documents are in order
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+
   return (
     <div className="events-page">
       <div className="page-header">
         <div>
           <h1>Event Readiness</h1>
-          <p>Your compliance status for assigned events</p>
+          <p>Your compliance status for events</p>
         </div>
         <Button variant="outline" onClick={() => setShowRequestModal(true)}>
           <Icons.Plus /> Request Event
         </Button>
       </div>
       
-      {/* Available Events to Apply */}
+      {/* Organizer Invitations Section */}
+      {organizerInvitations.length > 0 && (
+        <div className="events-section">
+          <div className="events-section-header">
+            <h2>📩 Organizer Invitations</h2>
+            <p className="section-description">Events you've been personally invited to by organizers</p>
+          </div>
+          <div className="events-readiness-list">
+            {organizerInvitations.map(renderEventCard)}
+          </div>
+        </div>
+      )}
+      
+      {/* Available Events to Apply (Marketplace) */}
       {availableEvents.length > 0 && (
-        <div className="available-events-section">
-          <h2>Available Events</h2>
-          <p className="section-description">Events accepting vendor applications</p>
+        <div className="events-section">
+          <div className="events-section-header">
+            <h2>🔍 Browse Events</h2>
+            <p className="section-description">Open events accepting vendor applications</p>
+          </div>
           <div className="available-events-grid">
             {availableEvents.map(event => (
               <Card key={event._id} className="available-event-card">
@@ -2019,64 +2130,25 @@ const EventsPage = () => {
         </div>
       )}
       
-      {/* Assigned/Invited Events */}
-      {events.length > 0 ? (
-        <div className="events-readiness-list">
-          <h2>Your Events</h2>
-          {events.map(event => (
-            <Card key={event._id} className={`event-readiness-card ${event.readinessStatus}`}>
-              <div className="event-readiness-header">
-                <div className="event-date-badge">
-                  <span className="month">{new Date(event.startDate).toLocaleDateString('en-US', { month: 'short' })}</span>
-                  <span className="day">{new Date(event.startDate).getDate()}</span>
-                </div>
-                <div className="event-info">
-                  <h3>{event.eventName}</h3>
-                  <p className="organizer">Organized by {event.organizerName}</p>
-                  <p className="location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
-                  {event.invitationStatus === 'invited' && (
-                    <div className="invitation-actions">
-                      <Badge variant="warning">Invitation Pending</Badge>
-                      <Button size="sm" onClick={() => respondToInvitation(event._id, true)}>Accept</Button>
-                      <Button size="sm" variant="outline" onClick={() => respondToInvitation(event._id, false)}>Decline</Button>
-                    </div>
-                  )}
-                </div>
-                <div className={`readiness-badge ${event.readinessColor}`}>
-                  {getReadinessIcon(event.readinessStatus)}
-                  <span>{event.readinessStatus === 'ready' ? 'Ready' : 'Action Needed'}</span>
-                </div>
-              </div>
-              
-              <div className="event-readiness-details">
-                <div className="permit-progress">
-                  <div className="progress-bar">
-                    <div className="progress-fill" style={{ width: `${event.requiredPermitsCount > 0 ? (event.readyCount / event.requiredPermitsCount) * 100 : 100}%` }}></div>
-                  </div>
-                  <span className="progress-text">{event.readyCount}/{event.requiredPermitsCount} permits ready</span>
-                </div>
-                
-                {event.readinessStatus !== 'ready' && (
-                  <div className="readiness-issues">
-                    <p className="readiness-label">{event.readinessLabel}</p>
-                    <Button variant="outline" size="sm" onClick={() => setSelectedEvent(event)}>View Details</Button>
-                  </div>
-                )}
-                
-                {event.readinessStatus === 'ready' && (
-                  <div className="readiness-success">
-                    <Icons.Check /> All permits and documents are in order
-                  </div>
-                )}
-              </div>
-            </Card>
-          ))}
+      {/* Marketplace / Routine Events (Admin-added or vendor applied) */}
+      {marketplaceEvents.length > 0 && (
+        <div className="events-section">
+          <div className="events-section-header">
+            <h2>🎪 Your Participating Events</h2>
+            <p className="section-description">Events you've applied to or routine events in your area</p>
+          </div>
+          <div className="events-readiness-list">
+            {marketplaceEvents.map(renderEventCard)}
+          </div>
         </div>
-      ) : (
+      )}
+      
+      {/* Empty state when no events at all */}
+      {events.length === 0 && availableEvents.length === 0 && (
         <EmptyState 
           icon={Icons.Event} 
-          title="No events assigned" 
-          description="You haven't been assigned to any events yet. Browse available events above or wait for organizers to invite you."
+          title="No events yet" 
+          description="Browse available events to apply, or wait for organizers to invite you."
         />
       )}
 
