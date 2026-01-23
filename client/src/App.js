@@ -1,5 +1,5 @@
 // PermitWise - Complete React Web Application
-import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
+import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from 'react';
 import './App.css';
 
 // ===========================================
@@ -155,6 +155,97 @@ const Select = ({ label, options, error, ...props }) => (
     {error && <span className="form-error">{error}</span>}
   </div>
 );
+
+const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for your city...' }) => {
+  const [searchTerm, setSearchTerm] = useState(value || '');
+  const [results, setResults] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const searchTimeout = useRef(null);
+  const wrapperRef = useRef(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Update search term when value prop changes
+  useEffect(() => {
+    setSearchTerm(value || '');
+  }, [value]);
+
+  const searchCities = async (term) => {
+    if (!state || term.length < 2) {
+      setResults([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await api.get(`/jurisdictions?state=${state}&search=${encodeURIComponent(term)}`);
+      setResults(data.jurisdictions || []);
+    } catch (err) {
+      console.error(err);
+      setResults([]);
+    }
+    setLoading(false);
+  };
+
+  const handleInputChange = (e) => {
+    const term = e.target.value;
+    setSearchTerm(term);
+    onChange(term); // Update parent immediately
+    setShowDropdown(true);
+    
+    // Debounce the API call
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => searchCities(term), 300);
+  };
+
+  const handleSelect = (jurisdiction) => {
+    const cityName = jurisdiction.city || jurisdiction.name;
+    setSearchTerm(cityName);
+    onChange(cityName);
+    setShowDropdown(false);
+    setResults([]);
+  };
+
+  return (
+    <div className="form-group city-search-wrapper" ref={wrapperRef}>
+      {label && <label className="form-label">{label}</label>}
+      <input
+        className="form-input"
+        placeholder={state ? placeholder : 'Select a state first'}
+        value={searchTerm}
+        onChange={handleInputChange}
+        onFocus={() => state && searchTerm.length >= 2 && setShowDropdown(true)}
+        disabled={!state}
+      />
+      {showDropdown && (results.length > 0 || loading) && (
+        <div className="city-search-dropdown">
+          {loading && <div className="city-search-loading">Searching...</div>}
+          {!loading && results.length > 0 && results.map(j => (
+            <div key={j._id} className="city-search-option" onClick={() => handleSelect(j)}>
+              <span className="city-name">{j.city || j.name}</span>
+              <span className="city-type">{j.type}</span>
+            </div>
+          ))}
+          {!loading && results.length === 0 && searchTerm.length >= 2 && (
+            <div className="city-search-empty">
+              No matches found. You can still enter "{searchTerm}" manually.
+            </div>
+          )}
+        </div>
+      )}
+      {!state && <span className="form-hint">Please select a state first</span>}
+    </div>
+  );
+};
 
 const Card = ({ children, className = '', onClick }) => (
   <div className={`card ${className}`} onClick={onClick}>{children}</div>
@@ -592,8 +683,14 @@ const OnboardingPage = ({ onComplete }) => {
           <h1>Where do you operate?</h1>
           <p className="step-subtitle">We'll find the permits required in your city</p>
           <div className="form-row">
-            <Input label="Primary City *" placeholder="e.g. Austin" value={formData.operatingCities[0].city} onChange={(e) => setFormData(f => ({ ...f, operatingCities: [{ ...f.operatingCities[0], city: e.target.value }] }))} />
-            <Select label="State *" value={formData.operatingCities[0].state} onChange={(e) => setFormData(f => ({ ...f, operatingCities: [{ ...f.operatingCities[0], state: e.target.value }] }))} options={[{ value: '', label: 'State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+            <Select label="State *" value={formData.operatingCities[0].state} onChange={(e) => setFormData(f => ({ ...f, operatingCities: [{ ...f.operatingCities[0], state: e.target.value, city: '' }] }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+            <CitySearch 
+              label="Primary City *" 
+              state={formData.operatingCities[0].state}
+              value={formData.operatingCities[0].city}
+              onChange={(city) => setFormData(f => ({ ...f, operatingCities: [{ ...f.operatingCities[0], city }] }))}
+              placeholder="Search for your city..."
+            />
           </div>
           <p className="onboarding-note">You can add more cities later in Settings.</p>
           <div className="onboarding-actions">
@@ -1682,8 +1779,14 @@ const SettingsPage = () => {
               {businessData.operatingCities.map((city, i) => (
                 <Card key={i} className="city-card">
                   <div className="form-row">
-                    <Input label="City" value={city.city} onChange={(e) => updateCity(i, 'city', e.target.value)} />
-                    <Select label="State" value={city.state} onChange={(e) => updateCity(i, 'state', e.target.value)} options={[{ value: '', label: 'Select' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+                    <Select label="State" value={city.state} onChange={(e) => updateCity(i, 'state', e.target.value)} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+                    <CitySearch 
+                      label="City" 
+                      state={city.state}
+                      value={city.city}
+                      onChange={(cityName) => updateCity(i, 'city', cityName)}
+                      placeholder="Search for your city..."
+                    />
                     {businessData.operatingCities.length > 1 && <button className="remove-btn" onClick={() => removeCity(i)}><Icons.Trash /></button>}
                   </div>
                   <label className="checkbox-label"><input type="checkbox" checked={city.isPrimary} onChange={(e) => updateCity(i, 'isPrimary', e.target.checked)} /> Primary location</label>
@@ -1926,7 +2029,7 @@ const SuperAdminPage = ({ onBack }) => {
   const [data, setData] = useState({ users: [], businesses: [], permits: [], jurisdictions: [], permitTypes: [], checklists: [], events: [], stats: null });
   const [message, setMessage] = useState('');
   const [newJurisdiction, setNewJurisdiction] = useState({ name: '', city: '', state: '', county: '', type: 'city' });
-  const [newPermitType, setNewPermitType] = useState({ name: '', description: '', jurisdictionId: '', vendorTypes: [], renewalPeriodMonths: 12, importanceLevel: 'critical', issuingAuthorityName: '', estimatedCost: '', requiredDocuments: '', fees: { application: 0, renewal: 0 } });
+  const [newPermitType, setNewPermitType] = useState({ name: '', description: '', jurisdictionId: '', vendorTypes: [], requiresFoodHandling: false, renewalPeriodMonths: 12, importanceLevel: 'critical', issuingAuthorityName: '', estimatedCost: '', requiredDocuments: '', fees: { application: 0, renewal: 0 } });
   const [searchTerm, setSearchTerm] = useState('');
   const [duplicateTarget, setDuplicateTarget] = useState(null);
   const [duplicateJurisdiction, setDuplicateJurisdiction] = useState('');
@@ -2051,7 +2154,7 @@ const SuperAdminPage = ({ onBack }) => {
     const payload = { ...newPermitType, requiredDocuments: newPermitType.requiredDocuments.split(',').map(d => d.trim()).filter(Boolean) };
     try {
       await adminApi('/admin/permit-types', 'POST', payload);
-      setNewPermitType({ name: '', description: '', jurisdictionId: '', vendorTypes: [], renewalPeriodMonths: 12, importanceLevel: 'critical', issuingAuthorityName: '', estimatedCost: '', requiredDocuments: '', fees: { application: 0, renewal: 0 } });
+      setNewPermitType({ name: '', description: '', jurisdictionId: '', vendorTypes: [], requiresFoodHandling: false, renewalPeriodMonths: 12, importanceLevel: 'critical', issuingAuthorityName: '', estimatedCost: '', requiredDocuments: '', fees: { application: 0, renewal: 0 } });
       fetchData('permitTypes');
       setMessage('Permit type created');
     } catch (err) { setMessage(err.message); }
@@ -2516,6 +2619,15 @@ const SuperAdminPage = ({ onBack }) => {
                     </div>
                   </div>
                 </div>
+                <label className="checkbox-row" style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={newPermitType.requiresFoodHandling || false}
+                    onChange={(e) => setNewPermitType(p => ({ ...p, requiresFoodHandling: e.target.checked }))}
+                  />
+                  <span>Required for any business that handles food</span>
+                </label>
+                <p className="form-hint" style={{ marginTop: '0' }}>When checked, this permit will be suggested to ALL vendors who have "handles food" enabled, regardless of their vendor type. Use for food handler certificates, health permits, etc.</p>
                 <div className="importance-hints">
                   <div className="hint critical"><strong>Critical:</strong> Health permits, business licenses, food handler certs</div>
                   <div className="hint warning"><strong>Often Forgotten:</strong> Fire inspections, commissary agreements, vehicle permits</div>
