@@ -282,7 +282,7 @@ const EmptyState = ({ icon: Icon, title, description, action }) => (
 
 // Expired Subscription Banner - shows persistent banner for expired users
 const ExpiredSubscriptionBanner = () => {
-  const { subscriptionStatus, isExpired } = useAuth();
+  const { isExpired } = useAuth();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   
   if (!isExpired) return null;
@@ -303,7 +303,7 @@ const ExpiredSubscriptionBanner = () => {
 
 // Upgrade Required Modal - shows when expired users try to use premium features
 const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires an active subscription', feature = null }) => {
-  const { subscriptionStatus, subscription } = useAuth();
+  const { subscription } = useAuth();
   
   const planFeatures = {
     basic: ['Permit tracking for 1 city', 'Document storage', 'Email reminders', 'Basic compliance dashboard'],
@@ -352,7 +352,8 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
   );
 };
 
-// Lock Icon overlay for premium sections
+// Lock Icon overlay for premium sections (utility component for future use)
+// eslint-disable-next-line no-unused-vars
 const PremiumLock = ({ feature, children }) => {
   const { isExpired, subscriptionStatus } = useAuth();
   const [showUpgrade, setShowUpgrade] = useState(false);
@@ -997,7 +998,7 @@ const Dashboard = ({ onNavigate }) => {
 };
 
 const PermitsPage = () => {
-  const { business } = useAuth();
+  const { business, canWrite, isExpired } = useAuth();
   const [permits, setPermits] = useState([]); const [summary, setSummary] = useState(null); const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false); const [showCityModal, setShowCityModal] = useState(false); const [selectedPermit, setSelectedPermit] = useState(null);
   const [showSuggestModal, setShowSuggestModal] = useState(false);
@@ -1005,6 +1006,16 @@ const PermitsPage = () => {
   const [selectedSuggestions, setSelectedSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [addingSuggestions, setAddingSuggestions] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+
+  // Handler for Add Permit button - checks subscription
+  const handleAddPermit = () => {
+    if (!canWrite) {
+      setShowUpgradeModal(true);
+      return;
+    }
+    setShowAddModal(true);
+  };
 
   const syncAndFetchPermits = async () => {
     try {
@@ -1020,6 +1031,7 @@ const PermitsPage = () => {
   const fetchPermits = async () => { try { const data = await api.get('/permits'); setPermits(data.permits); setSummary(data.summary); } catch (error) { console.error(error); } finally { setLoading(false); } };
   
   const fetchSuggestedPermits = async () => {
+    if (!canWrite) return; // Don't show suggestions if can't add permits
     if (!business?.operatingCities?.[0]) return;
     setLoadingSuggestions(true);
     try {
@@ -1040,11 +1052,11 @@ const PermitsPage = () => {
 
   // Show suggestion modal when permits are empty and user has a business
   useEffect(() => {
-    if (!loading && permits.length === 0 && business?.operatingCities?.length > 0) {
+    if (!loading && permits.length === 0 && business?.operatingCities?.length > 0 && canWrite) {
       fetchSuggestedPermits();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, permits.length, business]);
+  }, [loading, permits.length, business, canWrite]);
 
   const toggleSuggestion = (id) => {
     setSelectedSuggestions(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
@@ -1077,13 +1089,13 @@ const PermitsPage = () => {
 
   return (
     <div className="permits-page">
-      <div className="page-header"><div><h1>Permits</h1><p>Track all your permits</p></div><div className="header-actions"><Button variant="outline" onClick={() => setShowCityModal(true)}><Icons.MapPin /> Add City</Button><Button onClick={() => setShowAddModal(true)}><Icons.Plus /> Add Permit</Button></div></div>
+      <div className="page-header"><div><h1>Permits</h1><p>Track all your permits</p></div><div className="header-actions"><Button variant="outline" onClick={() => setShowCityModal(true)}><Icons.MapPin /> Add City</Button><Button onClick={handleAddPermit}><Icons.Plus /> Add Permit</Button></div></div>
       {summary && <div className="permits-summary"><div className="summary-item"><span className="count">{summary.total}</span><span>Total</span></div><div className="summary-item green"><span className="count">{summary.active}</span><span>Active</span></div><div className="summary-item yellow"><span className="count">{summary.pendingRenewal}</span><span>Expiring</span></div><div className="summary-item red"><span className="count">{summary.expired}</span><span>Expired</span></div></div>}
       {permits.length > 0 ? (
         <div className="permits-grid">{permits.map(permit => (<Card key={permit._id} className="permit-card" onClick={() => setSelectedPermit(permit)}><div className="permit-header"><h3>{permit.permitTypeId?.name}</h3><Badge variant={permit.status === 'active' ? 'success' : permit.status === 'expired' ? 'danger' : 'warning'}>{getStatusLabel(permit.status)}</Badge></div><p>{permit.jurisdictionId?.name}, {permit.jurisdictionId?.state}</p>{permit.expiryDate && <div className="expiry-info"><Icons.Clock /><span>Expires {formatDate(permit.expiryDate)}</span></div>}</Card>))}</div>
       ) : (
         <div className="empty-permits">
-          <EmptyState icon={Icons.Permit} title="No permits yet" description="Add the permits you need to track or let us suggest them based on your city." action={<div className="empty-actions"><Button onClick={() => fetchSuggestedPermits()}><Icons.Search /> Get Suggestions</Button><Button variant="outline" onClick={() => setShowCityModal(true)}><Icons.MapPin /> Add City</Button></div>} />
+          <EmptyState icon={Icons.Permit} title="No permits yet" description="Add the permits you need to track or let us suggest them based on your city." action={<div className="empty-actions"><Button onClick={() => canWrite ? fetchSuggestedPermits() : setShowUpgradeModal(true)}><Icons.Search /> Get Suggestions</Button><Button variant="outline" onClick={() => setShowCityModal(true)}><Icons.MapPin /> Add City</Button></div>} />
         </div>
       )}
       <AddCityModal isOpen={showCityModal} onClose={() => setShowCityModal(false)} onSuccess={fetchPermits} />
@@ -1142,6 +1154,14 @@ const PermitsPage = () => {
           </div>
         </div>
       </Modal>
+      
+      {/* Upgrade Modal for expired subscriptions */}
+      <UpgradeRequiredModal 
+        isOpen={showUpgradeModal} 
+        onClose={() => setShowUpgradeModal(false)} 
+        reason={isExpired ? "Your subscription has expired" : "This feature requires an active subscription"}
+        feature="Permit Management"
+      />
     </div>
   );
 };
@@ -1365,7 +1385,7 @@ const UploadDocumentModal = ({ isOpen, onClose, onSuccess }) => {
 const UploadModal = UploadDocumentModal; // Alias for Dashboard use
 
 const InspectionsPage = () => {
-  const { subscription, subscriptionStatus } = useAuth();
+  const { subscription, isExpired } = useAuth();
   const [checklists, setChecklists] = useState([]); // Recommended checklists
   const [userChecklists, setUserChecklists] = useState([]); // User's custom checklists
   const [inspections, setInspections] = useState([]);
@@ -1455,16 +1475,14 @@ const InspectionsPage = () => {
   };
 
   if (!hasAccess) {
-    const isExpiredOrGrace = subscriptionStatus?.status === 'expired' || subscriptionStatus?.status === 'grace_period' || subscriptionStatus?.status === 'canceled';
-    
     return (
       <div className="upgrade-feature-page">
         <div className="upgrade-feature-content">
-          <div className="upgrade-feature-icon">{isExpiredOrGrace ? <Icons.Lock /> : <Icons.Checklist />}</div>
-          <h1>{isExpiredOrGrace ? 'Subscription Expired' : 'Inspection Checklists'}</h1>
-          <Badge variant={isExpiredOrGrace ? 'danger' : 'warning'}>{isExpiredOrGrace ? 'Renew to Access' : 'Pro Plan Required'}</Badge>
+          <div className="upgrade-feature-icon">{isExpired ? <Icons.Lock /> : <Icons.Checklist />}</div>
+          <h1>{isExpired ? 'Subscription Expired' : 'Inspection Checklists'}</h1>
+          <Badge variant={isExpired ? 'danger' : 'warning'}>{isExpired ? 'Renew to Access' : 'Pro Plan Required'}</Badge>
           <p className="upgrade-feature-description">
-            {isExpiredOrGrace 
+            {isExpired 
               ? 'Your subscription has expired. Renew now to access inspection checklists and ensure you never fail a health inspection.'
               : 'Never fail a health inspection again. Walk through every requirement step-by-step before the inspector arrives.'}
           </p>
@@ -1498,8 +1516,8 @@ const InspectionsPage = () => {
             <p>Also includes SMS alerts, PDF autofill & multi-city support</p>
           </div>
 
-          <Button size="lg" onClick={() => window.location.hash = 'settings'}>{isExpiredOrGrace ? 'Renew Subscription' : 'Upgrade to Pro'}</Button>
-          <p className="upgrade-note">{isExpiredOrGrace ? 'Restore full access immediately' : '14-day free trial • Cancel anytime'}</p>
+          <Button size="lg" onClick={() => window.location.hash = 'settings'}>{isExpired ? 'Renew Subscription' : 'Upgrade to Pro'}</Button>
+          <p className="upgrade-note">{isExpired ? 'Restore full access immediately' : '14-day free trial • Cancel anytime'}</p>
         </div>
       </div>
     );
@@ -1685,7 +1703,7 @@ const InspectionsPage = () => {
 };
 
 const EventsPage = () => {
-  const { user, subscription, business, subscriptionStatus, isExpired, canWrite } = useAuth();
+  const { user, subscription, business, isExpired, canWrite } = useAuth();
   const [events, setEvents] = useState([]); const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -1815,6 +1833,12 @@ const EventsPage = () => {
 
   // Vendor functions
   const applyToEvent = async (eventId) => {
+    // Check if user can write (subscription is active)
+    if (!canWrite) {
+      setShowApplyModal(null);
+      setShowUpgradeModal(true);
+      return;
+    }
     try {
       await api.post(`/events/${eventId}/apply`, { applicationNotes });
       setShowApplyModal(null);
@@ -1824,15 +1848,32 @@ const EventsPage = () => {
       const data = await api.get('/events/my-events');
       setEvents(data.events || []);
       alert('Application submitted!');
-    } catch (err) { alert(err.message); }
+    } catch (err) { 
+      if (err.message?.includes('subscription') || err.message?.includes('expired')) {
+        setShowUpgradeModal(true);
+      } else {
+        alert(err.message); 
+      }
+    }
   };
 
   const respondToInvitation = async (eventId, accept) => {
+    // Check if user can write (subscription is active)
+    if (!canWrite) {
+      setShowUpgradeModal(true);
+      return;
+    }
     try {
       await api.put(`/events/${eventId}/respond-invitation`, { accept });
       const data = await api.get('/events/my-events');
       setEvents(data.events || []);
-    } catch (err) { alert(err.message); }
+    } catch (err) { 
+      if (err.message?.includes('subscription') || err.message?.includes('expired')) {
+        setShowUpgradeModal(true);
+      } else {
+        alert(err.message); 
+      }
+    }
   };
 
   // ORGANIZER PORTAL VIEW
@@ -2041,16 +2082,14 @@ const EventsPage = () => {
   // VENDOR VIEW - requires Elite plan
   // Show different messaging for expired vs no plan
   if (!hasAccess) {
-    const isExpiredOrGrace = subscriptionStatus?.status === 'expired' || subscriptionStatus?.status === 'grace_period' || subscriptionStatus?.status === 'canceled';
-    
     return (
       <div className="upgrade-feature-page">
         <div className="upgrade-feature-content">
-          <div className="upgrade-feature-icon">{isExpiredOrGrace ? <Icons.Lock /> : <Icons.Event />}</div>
-          <h1>{isExpiredOrGrace ? 'Subscription Expired' : 'Event Readiness'}</h1>
-          <Badge variant={isExpiredOrGrace ? 'danger' : 'warning'}>{isExpiredOrGrace ? 'Renew to Access' : 'Elite Plan Required'}</Badge>
+          <div className="upgrade-feature-icon">{isExpired ? <Icons.Lock /> : <Icons.Event />}</div>
+          <h1>{isExpired ? 'Subscription Expired' : 'Event Readiness'}</h1>
+          <Badge variant={isExpired ? 'danger' : 'warning'}>{isExpired ? 'Renew to Access' : 'Elite Plan Required'}</Badge>
           <p className="upgrade-feature-description">
-            {isExpiredOrGrace 
+            {isExpired 
               ? 'Your subscription has expired. Renew now to access event readiness features and see your compliance status for upcoming events.'
               : 'See your permit compliance status for events you\'ve been invited to participate in. Know instantly if you\'re ready or what\'s missing.'}
           </p>
@@ -2084,8 +2123,8 @@ const EventsPage = () => {
             <p>Includes everything in Pro + team accounts & priority support</p>
           </div>
 
-          <Button size="lg" onClick={() => window.location.hash = 'settings'}>{isExpiredOrGrace ? 'Renew Subscription' : 'Upgrade to Elite'}</Button>
-          <p className="upgrade-note">{isExpiredOrGrace ? 'Restore full access immediately' : '14-day free trial • Cancel anytime'}</p>
+          <Button size="lg" onClick={() => window.location.hash = 'settings'}>{isExpired ? 'Renew Subscription' : 'Upgrade to Elite'}</Button>
+          <p className="upgrade-note">{isExpired ? 'Restore full access immediately' : '14-day free trial • Cancel anytime'}</p>
           
           <div className="request-event-section">
             <p>Know of an event that should be on PermitWise?</p>
@@ -2474,6 +2513,14 @@ const EventsPage = () => {
           </>
         )}
       </Modal>
+      
+      {/* Upgrade Modal for expired subscriptions */}
+      <UpgradeRequiredModal 
+        isOpen={showUpgradeModal} 
+        onClose={() => setShowUpgradeModal(false)} 
+        reason={isExpired ? "Your subscription has expired" : "This feature requires an active subscription"}
+        feature="Event Integration"
+      />
     </div>
   );
 };
