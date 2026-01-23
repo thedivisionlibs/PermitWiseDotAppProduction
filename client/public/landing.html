@@ -974,6 +974,134 @@
     }
     .plan-btn { width: 100%; }
     
+    /* ========== EVENT ORGANIZERS SECTION ========== */
+    .organizers-section {
+      padding: 100px 0;
+      background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%);
+    }
+    .organizers-content {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+    .organizers-text h2 {
+      font-size: 2.5rem;
+      color: var(--gray-900);
+      margin: 16px 0;
+    }
+    .organizers-text > p {
+      font-size: 1.125rem;
+      color: var(--gray-600);
+      margin-bottom: 32px;
+    }
+    .organizer-benefits {
+      list-style: none;
+      margin-bottom: 32px;
+    }
+    .organizer-benefits li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 16px;
+      font-size: 15px;
+      color: var(--gray-700);
+    }
+    .organizer-benefits li svg {
+      width: 20px;
+      height: 20px;
+      color: var(--success);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .organizer-card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    }
+    .organizer-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .organizer-card-header h4 {
+      font-size: 18px;
+      color: var(--gray-900);
+    }
+    .org-status {
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .org-status.published {
+      background: var(--success-light);
+      color: #166534;
+    }
+    .organizer-card-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--gray-100);
+    }
+    .org-stat {
+      text-align: center;
+    }
+    .org-stat-num {
+      display: block;
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+    .org-stat-label {
+      font-size: 12px;
+      color: var(--gray-500);
+    }
+    .organizer-card-vendors {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .org-vendor {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      background: var(--gray-50);
+      border-radius: 8px;
+    }
+    .org-vendor-name {
+      font-weight: 500;
+      color: var(--gray-800);
+    }
+    .org-compliance {
+      font-size: 13px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 4px;
+    }
+    .org-compliance.ready {
+      background: var(--success-light);
+      color: #166534;
+    }
+    .org-compliance.partial {
+      background: var(--warning-light);
+      color: #92400e;
+    }
+    @media (max-width: 900px) {
+      .organizers-content {
+        grid-template-columns: 1fr;
+        gap: 40px;
+      }
+      .organizers-text h2 {
+        font-size: 2rem;
+      }
+    }
+    
     /* ========== TESTIMONIALS ========== */
     .testimonials {
       padding: 100px 0;
@@ -1246,6 +1374,7 @@
       </a>
       <div class="nav-links">
         <a href="#features">Features</a>
+        <a href="#organizers">Organizers</a>
         <a href="#demo">Demo</a>
         <a href="#pricing">Pricing</a>
         <a href="#faq">FAQ</a>
@@ -1461,6 +1590,72 @@
           <h3>Team Access</h3>
           <p>Invite team members to help manage compliance. Everyone stays on the same page.</p>
         </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="8" cy="14" r="1"/><circle cx="12" cy="14" r="1"/><circle cx="16" cy="14" r="1"/></svg>
+          </div>
+          <h3>Event Integration</h3>
+          <p>Connect with event organizers. See your compliance status for festivals, markets, and fairs before you apply.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Event Organizers Section -->
+  <section class="organizers-section" id="organizers">
+    <div class="container">
+      <div class="organizers-content">
+        <div class="organizers-text">
+          <div class="section-badge">For Event Organizers</div>
+          <h2>Simplify Vendor Compliance</h2>
+          <p>Running a food festival, farmers market, or fair? PermitWise helps you manage vendor compliance so you can focus on creating great events.</p>
+          <ul class="organizer-benefits">
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Instant Compliance Verification</strong> – See which vendors have valid permits before approving applications</span>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Centralized Vendor Management</strong> – Invite vendors, review applications, and track compliance in one place</span>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Reduce Liability</strong> – Ensure all vendors meet health, fire, and business permit requirements</span>
+            </li>
+            <li>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Automated Notifications</strong> – Vendors get reminded about expiring permits before your event</span>
+            </li>
+          </ul>
+          <a href="/app?register=true&type=organizer" class="btn btn-primary">Create Organizer Account</a>
+        </div>
+        <div class="organizers-visual">
+          <div class="organizer-card">
+            <div class="organizer-card-header">
+              <h4>Downtown Food Festival</h4>
+              <span class="org-status published">Published</span>
+            </div>
+            <div class="organizer-card-stats">
+              <div class="org-stat"><span class="org-stat-num">24</span><span class="org-stat-label">Applications</span></div>
+              <div class="org-stat"><span class="org-stat-num">18</span><span class="org-stat-label">Approved</span></div>
+              <div class="org-stat"><span class="org-stat-num">15</span><span class="org-stat-label">Compliant</span></div>
+            </div>
+            <div class="organizer-card-vendors">
+              <div class="org-vendor">
+                <span class="org-vendor-name">Maria's Tacos</span>
+                <span class="org-compliance ready">✓ Ready</span>
+              </div>
+              <div class="org-vendor">
+                <span class="org-vendor-name">Seoul Street Kitchen</span>
+                <span class="org-compliance ready">✓ Ready</span>
+              </div>
+              <div class="org-vendor">
+                <span class="org-vendor-name">Sweet Treats Cart</span>
+                <span class="org-compliance partial">⚠ 1 Missing</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -1560,6 +1755,14 @@
                       <div class="dash-permit-meta">Texas State • Expires Nov 1, 2026</div>
                     </div>
                     <div class="dash-permit-badge green">Active</div>
+                  </div>
+                  <div class="dash-permit" data-status="missing">
+                    <div class="dash-permit-status gray" style="background: var(--gray-400);"></div>
+                    <div class="dash-permit-info">
+                      <div class="dash-permit-name">Mobile Food Unit Decal</div>
+                      <div class="dash-permit-meta">Houston, TX • Required for operation</div>
+                    </div>
+                    <div class="dash-permit-badge" style="background: var(--gray-100); color: var(--gray-600);">Missing</div>
                   </div>
                 </div>
               </div>
@@ -1857,10 +2060,10 @@
           <ul class="plan-features">
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Everything in Pro</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Team accounts (5 users)</li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Event marketplace</li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> API access</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Event readiness dashboard</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Apply to events & festivals</li>
+            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Organizer integrations</li>
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Dedicated support</li>
-            <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Custom integrations</li>
           </ul>
           <a href="/app?register=true" class="btn btn-outline plan-btn">Start Free Trial</a>
         </div>
