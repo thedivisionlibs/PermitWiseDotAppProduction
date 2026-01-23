@@ -443,6 +443,108 @@ const PickerModal = ({ visible, onClose, title, options, value, onSelect }) => (
   </Modal>
 );
 
+const CitySearchModal = ({ visible, onClose, state, onSelect }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const searchCities = async (term) => {
+    if (!state || term.length < 2) {
+      setResults([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await api.get(`/jurisdictions?state=${state}&search=${encodeURIComponent(term)}`);
+      setResults(data.jurisdictions || []);
+    } catch (err) {
+      console.error(err);
+      setResults([]);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (visible) {
+      setSearchTerm('');
+      setResults([]);
+    }
+  }, [visible]);
+
+  const handleSearch = (term) => {
+    setSearchTerm(term);
+    // Debounce would be nice here, but for simplicity just search on each change
+    if (term.length >= 2) {
+      searchCities(term);
+    } else {
+      setResults([]);
+    }
+  };
+
+  const handleSelect = (jurisdiction) => {
+    const cityName = jurisdiction.city || jurisdiction.name;
+    onSelect(cityName);
+    onClose();
+  };
+
+  const handleUseCustom = () => {
+    if (searchTerm.trim()) {
+      onSelect(searchTerm.trim());
+      onClose();
+    }
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide">
+      <View style={styles.modalOverlay}>
+        <View style={styles.citySearchModal}>
+          <View style={styles.pickerHeader}>
+            <Text style={styles.pickerTitle}>Search City</Text>
+            <TouchableOpacity onPress={onClose}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
+          </View>
+          <View style={styles.citySearchInputWrapper}>
+            <TextInput
+              style={styles.citySearchInput}
+              placeholder={state ? "Type city name..." : "Select a state first"}
+              value={searchTerm}
+              onChangeText={handleSearch}
+              editable={!!state}
+              autoFocus={true}
+            />
+          </View>
+          <ScrollView style={styles.pickerScroll}>
+            {loading && (
+              <View style={styles.citySearchLoading}>
+                <ActivityIndicator size="small" color={COLORS.primary} />
+                <Text style={styles.citySearchLoadingText}>Searching...</Text>
+              </View>
+            )}
+            {!loading && results.length > 0 && results.map(j => (
+              <TouchableOpacity key={j._id} style={styles.citySearchOption} onPress={() => handleSelect(j)}>
+                <Text style={styles.citySearchName}>{j.city || j.name}</Text>
+                <View style={styles.citySearchTypeBadge}><Text style={styles.citySearchTypeText}>{j.type}</Text></View>
+              </TouchableOpacity>
+            ))}
+            {!loading && results.length === 0 && searchTerm.length >= 2 && (
+              <View style={styles.citySearchEmpty}>
+                <Text style={styles.citySearchEmptyText}>No matches found in our database.</Text>
+                <TouchableOpacity style={styles.useCustomButton} onPress={handleUseCustom}>
+                  <Text style={styles.useCustomButtonText}>Use "{searchTerm}" anyway</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {searchTerm.length < 2 && (
+              <View style={styles.citySearchHint}>
+                <Text style={styles.citySearchHintText}>Type at least 2 characters to search</Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 // ===========================================
 // AUTH SCREENS
 // ===========================================
@@ -576,6 +678,7 @@ const OnboardingScreen = () => {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
   const [showTypePicker, setShowTypePicker] = useState(false); const [showStatePicker, setShowStatePicker] = useState(false);
+  const [showCityPicker, setShowCityPicker] = useState(false);
   const [form, setForm] = useState({ businessName: '', primaryVendorType: '', handlesFood: false, operatingCities: [{ city: '', state: '', isPrimary: true }] });
   const [suggestedPermits, setSuggestedPermits] = useState([]);
   const [selectedPermits, setSelectedPermits] = useState([]);
@@ -691,15 +794,32 @@ const OnboardingScreen = () => {
             <Text style={styles.onboardingHeaderTitle}>Where do you operate?</Text>
             <Text style={styles.onboardingHeaderSubtitle}>We'll find the permits required in your city</Text>
             <View style={styles.row}>
-              <View style={styles.halfInput}><Input label="Primary City *" placeholder="e.g. Austin" value={form.operatingCities[0].city} onChangeText={v => setForm(f => ({ ...f, operatingCities: [{ ...f.operatingCities[0], city: v }] }))} /></View>
               <View style={styles.halfInput}>
                 <Text style={styles.label}>State *</Text>
                 <TouchableOpacity style={styles.pickerButton} onPress={() => setShowStatePicker(true)}>
-                  <Text style={form.operatingCities[0].state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{form.operatingCities[0].state || 'Select'}</Text>
+                  <Text style={form.operatingCities[0].state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{form.operatingCities[0].state || 'Select State'}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.halfInput}>
+                <Text style={styles.label}>City *</Text>
+                <TouchableOpacity 
+                  style={[styles.pickerButton, !form.operatingCities[0].state && styles.pickerButtonDisabled]} 
+                  onPress={() => form.operatingCities[0].state && setShowCityPicker(true)}
+                  disabled={!form.operatingCities[0].state}
+                >
+                  <Text style={form.operatingCities[0].city ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
+                    {form.operatingCities[0].city || (form.operatingCities[0].state ? 'Search city...' : 'Select state first')}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
-            <PickerModal visible={showStatePicker} onClose={() => setShowStatePicker(false)} title="State" options={US_STATES.map(s => ({ value: s, label: s }))} value={form.operatingCities[0].state} onSelect={v => setForm(f => ({ ...f, operatingCities: [{ ...f.operatingCities[0], state: v }] }))} />
+            <PickerModal visible={showStatePicker} onClose={() => setShowStatePicker(false)} title="State" options={US_STATES.map(s => ({ value: s, label: s }))} value={form.operatingCities[0].state} onSelect={v => setForm(f => ({ ...f, operatingCities: [{ ...f.operatingCities[0], state: v, city: '' }] }))} />
+            <CitySearchModal 
+              visible={showCityPicker} 
+              onClose={() => setShowCityPicker(false)} 
+              state={form.operatingCities[0].state}
+              onSelect={city => setForm(f => ({ ...f, operatingCities: [{ ...f.operatingCities[0], city }] }))}
+            />
             <Text style={styles.onboardingNote}>You can add more cities later in Settings.</Text>
             <View style={styles.onboardingActions}>
               <Button title="← Back" variant="outline" onPress={() => setStep(1)} style={{ flex: 1 }} />
@@ -1730,6 +1850,7 @@ const SettingsScreen = ({ navigation }) => {
     reminderDays: user?.notificationPreferences?.reminderDays || [30, 14, 7]
   });
   const [showStatePicker, setShowStatePicker] = useState(false);
+  const [showCityPicker, setShowCityPicker] = useState(null); // Index of city being edited
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [teamMembers, setTeamMembers] = useState([]);
   const [newMemberEmail, setNewMemberEmail] = useState('');
@@ -1860,15 +1981,43 @@ const SettingsScreen = ({ navigation }) => {
             {businessData.operatingCities.map((city, i) => (
               <View key={i} style={styles.cityRow}>
                 <View style={styles.row}>
-                  <View style={styles.halfInput}><Input placeholder="City" value={city.city} onChangeText={v => updateCity(i, 'city', v)} /></View>
                   <View style={styles.halfInput}>
                     <TouchableOpacity style={styles.pickerButton} onPress={() => setShowStatePicker(i)}>
                       <Text style={city.state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{city.state || 'State'}</Text>
                     </TouchableOpacity>
                   </View>
+                  <View style={styles.halfInput}>
+                    <TouchableOpacity 
+                      style={[styles.pickerButton, !city.state && styles.pickerButtonDisabled]} 
+                      onPress={() => city.state && setShowCityPicker(i)}
+                      disabled={!city.state}
+                    >
+                      <Text style={city.city ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
+                        {city.city || (city.state ? 'Search city...' : 'Select state first')}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                   {businessData.operatingCities.length > 1 && <TouchableOpacity onPress={() => removeCity(i)} style={styles.removeBtn}><Icons.X size={18} color={COLORS.danger} /></TouchableOpacity>}
                 </View>
               </View>
+            ))}
+            {businessData.operatingCities.map((city, i) => (
+              <React.Fragment key={`pickers-${i}`}>
+                <PickerModal 
+                  visible={showStatePicker === i} 
+                  onClose={() => setShowStatePicker(false)} 
+                  title="State" 
+                  options={US_STATES.map(s => ({ value: s, label: s }))} 
+                  value={city.state} 
+                  onSelect={v => { updateCity(i, 'state', v); updateCity(i, 'city', ''); }} 
+                />
+                <CitySearchModal 
+                  visible={showCityPicker === i} 
+                  onClose={() => setShowCityPicker(null)} 
+                  state={city.state}
+                  onSelect={cityName => updateCity(i, 'city', cityName)}
+                />
+              </React.Fragment>
             ))}
             <Button title="+ Add City" variant="outline" onPress={addCity} style={{ marginBottom: 12 }} />
             <Button title="Save Cities" onPress={handleBusinessSave} loading={loading} />
@@ -2934,6 +3083,23 @@ const styles = StyleSheet.create({
   pickerItemSelected: { backgroundColor: COLORS.gray100 },
   pickerItemText: { fontSize: 16, color: COLORS.gray700 },
   pickerItemTextSelected: { color: COLORS.primary, fontWeight: '500' },
+  pickerButtonDisabled: { backgroundColor: COLORS.gray100, opacity: 0.6 },
+  // City Search Modal
+  citySearchModal: { backgroundColor: COLORS.white, borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '70%' },
+  citySearchInputWrapper: { padding: 16, borderBottomWidth: 1, borderBottomColor: COLORS.gray200 },
+  citySearchInput: { backgroundColor: COLORS.gray100, borderRadius: 8, padding: 12, fontSize: 16 },
+  citySearchOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
+  citySearchName: { fontSize: 16, fontWeight: '500', color: COLORS.gray800 },
+  citySearchTypeBadge: { backgroundColor: COLORS.gray100, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
+  citySearchTypeText: { fontSize: 12, color: COLORS.gray500, textTransform: 'capitalize' },
+  citySearchLoading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 20, gap: 8 },
+  citySearchLoadingText: { fontSize: 14, color: COLORS.gray500 },
+  citySearchEmpty: { padding: 20, alignItems: 'center' },
+  citySearchEmptyText: { fontSize: 14, color: COLORS.gray500, marginBottom: 12, textAlign: 'center' },
+  useCustomButton: { backgroundColor: COLORS.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  useCustomButtonText: { color: COLORS.white, fontWeight: '500' },
+  citySearchHint: { padding: 20, alignItems: 'center' },
+  citySearchHintText: { fontSize: 14, color: COLORS.gray400 },
   // Layout
   row: { flexDirection: 'row', gap: 12 },
   halfInput: { flex: 1 },
@@ -3343,4 +3509,3 @@ const styles = StyleSheet.create({
   // Modal styles for create/suggest checklist
   modalDesc: { fontSize: 14, color: COLORS.gray600, marginBottom: 16, lineHeight: 20 },
 });
-
