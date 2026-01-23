@@ -842,7 +842,7 @@ const PLAN_FEATURES = {
 // Register
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { email, password, phone, firstName, lastName } = req.body;
+    const { email, password, phone, firstName, lastName, isOrganizer, companyName } = req.body;
     
     const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
@@ -858,7 +858,14 @@ app.post('/api/auth/register', async (req, res) => {
       phone,
       firstName,
       lastName,
-      verificationToken
+      verificationToken,
+      isOrganizer: isOrganizer || false,
+      role: isOrganizer ? 'organizer' : 'owner',
+      organizerProfile: isOrganizer ? {
+        companyName: companyName || '',
+        verified: false,
+        disabled: false
+      } : undefined
     });
     
     await user.save();
@@ -871,7 +878,7 @@ app.post('/api/auth/register', async (req, res) => {
       `
         <h1>Welcome to PermitWise!</h1>
         <p>Hi ${firstName || 'there'},</p>
-        <p>Thank you for signing up. Please verify your email by clicking the link below:</p>
+        <p>Thank you for signing up${isOrganizer ? ' as an Event Organizer' : ''}. Please verify your email by clicking the link below:</p>
         <a href="${verifyUrl}" style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Verify Email</a>
         <p>Or copy this link: ${verifyUrl}</p>
         <p>This link expires in 24 hours.</p>
@@ -890,6 +897,8 @@ app.post('/api/auth/register', async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         role: user.role,
+        isOrganizer: user.isOrganizer,
+        organizerProfile: user.organizerProfile,
         emailVerified: user.emailVerified
       }
     });
@@ -2734,13 +2743,30 @@ app.get('/api/events/my-events', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'No business found' });
     }
     
-    // Find all events where this vendor is assigned
-    const events = await Event.find({
+    // Find all events where this vendor is assigned OR has a pending/approved application
+    const assignedEvents = await Event.find({
       'assignedVendors.vendorBusinessId': req.user.vendorBusinessId,
       status: { $in: ['draft', 'published', 'closed'] }
     })
       .populate('requiredPermitTypes')
+      .populate('organizerId', 'isOrganizer')
       .sort({ startDate: 1 });
+    
+    const appliedEvents = await Event.find({
+      'vendorApplications.vendorBusinessId': req.user.vendorBusinessId,
+      'vendorApplications.status': { $in: ['pending', 'approved'] },
+      status: { $in: ['draft', 'published', 'closed'] }
+    })
+      .populate('requiredPermitTypes')
+      .populate('organizerId', 'isOrganizer')
+      .sort({ startDate: 1 });
+    
+    // Combine and deduplicate
+    const eventMap = new Map();
+    [...assignedEvents, ...appliedEvents].forEach(e => {
+      if (!eventMap.has(e._id.toString())) eventMap.set(e._id.toString(), e);
+    });
+    const events = Array.from(eventMap.values());
     
     // Get all vendor's permits
     const vendorPermits = await VendorPermit.find({
@@ -2801,6 +2827,17 @@ app.get('/api/events/my-events', authMiddleware, async (req, res) => {
         }
       }
       
+      // Determine event source: organizer invitation vs admin/marketplace
+      const assignment = event.assignedVendors?.find(av => av.vendorBusinessId.toString() === req.user.vendorBusinessId.toString());
+      const application = event.vendorApplications?.find(va => va.vendorBusinessId.toString() === req.user.vendorBusinessId.toString());
+      
+      // Event is "organizer invited" if an organizer (not admin) added them
+      const isOrganizerInvited = event.organizerId?.isOrganizer && assignment && !application;
+      // Event is from vendor application (marketplace browse)
+      const isFromApplication = !!application;
+      // Invitation status
+      const invitationStatus = assignment?.status || (application?.status === 'approved' ? 'accepted' : application?.status);
+      
       return {
         _id: event._id,
         eventName: event.eventName,
@@ -2815,7 +2852,10 @@ app.get('/api/events/my-events', authMiddleware, async (req, res) => {
         readinessStatus,
         readinessLabel,
         readinessColor,
-        issues
+        issues,
+        // Source information
+        eventSource: isOrganizerInvited ? 'organizer_invitation' : isFromApplication ? 'vendor_application' : 'admin_added',
+        invitationStatus: invitationStatus
       };
     }));
     
