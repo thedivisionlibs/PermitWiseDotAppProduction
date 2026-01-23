@@ -2090,26 +2090,80 @@ const EventsPage = () => {
         </Button>
       </div>
       
-      {/* Organizer Invitations Section */}
-      {organizerInvitations.length > 0 && (
-        <div className="events-section">
-          <div className="events-section-header">
-            <h2>📩 Organizer Invitations</h2>
-            <p className="section-description">Events you've been personally invited to by organizers</p>
-          </div>
-          <div className="events-readiness-list">
-            {organizerInvitations.map(renderEventCard)}
-          </div>
+      {/* Organizer Invitations Section - Always show */}
+      <div className="events-section">
+        <div className="events-section-header">
+          <h2>📩 Organizer Invitations <span className="section-count">{organizerInvitations.length}</span></h2>
+          <p className="section-description">Events you've been personally invited to by organizers</p>
         </div>
-      )}
-      
-      {/* Available Events to Apply (Marketplace) */}
-      {availableEvents.length > 0 && (
-        <div className="events-section">
-          <div className="events-section-header">
-            <h2>🔍 Browse Events</h2>
-            <p className="section-description">Open events accepting vendor applications</p>
+        {organizerInvitations.length > 0 ? (
+          <div className="events-readiness-list">
+            {organizerInvitations.map(event => (
+              <Card key={event._id} className={`readiness-card invitation-card ${event.invitationStatus === 'invited' ? 'pending-response' : ''}`}>
+                <div className="readiness-header">
+                  <div className="event-date-badge">
+                    <span className="month">{new Date(event.startDate).toLocaleDateString('en-US', { month: 'short' })}</span>
+                    <span className="day">{new Date(event.startDate).getDate()}</span>
+                  </div>
+                  <div className="readiness-info">
+                    <h3>{event.eventName}</h3>
+                    <p className="organizer">by {event.organizerName}</p>
+                    <p className="location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
+                  </div>
+                  {event.invitationStatus === 'invited' ? (
+                    <Badge variant="warning">Pending Response</Badge>
+                  ) : event.invitationStatus === 'accepted' ? (
+                    <Badge variant="success">Accepted</Badge>
+                  ) : (
+                    <Badge variant="danger">Declined</Badge>
+                  )}
+                </div>
+                
+                {event.invitationStatus === 'invited' && (
+                  <div className="invitation-actions">
+                    <p className="invitation-prompt">You've been invited to participate in this event!</p>
+                    <div className="invitation-buttons">
+                      <Button size="sm" onClick={() => respondToInvitation(event._id, true)}>Accept Invitation</Button>
+                      <Button size="sm" variant="outline" onClick={() => respondToInvitation(event._id, false)}>Decline</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setSelectedEvent(event)}>View Details</Button>
+                    </div>
+                  </div>
+                )}
+                
+                {event.invitationStatus === 'accepted' && (
+                  <>
+                    <div className="readiness-progress">
+                      <div className="progress-bar">
+                        <div className="progress-fill" style={{ width: `${event.requiredPermitsCount > 0 ? (event.readyCount / event.requiredPermitsCount) * 100 : 100}%` }}></div>
+                      </div>
+                      <span className="progress-text">{event.readyCount}/{event.requiredPermitsCount} permits ready</span>
+                    </div>
+                    <div className="readiness-footer" onClick={() => setSelectedEvent(event)}>
+                      {event.readinessStatus === 'ready' ? (
+                        <span className="status-ready"><Icons.Check /> All permits ready</span>
+                      ) : (
+                        <span className="status-issues">{event.readinessLabel} <span className="view-link">View Details →</span></span>
+                      )}
+                    </div>
+                  </>
+                )}
+              </Card>
+            ))}
           </div>
+        ) : (
+          <div className="section-empty">
+            <p>No invitations yet. When organizers invite you to their events, they'll appear here.</p>
+          </div>
+        )}
+      </div>
+      
+      {/* Available Events to Apply (Marketplace) - Always show */}
+      <div className="events-section">
+        <div className="events-section-header">
+          <h2>🔍 Browse Events <span className="section-count">{availableEvents.length}</span></h2>
+          <p className="section-description">Open events accepting vendor applications</p>
+        </div>
+        {availableEvents.length > 0 ? (
           <div className="available-events-grid">
             {availableEvents.map(event => (
               <Card key={event._id} className="available-event-card">
@@ -2127,56 +2181,121 @@ const EventsPage = () => {
               </Card>
             ))}
           </div>
-        </div>
-      )}
-      
-      {/* Marketplace / Routine Events (Admin-added or vendor applied) */}
-      {marketplaceEvents.length > 0 && (
-        <div className="events-section">
-          <div className="events-section-header">
-            <h2>🎪 Your Participating Events</h2>
-            <p className="section-description">Events you've applied to or routine events in your area</p>
+        ) : (
+          <div className="section-empty">
+            <p>No events currently accepting applications. Check back soon!</p>
           </div>
+        )}
+      </div>
+      
+      {/* Marketplace / Routine Events (Admin-added or vendor applied) - Always show */}
+      <div className="events-section">
+        <div className="events-section-header">
+          <h2>🎪 Your Participating Events <span className="section-count">{marketplaceEvents.length}</span></h2>
+          <p className="section-description">Events you've applied to or routine events in your area</p>
+        </div>
+        {marketplaceEvents.length > 0 ? (
           <div className="events-readiness-list">
             {marketplaceEvents.map(renderEventCard)}
           </div>
-        </div>
-      )}
-      
-      {/* Empty state when no events at all */}
-      {events.length === 0 && availableEvents.length === 0 && (
-        <EmptyState 
-          icon={Icons.Event} 
-          title="No events yet" 
-          description="Browse available events to apply, or wait for organizers to invite you."
-        />
-      )}
+        ) : (
+          <div className="section-empty">
+            <p>No participating events yet. Apply to events above or wait for admin-assigned routine events.</p>
+          </div>
+        )}
+      </div>
 
-      {/* Event Details Modal */}
-      <Modal isOpen={!!selectedEvent} onClose={() => setSelectedEvent(null)} title={`${selectedEvent?.eventName} - Readiness Details`}>
+      {/* Event Details Modal - Enhanced */}
+      <Modal isOpen={!!selectedEvent} onClose={() => setSelectedEvent(null)} title={selectedEvent?.eventName}>
         {selectedEvent && (
-          <div className="readiness-detail-modal">
-            <div className="event-summary">
-              <p><strong>Date:</strong> {formatDate(selectedEvent.startDate)}</p>
-              <p><strong>Location:</strong> {selectedEvent.location?.city}, {selectedEvent.location?.state}</p>
-              <p><strong>Organizer:</strong> {selectedEvent.organizerName}</p>
+          <div className="event-detail-modal">
+            {/* Event Info Section */}
+            <div className="event-detail-section">
+              <h4>Event Information</h4>
+              <div className="event-info-grid">
+                <div className="info-item">
+                  <span className="info-label">Date</span>
+                  <span className="info-value">{formatDate(selectedEvent.startDate)}{selectedEvent.endDate && selectedEvent.endDate !== selectedEvent.startDate ? ` - ${formatDate(selectedEvent.endDate)}` : ''}</span>
+                </div>
+                <div className="info-item">
+                  <span className="info-label">Location</span>
+                  <span className="info-value">{selectedEvent.location?.city}, {selectedEvent.location?.state}</span>
+                </div>
+                <div className="info-item">
+                  <span className="info-label">Organizer</span>
+                  <span className="info-value">{selectedEvent.organizerName}</span>
+                </div>
+                {selectedEvent.description && (
+                  <div className="info-item full-width">
+                    <span className="info-label">Description</span>
+                    <span className="info-value">{selectedEvent.description}</span>
+                  </div>
+                )}
+              </div>
             </div>
             
-            {selectedEvent.issues?.length > 0 ? (
-              <div className="issues-list">
-                <h4>Issues to Resolve:</h4>
-                {selectedEvent.issues.map((issue, i) => (
-                  <div key={i} className={`issue-item ${issue.type}`}>
-                    {issue.type === 'missing' && <><Icons.Alert /> <span><strong>{issue.permit}</strong> - Permit not found</span></>}
-                    {issue.type === 'expired' && <><Icons.Clock /> <span><strong>{issue.permit}</strong> - Permit expired or will expire before event</span></>}
-                    {issue.type === 'missing_document' && <><Icons.Document /> <span><strong>{issue.permit}</strong> - Document not uploaded</span></>}
-                    {issue.type === 'in_progress' && <><Icons.Clock /> <span><strong>{issue.permit}</strong> - Application in progress</span></>}
+            {/* Invitation Status & Actions */}
+            {selectedEvent.eventSource === 'organizer_invitation' && selectedEvent.invitationStatus === 'invited' && (
+              <div className="event-detail-section invitation-section">
+                <div className="invitation-banner">
+                  <Icons.Bell />
+                  <div>
+                    <h4>You've Been Invited!</h4>
+                    <p>The organizer has personally invited you to participate in this event.</p>
                   </div>
-                ))}
+                </div>
+                <div className="invitation-response-buttons">
+                  <Button onClick={() => { respondToInvitation(selectedEvent._id, true); setSelectedEvent(null); }}>Accept Invitation</Button>
+                  <Button variant="outline" onClick={() => { respondToInvitation(selectedEvent._id, false); setSelectedEvent(null); }}>Decline</Button>
+                </div>
               </div>
-            ) : (
-              <div className="all-good">
-                <Icons.Check /> All requirements met!
+            )}
+            
+            {/* Required Permits Section */}
+            {selectedEvent.requiredPermitTypes && selectedEvent.requiredPermitTypes.length > 0 && (
+              <div className="event-detail-section">
+                <h4>Required Permits ({selectedEvent.requiredPermitTypes.length})</h4>
+                <div className="required-permits-list">
+                  {selectedEvent.requiredPermitTypes.map((pt, i) => (
+                    <div key={i} className="required-permit-item">
+                      <Icons.Document />
+                      <span>{typeof pt === 'object' ? pt.name : pt}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Compliance Status Section */}
+            {(selectedEvent.invitationStatus === 'accepted' || selectedEvent.eventSource !== 'organizer_invitation' || !selectedEvent.invitationStatus) && (
+              <div className="event-detail-section">
+                <h4>Your Compliance Status</h4>
+                <div className="compliance-overview">
+                  <div className="compliance-progress">
+                    <div className="progress-bar large">
+                      <div className="progress-fill" style={{ width: `${selectedEvent.requiredPermitsCount > 0 ? (selectedEvent.readyCount / selectedEvent.requiredPermitsCount) * 100 : 100}%` }}></div>
+                    </div>
+                    <span className="progress-label">{selectedEvent.readyCount} of {selectedEvent.requiredPermitsCount} permits ready</span>
+                  </div>
+                </div>
+                
+                {selectedEvent.issues?.length > 0 ? (
+                  <div className="issues-list">
+                    <p className="issues-intro">The following issues need to be resolved:</p>
+                    {selectedEvent.issues.map((issue, i) => (
+                      <div key={i} className={`issue-item ${issue.type}`}>
+                        {issue.type === 'missing' && <><Icons.Alert /> <span><strong>{issue.permit}</strong> - Permit not found</span></>}
+                        {issue.type === 'expired' && <><Icons.Clock /> <span><strong>{issue.permit}</strong> - Expired or will expire before event</span></>}
+                        {issue.type === 'missing_document' && <><Icons.Document /> <span><strong>{issue.permit}</strong> - Document not uploaded</span></>}
+                        {issue.type === 'in_progress' && <><Icons.Clock /> <span><strong>{issue.permit}</strong> - Application in progress</span></>}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="all-good">
+                    <Icons.Check /> All requirements met! You're ready for this event.
+                  </div>
+                )}
               </div>
             )}
             
