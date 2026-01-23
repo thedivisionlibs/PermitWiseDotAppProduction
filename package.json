@@ -13,7 +13,8 @@
     "seed:jurisdictions": "node seeds/seed_jurisdictions.js",
     "seed:permits": "node seeds/seed_permit_library.js",
     "seed:checklists": "node seeds/seed_inspection_checklists.js",
-    "seed:all": "npm run seed:jurisdictions && npm run seed:permits && npm run seed:checklists",
+    "seed:events": "node seeds/seed_events.js",
+    "seed:all": "npm run seed:jurisdictions && npm run seed:permits && npm run seed:checklists && npm run seed:events",
     "seed": "node -e \"require('./server.js')\" --seed"
   },
   "keywords": [
