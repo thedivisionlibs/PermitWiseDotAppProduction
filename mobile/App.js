@@ -1866,6 +1866,32 @@ const SettingsScreen = ({ navigation }) => {
   const handleLogout = () => { Alert.alert('Log Out', 'Are you sure?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Log Out', style: 'destructive', onPress: logout }]); };
   const handleProfileSave = async () => { setLoading(true); try { await api.put('/auth/profile', profileData); await fetchUser(); Alert.alert('Success', 'Profile updated'); setActiveSection(null); } catch (err) { Alert.alert('Error', err.message); } finally { setLoading(false); } };
   const handleBusinessSave = async () => { setLoading(true); try { const data = await api.put('/business', businessData); updateBusiness(data.business); Alert.alert('Success', 'Business updated'); setActiveSection(null); } catch (err) { Alert.alert('Error', err.message); } finally { setLoading(false); } };
+  
+  const handleFoodHandlingToggle = async (checked) => {
+    setBusinessData(d => ({ ...d, handlesFood: checked }));
+    setLoading(true);
+    try {
+      // First save the business with the new handlesFood value
+      const data = await api.put('/business', { ...businessData, handlesFood: checked });
+      updateBusiness(data.business);
+      
+      // Then sync permits to add/remove food handling permits
+      const syncResult = await api.post('/permits/sync-food-handling', { handlesFood: checked });
+      
+      if (checked && syncResult.addedCount > 0) {
+        Alert.alert('Food Handling Enabled', `Added ${syncResult.addedCount} food safety permit(s) to your dashboard.`);
+      } else if (!checked && syncResult.removedCount > 0) {
+        Alert.alert('Food Handling Disabled', `Removed ${syncResult.removedCount} empty food safety permit(s). Permits with documents were kept.`);
+      } else {
+        Alert.alert('Success', checked ? 'Food handling enabled.' : 'Food handling disabled.');
+      }
+    } catch (err) { 
+      Alert.alert('Error', err.message);
+      // Revert on error
+      setBusinessData(d => ({ ...d, handlesFood: !checked }));
+    } finally { setLoading(false); }
+  };
+  
   const handleNotificationSave = async () => { setLoading(true); try { await api.put('/auth/profile', { notificationPreferences: notificationPrefs }); await fetchUser(); Alert.alert('Success', 'Notification preferences updated'); setActiveSection(null); } catch (err) { Alert.alert('Error', err.message); } finally { setLoading(false); } };
   const addCity = () => setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
@@ -1948,10 +1974,10 @@ const SettingsScreen = ({ navigation }) => {
             </View>
             
             <Text style={[styles.label, { marginTop: 16 }]}>Food Handling</Text>
-            <TouchableOpacity style={styles.toggleRow} onPress={() => setBusinessData(d => ({ ...d, handlesFood: !d.handlesFood }))}>
+            <TouchableOpacity style={[styles.toggleRow, loading && { opacity: 0.5 }]} onPress={() => !loading && handleFoodHandlingToggle(!businessData.handlesFood)} disabled={loading}>
               <View style={styles.toggleInfo}>
                 <Text style={styles.toggleTitle}>My business handles or serves food</Text>
-                <Text style={styles.toggleDesc}>This helps us suggest food safety permits and checklists</Text>
+                <Text style={styles.toggleDesc}>This will automatically add or remove food safety permits</Text>
               </View>
               <View style={[styles.toggleSwitch, businessData.handlesFood && styles.toggleSwitchActive]}>
                 <View style={[styles.toggleKnob, businessData.handlesFood && styles.toggleKnobActive]} />
@@ -2284,6 +2310,7 @@ const InspectionsScreen = () => {
   const [activeTab, setActiveTab] = useState('checklists'); // 'checklists' or 'history'
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showSuggestModal, setShowSuggestModal] = useState(false);
+  const [viewingInspection, setViewingInspection] = useState(null); // For viewing completed inspection
   const [newChecklist, setNewChecklist] = useState({ name: '', description: '', items: [{ itemText: '' }] });
   const [suggestionText, setSuggestionText] = useState('');
 
@@ -2628,28 +2655,30 @@ const InspectionsScreen = () => {
           keyExtractor={item => item._id}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchData(); }} />}
           renderItem={({ item }) => (
-            <Card style={styles.inspectionHistoryCard}>
-              <View style={styles.inspectionHistoryHeader}>
-                <View>
-                  <Text style={styles.inspectionHistoryName}>{item.checklistId?.name || 'Inspection'}</Text>
-                  <Text style={styles.inspectionHistoryDate}>{formatDate(item.inspectionDate)}</Text>
+            <TouchableOpacity onPress={() => setViewingInspection(item)}>
+              <Card style={styles.inspectionHistoryCard}>
+                <View style={styles.inspectionHistoryHeader}>
+                  <View>
+                    <Text style={styles.inspectionHistoryName}>{item.checklistId?.name || 'Inspection'}</Text>
+                    <Text style={styles.inspectionHistoryDate}>{formatDate(item.inspectionDate)}</Text>
+                  </View>
+                  <Badge 
+                    label={item.overallStatus === 'pass' ? 'PASSED' : item.overallStatus === 'fail' ? 'FAILED' : 'INCOMPLETE'} 
+                    variant={item.overallStatus === 'pass' ? 'success' : item.overallStatus === 'fail' ? 'danger' : 'warning'} 
+                  />
                 </View>
-                <Badge 
-                  label={item.overallStatus?.toUpperCase() || 'COMPLETED'} 
-                  variant={item.overallStatus === 'passed' ? 'success' : item.overallStatus === 'failed' ? 'danger' : 'warning'} 
-                />
-              </View>
-              {item.items && (
-                <View style={styles.inspectionHistoryStats}>
-                  <Text style={styles.historyStatText}>
-                    ✓ {item.items.filter(i => i.passed === true).length} passed
-                  </Text>
-                  <Text style={styles.historyStatText}>
-                    ✗ {item.items.filter(i => i.passed === false).length} failed
-                  </Text>
-                </View>
-              )}
-            </Card>
+                {item.results && (
+                  <View style={styles.inspectionHistoryStats}>
+                    <Text style={styles.historyStatText}>
+                      ✓ {item.results.filter(i => i.passed === true).length} passed
+                    </Text>
+                    <Text style={styles.historyStatText}>
+                      ✗ {item.results.filter(i => i.passed === false).length} failed
+                    </Text>
+                  </View>
+                )}
+              </Card>
+            </TouchableOpacity>
           )}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
@@ -2661,6 +2690,48 @@ const InspectionsScreen = () => {
           contentContainerStyle={styles.listContent}
         />
       )}
+
+      {/* View Inspection Modal */}
+      <Modal visible={!!viewingInspection} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.inspectionViewModal}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>{viewingInspection?.checklistId?.name || 'Inspection Results'}</Text>
+                <Text style={styles.inspectionViewDate}>{viewingInspection && formatDate(viewingInspection.inspectionDate)}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setViewingInspection(null)}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
+            </View>
+            <View style={styles.inspectionViewBadge}>
+              <Badge 
+                label={viewingInspection?.overallStatus === 'pass' ? 'PASSED' : viewingInspection?.overallStatus === 'fail' ? 'FAILED' : 'INCOMPLETE'} 
+                variant={viewingInspection?.overallStatus === 'pass' ? 'success' : viewingInspection?.overallStatus === 'fail' ? 'danger' : 'warning'} 
+              />
+            </View>
+            <ScrollView style={{ maxHeight: 400 }}>
+              <Text style={styles.inspectionViewSectionTitle}>Checklist Items</Text>
+              {viewingInspection?.results?.map((item, i) => (
+                <View key={i} style={[styles.inspectionViewItem, item.passed === true ? styles.inspectionViewItemPassed : item.passed === false ? styles.inspectionViewItemFailed : styles.inspectionViewItemPending]}>
+                  <View style={[styles.inspectionViewItemIcon, item.passed === true ? styles.inspectionViewIconPassed : item.passed === false ? styles.inspectionViewIconFailed : styles.inspectionViewIconPending]}>
+                    {item.passed === true ? <Icons.Check size={14} color="white" /> : item.passed === false ? <Icons.X size={14} color="white" /> : <Icons.Clock size={14} color="white" />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.inspectionViewItemText}>{item.itemText}</Text>
+                    {item.notes ? <Text style={styles.inspectionViewItemNotes}>{item.notes}</Text> : null}
+                  </View>
+                </View>
+              ))}
+              {viewingInspection?.notes && (
+                <View style={styles.inspectionViewNotes}>
+                  <Text style={styles.inspectionViewSectionTitle}>Notes</Text>
+                  <Text style={styles.inspectionViewNotesText}>{viewingInspection.notes}</Text>
+                </View>
+              )}
+            </ScrollView>
+            <Button title="Close" variant="outline" onPress={() => setViewingInspection(null)} />
+          </View>
+        </View>
+      </Modal>
 
       {/* Create Checklist Modal */}
       <Modal visible={showCreateModal} transparent animationType="slide">
@@ -3243,7 +3314,7 @@ const styles = StyleSheet.create({
   passwordMatchSuccess: { color: COLORS.success },
   passwordMatchError: { color: COLORS.danger },
   // Forgot Password
-  forgotPasswordLink: { alignItems: 'flex-end', marginTop: -8, marginBottom: 16 },
+  forgotPasswordLink: { alignItems: 'flex-end', marginTop: 4, marginBottom: 16 },
   forgotPasswordText: { fontSize: 14, color: COLORS.primary },
   trialBadge: { backgroundColor: '#dbeafe', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginTop: 12 },
   trialBadgeText: { fontSize: 13, color: COLORS.primary, fontWeight: '500' },
@@ -3374,6 +3445,23 @@ const styles = StyleSheet.create({
   inspectionHistoryDate: { fontSize: 13, color: COLORS.gray500, marginTop: 2 },
   inspectionHistoryStats: { flexDirection: 'row', gap: 16, marginTop: 8 },
   historyStatText: { fontSize: 13, color: COLORS.gray600 },
+  // Inspection View Modal
+  inspectionViewModal: { backgroundColor: COLORS.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%', marginTop: 'auto', padding: 20 },
+  inspectionViewDate: { fontSize: 13, color: COLORS.gray500, marginTop: 4 },
+  inspectionViewBadge: { alignItems: 'flex-start', marginBottom: 16 },
+  inspectionViewSectionTitle: { fontSize: 13, fontWeight: '600', color: COLORS.gray500, textTransform: 'uppercase', marginBottom: 12, letterSpacing: 0.5 },
+  inspectionViewItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 12, marginBottom: 8, borderRadius: 8 },
+  inspectionViewItemPassed: { backgroundColor: '#f0fdf4' },
+  inspectionViewItemFailed: { backgroundColor: '#fef2f2' },
+  inspectionViewItemPending: { backgroundColor: '#fffbeb' },
+  inspectionViewItemIcon: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  inspectionViewIconPassed: { backgroundColor: '#22c55e' },
+  inspectionViewIconFailed: { backgroundColor: '#ef4444' },
+  inspectionViewIconPending: { backgroundColor: '#f59e0b' },
+  inspectionViewItemText: { fontSize: 14, fontWeight: '500', color: COLORS.gray800 },
+  inspectionViewItemNotes: { fontSize: 13, color: COLORS.gray600, fontStyle: 'italic', marginTop: 4 },
+  inspectionViewNotes: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.gray200 },
+  inspectionViewNotesText: { fontSize: 14, color: COLORS.gray700, lineHeight: 20 },
   // Suggested Permits Modal
   suggestModal: { backgroundColor: COLORS.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '90%', marginTop: 'auto' },
   suggestModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
