@@ -2847,6 +2847,7 @@ app.get('/api/events/my-events', authMiddleware, async (req, res) => {
         endDate: event.endDate,
         location: event.location,
         status: event.status,
+        requiredPermitTypes: requiredPermits.map(pt => ({ _id: pt._id, name: pt.name })),
         requiredPermitsCount: requiredPermits.length,
         readyCount,
         readinessStatus,
