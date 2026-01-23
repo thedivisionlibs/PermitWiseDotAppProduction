@@ -253,6 +253,7 @@ const jurisdictionSchema = new mongoose.Schema({
 const permitTypeSchema = new mongoose.Schema({
   jurisdictionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Jurisdiction', required: true },
   vendorTypes: [{ type: String }], // Which vendor types need this permit
+  requiresFoodHandling: { type: Boolean, default: false }, // If true, applies to any vendor that handles food
   name: { type: String, required: true },
   description: { type: String },
   issuingAuthorityName: { type: String },
@@ -407,13 +408,15 @@ const inspectionChecklistSchema = new mongoose.Schema({
 // Vendor Inspection Schema
 const vendorInspectionSchema = new mongoose.Schema({
   vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness', required: true },
-  checklistId: { type: mongoose.Schema.Types.ObjectId, ref: 'InspectionChecklist', required: true },
+  checklistId: { type: mongoose.Schema.Types.ObjectId, ref: 'InspectionChecklist' }, // Can be null for user checklists
+  userChecklistId: { type: mongoose.Schema.Types.ObjectId, ref: 'UserChecklist' }, // For user-created checklists
   completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   inspectionDate: { type: Date, default: Date.now },
   results: [{
     itemId: { type: mongoose.Schema.Types.ObjectId },
     itemText: String,
     status: { type: String, enum: ['pass', 'fail', 'na'], default: 'na' },
+    passed: { type: Boolean, default: null }, // true = pass, false = fail, null = not evaluated
     notes: String
   }],
   overallStatus: { type: String, enum: ['pass', 'fail', 'incomplete'], default: 'incomplete' },
@@ -1462,7 +1465,7 @@ app.get('/api/permit-types', async (req, res) => {
 // Get permits required for city/vendor type
 app.get('/api/permit-types/required', async (req, res) => {
   try {
-    const { city, state, vendorType } = req.query;
+    const { city, state, vendorType, handlesFood } = req.query;
     
     if (!city || !state || !vendorType) {
       return res.status(400).json({ error: 'city, state, and vendorType are required' });
@@ -1480,11 +1483,27 @@ app.get('/api/permit-types/required', async (req, res) => {
       return res.json({ permitTypes: [], coverage: 'none', message: 'City not found in our database yet' });
     }
     
-    const permitTypes = await PermitType.find({
+    // Build query: permits that match vendor type OR (if handlesFood) permits requiring food handling
+    const handlesFoodBool = handlesFood === 'true' || handlesFood === true;
+    
+    let permitQuery = {
       jurisdictionId: jurisdiction._id,
-      vendorTypes: vendorType,
       active: true
-    }).populate('jurisdictionId', 'name city state type');
+    };
+    
+    if (handlesFoodBool) {
+      // If business handles food, get permits for vendor type OR food handling permits
+      permitQuery.$or = [
+        { vendorTypes: vendorType },
+        { requiresFoodHandling: true }
+      ];
+    } else {
+      // Just get permits for this vendor type
+      permitQuery.vendorTypes = vendorType;
+    }
+    
+    const permitTypes = await PermitType.find(permitQuery)
+      .populate('jurisdictionId', 'name city state type');
     
     // If jurisdiction exists and has permits for this vendor type, it's full coverage
     // If jurisdiction exists but no permits, still "full" - we have data for the city
@@ -1561,11 +1580,24 @@ app.post('/api/permits/sync', authMiddleware, async (req, res) => {
       // Check both primary and secondary vendor types
       const vendorTypes = [business.primaryVendorType, ...(business.secondaryVendorTypes || [])].filter(Boolean);
       
-      const permitTypes = await PermitType.find({
+      // Build query: permits for vendor types OR (if handlesFood) food handling permits
+      let permitQuery = {
         jurisdictionId: jurisdiction._id,
-        vendorTypes: { $in: vendorTypes },
         active: true
-      });
+      };
+      
+      if (business.handlesFood) {
+        // If business handles food, get permits for vendor types OR food handling permits
+        permitQuery.$or = [
+          { vendorTypes: { $in: vendorTypes } },
+          { requiresFoodHandling: true }
+        ];
+      } else {
+        // Just get permits for vendor types
+        permitQuery.vendorTypes = { $in: vendorTypes };
+      }
+      
+      const permitTypes = await PermitType.find(permitQuery);
       
       // Add any permit types the user doesn't have yet
       for (const pt of permitTypes) {
@@ -2216,29 +2248,61 @@ app.post('/api/checklists', masterAdminMiddleware, async (req, res) => {
 // Start inspection
 app.post('/api/inspections', authMiddleware, checkFeature('inspectionChecklists'), async (req, res) => {
   try {
-    const { checklistId, location } = req.body;
+    const { checklistId, items, notes, inspectionDate, location } = req.body;
     
-    const checklist = await InspectionChecklist.findById(checklistId);
-    if (!checklist) {
-      return res.status(404).json({ error: 'Checklist not found' });
+    // items is optional - if not provided, create skeleton from checklist
+    let results;
+    let overallStatus = 'incomplete';
+    
+    if (items && items.length > 0) {
+      // Use submitted items with pass/fail data
+      results = items.map(item => ({
+        itemText: item.itemText,
+        status: item.passed === true ? 'pass' : item.passed === false ? 'fail' : 'na',
+        passed: item.passed,
+        notes: item.notes || ''
+      }));
+      
+      // Calculate overall status based on results
+      const allEvaluated = results.every(r => r.passed !== null && r.passed !== undefined);
+      if (allEvaluated) {
+        const anyFailed = results.some(r => r.passed === false);
+        overallStatus = anyFailed ? 'fail' : 'pass';
+      }
+    } else {
+      // Fallback: create skeleton from checklist
+      const checklist = await InspectionChecklist.findById(checklistId);
+      if (!checklist) {
+        return res.status(404).json({ error: 'Checklist not found' });
+      }
+      results = checklist.items.map(item => ({
+        itemId: item._id,
+        itemText: item.itemText,
+        status: 'na',
+        passed: null,
+        notes: ''
+      }));
     }
     
     const inspection = new VendorInspection({
       vendorBusinessId: req.user.vendorBusinessId,
       checklistId,
       completedBy: req.userId,
-      results: checklist.items.map(item => ({
-        itemId: item._id,
-        itemText: item.itemText,
-        status: 'na',
-        notes: ''
-      })),
+      inspectionDate: inspectionDate || new Date(),
+      results,
+      notes: notes || '',
+      overallStatus,
       location
     });
     
     await inspection.save();
     
-    res.status(201).json({ inspection });
+    // Populate and return
+    const populated = await VendorInspection.findById(inspection._id)
+      .populate('checklistId', 'name category')
+      .populate('completedBy', 'firstName lastName');
+    
+    res.status(201).json({ inspection: populated });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
