@@ -164,8 +164,20 @@ const userSchema = new mongoose.Schema({
   phone: { type: String },
   firstName: { type: String },
   lastName: { type: String },
-  role: { type: String, enum: ['owner', 'manager', 'staff', 'admin'], default: 'owner' },
+  role: { type: String, enum: ['owner', 'manager', 'staff', 'admin', 'organizer'], default: 'owner' },
   vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness' },
+  // Organizer-specific fields
+  isOrganizer: { type: Boolean, default: false },
+  organizerProfile: {
+    companyName: String,
+    description: String,
+    website: String,
+    phone: String,
+    logo: String,
+    verified: { type: Boolean, default: false },
+    disabled: { type: Boolean, default: false },
+    disabledReason: String
+  },
   emailVerified: { type: Boolean, default: false },
   verificationToken: { type: String },
   resetPasswordToken: { type: String },
@@ -433,7 +445,7 @@ const vendorInspectionSchema = new mongoose.Schema({
 
 // Event Schema
 const eventSchema = new mongoose.Schema({
-  organizerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  organizerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   organizerName: { type: String, required: true },
   organizerContact: {
     email: String,
@@ -456,16 +468,60 @@ const eventSchema = new mongoose.Schema({
   eventType: { type: String, enum: ['farmers_market', 'festival', 'fair', 'craft_show', 'food_event', 'night_market', 'other'] },
   requiredVendorTypes: [{ type: String }],
   requiredPermitTypes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'PermitType' }],
-  // Assigned vendors - vendors invited to this event by organizer
+  // Custom permit requirements (text-based for flexibility)
+  customPermitRequirements: [{
+    name: String,
+    description: String,
+    required: { type: Boolean, default: true }
+  }],
+  // Vendor spots and fees
+  maxVendors: { type: Number },
+  vendorFee: { type: Number },
+  feeStructure: {
+    applicationFee: { type: Number, default: 0 },
+    boothFee: { type: Number, default: 0 },
+    electricityFee: { type: Number, default: 0 },
+    description: String
+  },
+  applicationDeadline: { type: Date },
+  // Event status
+  status: { type: String, enum: ['draft', 'published', 'closed', 'completed', 'canceled'], default: 'draft' },
+  // Assigned/Invited vendors - vendors invited to this event by organizer
   assignedVendors: [{
     vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness' },
     assignedAt: { type: Date, default: Date.now },
+    invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    status: { type: String, enum: ['invited', 'accepted', 'declined'], default: 'invited' },
+    respondedAt: Date,
     notes: String
   }],
-  vendorSpots: { type: Number },
-  vendorFee: { type: Number },
-  applicationDeadline: { type: Date },
-  status: { type: String, enum: ['draft', 'published', 'closed', 'completed', 'canceled'], default: 'draft' },
+  // Vendor applications - vendors who applied to this event
+  vendorApplications: [{
+    vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness' },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    status: { type: String, enum: ['pending', 'approved', 'rejected', 'waitlist'], default: 'pending' },
+    appliedAt: { type: Date, default: Date.now },
+    reviewedAt: Date,
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    applicationNotes: String, // Vendor's application notes
+    organizerNotes: String, // Organizer's private notes
+    boothAssignment: String,
+    // Document uploads specific to this event
+    uploadedDocuments: [{
+      name: String,
+      url: String,
+      uploadedAt: { type: Date, default: Date.now }
+    }]
+  }],
+  // Messages between organizer and vendors
+  messages: [{
+    fromUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    toVendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness' },
+    message: String,
+    sentAt: { type: Date, default: Date.now },
+    read: { type: Boolean, default: false }
+  }],
+  // Legacy field for backward compatibility
   registeredVendors: [{
     vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness' },
     status: { type: String, enum: ['pending', 'approved', 'rejected', 'paid'], default: 'pending' },
@@ -483,7 +539,7 @@ const suggestionSchema = new mongoose.Schema({
   vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness' },
   type: { 
     type: String, 
-    enum: ['city_request', 'checklist_request', 'checklist_change', 'permit_type_request', 'general_feedback'],
+    enum: ['city_request', 'checklist_request', 'checklist_change', 'permit_type_request', 'event_request', 'general_feedback'],
     required: true 
   },
   title: { type: String, required: true },
@@ -499,6 +555,18 @@ const suggestionSchema = new mongoose.Schema({
     category: String,
     isUserSpecific: { type: Boolean, default: false }, // true = just for this user, false = for everyone
     items: [{ itemText: String, description: String }]
+  },
+  // For event requests
+  eventDetails: {
+    eventName: String,
+    organizerName: String,
+    city: String,
+    state: String,
+    startDate: Date,
+    endDate: Date,
+    eventType: String,
+    website: String,
+    additionalInfo: String
   },
   status: { 
     type: String, 
@@ -2835,36 +2903,352 @@ app.get('/api/events/:id/readiness', authMiddleware, checkFeature('eventIntegrat
   }
 });
 
-// Apply to event
+// ====== ORGANIZER PORTAL ENDPOINTS ======
+
+// Get organizer's events
+app.get('/api/events/organizer/my-events', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const events = await Event.find({ organizerId: req.user._id })
+      .populate('requiredPermitTypes')
+      .populate('vendorApplications.vendorBusinessId', 'businessName primaryVendorType')
+      .populate('assignedVendors.vendorBusinessId', 'businessName primaryVendorType')
+      .sort({ startDate: -1 });
+      
+    res.json({ events });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create event (organizer)
+app.post('/api/events/organizer/create', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    if (req.user.organizerProfile?.disabled) {
+      return res.status(403).json({ error: 'Your organizer account has been disabled' });
+    }
+    
+    const { eventName, description, startDate, endDate, location, city, state, address, eventType, maxVendors, applicationDeadline, feeStructure, requiredPermitTypes, customPermitRequirements, status } = req.body;
+    
+    if (!eventName) return res.status(400).json({ error: 'Event name is required' });
+    if (!startDate) return res.status(400).json({ error: 'Start date is required' });
+    if (!city || !state) return res.status(400).json({ error: 'City and state are required' });
+    
+    const event = new Event({
+      organizerId: req.user._id,
+      organizerName: req.user.organizerProfile?.companyName || `${req.user.firstName} ${req.user.lastName}`,
+      organizerContact: {
+        email: req.user.email,
+        phone: req.user.organizerProfile?.phone,
+        website: req.user.organizerProfile?.website
+      },
+      eventName,
+      description,
+      startDate: new Date(startDate),
+      endDate: endDate ? new Date(endDate) : new Date(startDate),
+      location: location || { city, state, address },
+      eventType: eventType || 'other',
+      maxVendors: maxVendors ? parseInt(maxVendors) : null,
+      applicationDeadline: applicationDeadline ? new Date(applicationDeadline) : null,
+      feeStructure: feeStructure || {},
+      requiredPermitTypes: requiredPermitTypes || [],
+      customPermitRequirements: customPermitRequirements || [],
+      status: status || 'draft'
+    });
+    
+    await event.save();
+    res.status(201).json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update event status (organizer)
+app.put('/api/events/organizer/:id/status', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.user._id });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    event.status = req.body.status;
+    event.updatedAt = new Date();
+    await event.save();
+    
+    res.json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get event applications (organizer)
+app.get('/api/events/organizer/:id/applications', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.user._id })
+      .populate('vendorApplications.vendorBusinessId', 'businessName primaryVendorType')
+      .populate('assignedVendors.vendorBusinessId', 'businessName primaryVendorType')
+      .populate('requiredPermitTypes');
+      
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    // Calculate compliance status for each application
+    const applications = await Promise.all([
+      ...(event.vendorApplications || []).map(async (app) => {
+        const vendorPermits = await VendorPermit.find({ vendorBusinessId: app.vendorBusinessId?._id }).populate('permitTypeId');
+        const requiredIds = (event.requiredPermitTypes || []).map(p => p._id.toString());
+        const vendorPermitTypeIds = vendorPermits.filter(vp => vp.status === 'active').map(vp => vp.permitTypeId?._id.toString());
+        const missingPermits = requiredIds.filter(id => !vendorPermitTypeIds.includes(id));
+        
+        return {
+          ...app.toObject(),
+          complianceStatus: missingPermits.length === 0 ? 'ready' : missingPermits.length < requiredIds.length / 2 ? 'partial' : 'missing',
+          missingPermits
+        };
+      }),
+      ...(event.assignedVendors || []).filter(av => av.status === 'invited').map(async (inv) => {
+        return {
+          _id: inv._id,
+          vendorBusinessId: inv.vendorBusinessId,
+          status: 'invited',
+          appliedAt: inv.assignedAt,
+          isInvitation: true
+        };
+      })
+    ]);
+    
+    res.json({ applications });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Handle vendor application (organizer)
+app.put('/api/events/organizer/applications/:applicationId', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const { status, organizerNotes, boothAssignment } = req.body;
+    
+    // Find the event containing this application
+    const event = await Event.findOne({
+      organizerId: req.user._id,
+      'vendorApplications._id': req.params.applicationId
+    });
+    
+    if (!event) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+    
+    const application = event.vendorApplications.id(req.params.applicationId);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+    
+    application.status = status;
+    application.reviewedAt = new Date();
+    application.reviewedBy = req.user._id;
+    if (organizerNotes) application.organizerNotes = organizerNotes;
+    if (boothAssignment) application.boothAssignment = boothAssignment;
+    
+    // If approved, add to assigned vendors
+    if (status === 'approved') {
+      if (!event.assignedVendors.find(av => av.vendorBusinessId.toString() === application.vendorBusinessId.toString())) {
+        event.assignedVendors.push({
+          vendorBusinessId: application.vendorBusinessId,
+          status: 'accepted',
+          assignedAt: new Date(),
+          invitedBy: req.user._id
+        });
+      }
+    }
+    
+    await event.save();
+    res.json({ success: true, application });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Invite vendor to event (organizer)
+app.post('/api/events/organizer/:id/invite', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const { email, vendorBusinessId } = req.body;
+    
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.user._id });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    let business;
+    if (vendorBusinessId) {
+      business = await VendorBusiness.findById(vendorBusinessId);
+    } else if (email) {
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (user?.vendorBusinessId) {
+        business = await VendorBusiness.findById(user.vendorBusinessId);
+      }
+    }
+    
+    if (!business) {
+      return res.status(404).json({ error: 'Vendor business not found' });
+    }
+    
+    // Check if already invited or applied
+    const alreadyInvited = event.assignedVendors.find(av => av.vendorBusinessId.toString() === business._id.toString());
+    const alreadyApplied = event.vendorApplications.find(va => va.vendorBusinessId.toString() === business._id.toString());
+    
+    if (alreadyInvited || alreadyApplied) {
+      return res.status(400).json({ error: 'Vendor already invited or has applied' });
+    }
+    
+    event.assignedVendors.push({
+      vendorBusinessId: business._id,
+      status: 'invited',
+      assignedAt: new Date(),
+      invitedBy: req.user._id
+    });
+    
+    await event.save();
+    
+    // TODO: Send email notification to vendor
+    
+    res.json({ success: true, message: 'Invitation sent' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ====== VENDOR EVENT ENDPOINTS ======
+
+// Get published events (for vendors to browse/apply)
+app.get('/api/events/published', authMiddleware, async (req, res) => {
+  try {
+    const events = await Event.find({
+      status: 'published',
+      startDate: { $gte: new Date() }
+    })
+      .populate('requiredPermitTypes', 'name')
+      .sort({ startDate: 1 })
+      .limit(50);
+      
+    res.json({ events });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Apply to event (vendor)
 app.post('/api/events/:id/apply', authMiddleware, async (req, res) => {
   try {
-    const event = await Event.findById(req.params.id);
+    if (!req.user.vendorBusinessId) {
+      return res.status(400).json({ error: 'You need a business profile to apply' });
+    }
     
+    const event = await Event.findById(req.params.id);
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
     
     if (event.status !== 'published') {
-      return res.status(400).json({ error: 'Event is not accepting applications' });
+      return res.status(400).json({ error: 'This event is not accepting applications' });
+    }
+    
+    if (event.applicationDeadline && new Date() > new Date(event.applicationDeadline)) {
+      return res.status(400).json({ error: 'Application deadline has passed' });
     }
     
     // Check if already applied
-    const existing = event.registeredVendors.find(
-      rv => rv.vendorBusinessId.toString() === req.user.vendorBusinessId.toString()
+    const alreadyApplied = event.vendorApplications.find(
+      va => va.vendorBusinessId.toString() === req.user.vendorBusinessId.toString()
     );
-    
-    if (existing) {
-      return res.status(400).json({ error: 'Already applied to this event' });
+    if (alreadyApplied) {
+      return res.status(400).json({ error: 'You have already applied to this event' });
     }
     
-    event.registeredVendors.push({
+    // Check if already invited
+    const alreadyInvited = event.assignedVendors.find(
+      av => av.vendorBusinessId.toString() === req.user.vendorBusinessId.toString()
+    );
+    if (alreadyInvited) {
+      return res.status(400).json({ error: 'You have already been invited to this event' });
+    }
+    
+    event.vendorApplications.push({
       vendorBusinessId: req.user.vendorBusinessId,
-      status: 'pending'
+      userId: req.user._id,
+      status: 'pending',
+      appliedAt: new Date(),
+      applicationNotes: req.body.applicationNotes || ''
     });
     
     await event.save();
+    res.json({ success: true, message: 'Application submitted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Respond to event invitation (vendor)
+app.put('/api/events/:id/respond-invitation', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.vendorBusinessId) {
+      return res.status(400).json({ error: 'Business profile required' });
+    }
     
-    res.json({ message: 'Application submitted', event });
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    const invitation = event.assignedVendors.find(
+      av => av.vendorBusinessId.toString() === req.user.vendorBusinessId.toString() && av.status === 'invited'
+    );
+    
+    if (!invitation) {
+      return res.status(404).json({ error: 'Invitation not found' });
+    }
+    
+    invitation.status = req.body.accept ? 'accepted' : 'declined';
+    invitation.respondedAt = new Date();
+    
+    await event.save();
+    res.json({ success: true, status: invitation.status });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all permit types (for event creation)
+app.get('/api/permit-types/all', authMiddleware, async (req, res) => {
+  try {
+    const permitTypes = await PermitType.find({ active: true })
+      .populate('jurisdictionId', 'city state')
+      .sort({ name: 1 })
+      .limit(200);
+      
+    res.json({ permitTypes });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2898,6 +3282,436 @@ app.post('/api/events', masterAdminMiddleware, async (req, res) => {
     });
     await event.save();
     res.status(201).json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===========================================
+// ORGANIZER PORTAL ROUTES
+// ===========================================
+
+// Middleware to check if user is an organizer
+const organizerMiddleware = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user || !user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    if (user.organizerProfile?.disabled) {
+      return res.status(403).json({ error: 'Your organizer account has been disabled' });
+    }
+    req.organizer = user;
+    next();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Register as organizer (or update organizer profile)
+app.post('/api/organizer/register', authMiddleware, async (req, res) => {
+  try {
+    const { companyName, description, website, phone } = req.body;
+    
+    if (!companyName) {
+      return res.status(400).json({ error: 'Company name is required' });
+    }
+    
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      {
+        isOrganizer: true,
+        organizerProfile: {
+          companyName,
+          description,
+          website,
+          phone,
+          verified: false,
+          disabled: false
+        }
+      },
+      { new: true }
+    );
+    
+    res.json({ user: { ...user.toObject(), password: undefined } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get organizer profile
+app.get('/api/organizer/profile', authMiddleware, organizerMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId).select('-password');
+    res.json({ organizer: user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get organizer's events
+app.get('/api/organizer/events', authMiddleware, organizerMiddleware, async (req, res) => {
+  try {
+    const { status } = req.query;
+    const query = { organizerId: req.userId };
+    if (status) query.status = status;
+    
+    const events = await Event.find(query)
+      .populate('vendorApplications.vendorBusinessId', 'businessName primaryVendorType')
+      .populate('assignedVendors.vendorBusinessId', 'businessName primaryVendorType')
+      .sort({ startDate: -1 });
+    
+    res.json({ events });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create event as organizer
+app.post('/api/organizer/events', authMiddleware, organizerMiddleware, async (req, res) => {
+  try {
+    const { 
+      eventName, description, location, startDate, endDate, eventType,
+      requiredPermitTypes, customPermitRequirements, maxVendors, feeStructure,
+      applicationDeadline, status = 'draft'
+    } = req.body;
+    
+    if (!eventName) return res.status(400).json({ error: 'Event name is required' });
+    if (!location?.city || !location?.state) return res.status(400).json({ error: 'Event location (city, state) is required' });
+    if (!startDate || !endDate) return res.status(400).json({ error: 'Start and end dates are required' });
+    
+    const event = new Event({
+      organizerId: req.userId,
+      organizerName: req.organizer.organizerProfile?.companyName || `${req.organizer.firstName} ${req.organizer.lastName}`,
+      organizerContact: {
+        email: req.organizer.email,
+        phone: req.organizer.organizerProfile?.phone || req.organizer.phone,
+        website: req.organizer.organizerProfile?.website
+      },
+      eventName,
+      description,
+      location,
+      startDate,
+      endDate,
+      eventType,
+      requiredPermitTypes,
+      customPermitRequirements,
+      maxVendors,
+      feeStructure,
+      applicationDeadline,
+      status
+    });
+    
+    await event.save();
+    res.status(201).json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update organizer's event
+app.put('/api/organizer/events/:id', authMiddleware, organizerMiddleware, async (req, res) => {
+  try {
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found or access denied' });
+    }
+    
+    const updates = req.body;
+    delete updates.organizerId; // Can't change organizer
+    
+    Object.assign(event, updates);
+    event.updatedAt = Date.now();
+    await event.save();
+    
+    res.json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get event details with vendor applications (organizer view)
+app.get('/api/organizer/events/:id', authMiddleware, organizerMiddleware, async (req, res) => {
+  try {
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId })
+      .populate('vendorApplications.vendorBusinessId')
+      .populate('vendorApplications.userId', 'firstName lastName email phone')
+      .populate('assignedVendors.vendorBusinessId')
+      .populate('requiredPermitTypes');
+    
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found or access denied' });
+    }
+    
+    res.json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Invite vendor to event
+app.post('/api/organizer/events/:id/invite', authMiddleware, organizerMiddleware, async (req, res) => {
+  try {
+    const { vendorBusinessId, notes } = req.body;
+    
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found or access denied' });
+    }
+    
+    const business = await VendorBusiness.findById(vendorBusinessId);
+    if (!business) {
+      return res.status(404).json({ error: 'Vendor business not found' });
+    }
+    
+    // Check if already invited
+    const existingInvite = event.assignedVendors.find(
+      v => v.vendorBusinessId.toString() === vendorBusinessId
+    );
+    if (existingInvite) {
+      return res.status(400).json({ error: 'Vendor already invited to this event' });
+    }
+    
+    event.assignedVendors.push({
+      vendorBusinessId,
+      invitedBy: req.userId,
+      notes,
+      status: 'invited'
+    });
+    
+    await event.save();
+    res.json({ event, message: 'Vendor invited successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Review vendor application (approve/reject)
+app.put('/api/organizer/events/:id/applications/:applicationId', authMiddleware, organizerMiddleware, async (req, res) => {
+  try {
+    const { status, organizerNotes, boothAssignment } = req.body;
+    
+    if (!['approved', 'rejected', 'waitlist', 'pending'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+    
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found or access denied' });
+    }
+    
+    const application = event.vendorApplications.id(req.params.applicationId);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+    
+    application.status = status;
+    application.reviewedAt = Date.now();
+    application.reviewedBy = req.userId;
+    if (organizerNotes) application.organizerNotes = organizerNotes;
+    if (boothAssignment) application.boothAssignment = boothAssignment;
+    
+    await event.save();
+    res.json({ event, application });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get vendor compliance for event
+app.get('/api/organizer/events/:id/compliance', authMiddleware, organizerMiddleware, async (req, res) => {
+  try {
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId })
+      .populate('requiredPermitTypes')
+      .populate('vendorApplications.vendorBusinessId')
+      .populate('assignedVendors.vendorBusinessId');
+    
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found or access denied' });
+    }
+    
+    // Get all participating vendors (approved applications + accepted invites)
+    const participatingVendorIds = [
+      ...event.vendorApplications.filter(a => a.status === 'approved').map(a => a.vendorBusinessId._id),
+      ...event.assignedVendors.filter(a => a.status === 'accepted').map(a => a.vendorBusinessId._id)
+    ];
+    
+    // Get permit compliance for each vendor
+    const compliance = [];
+    for (const vendorId of participatingVendorIds) {
+      const vendor = await VendorBusiness.findById(vendorId);
+      if (!vendor) continue;
+      
+      const permits = await VendorPermit.find({ vendorBusinessId: vendorId })
+        .populate('permitTypeId');
+      
+      const requiredPermitIds = event.requiredPermitTypes.map(p => p._id.toString());
+      const vendorPermitTypeIds = permits.filter(p => p.status === 'active').map(p => p.permitTypeId?._id?.toString());
+      
+      const missingPermits = event.requiredPermitTypes.filter(
+        rp => !vendorPermitTypeIds.includes(rp._id.toString())
+      );
+      
+      compliance.push({
+        vendor: { _id: vendor._id, businessName: vendor.businessName, primaryVendorType: vendor.primaryVendorType },
+        totalRequired: requiredPermitIds.length,
+        totalCompliant: requiredPermitIds.filter(id => vendorPermitTypeIds.includes(id)).length,
+        missingPermits: missingPermits.map(p => ({ _id: p._id, name: p.name })),
+        isCompliant: missingPermits.length === 0
+      });
+    }
+    
+    res.json({ 
+      event: { _id: event._id, eventName: event.eventName },
+      compliance,
+      summary: {
+        totalVendors: compliance.length,
+        compliantVendors: compliance.filter(c => c.isCompliant).length,
+        nonCompliantVendors: compliance.filter(c => !c.isCompliant).length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Send message to vendor
+app.post('/api/organizer/events/:id/messages', authMiddleware, organizerMiddleware, async (req, res) => {
+  try {
+    const { vendorBusinessId, message } = req.body;
+    
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found or access denied' });
+    }
+    
+    event.messages.push({
+      fromUserId: req.userId,
+      toVendorBusinessId: vendorBusinessId,
+      message
+    });
+    
+    await event.save();
+    res.json({ message: 'Message sent', event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===========================================
+// VENDOR EVENT PARTICIPATION ROUTES
+// ===========================================
+
+// Apply to event (for published events that accept applications)
+app.post('/api/events/:id/apply', authMiddleware, async (req, res) => {
+  try {
+    const { applicationNotes } = req.body;
+    
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    if (event.status !== 'published') {
+      return res.status(400).json({ error: 'This event is not accepting applications' });
+    }
+    
+    if (event.applicationDeadline && new Date(event.applicationDeadline) < new Date()) {
+      return res.status(400).json({ error: 'Application deadline has passed' });
+    }
+    
+    // Check if already applied
+    const existingApplication = event.vendorApplications.find(
+      a => a.vendorBusinessId?.toString() === req.user.vendorBusinessId?.toString()
+    );
+    if (existingApplication) {
+      return res.status(400).json({ error: 'You have already applied to this event' });
+    }
+    
+    // Check max vendors
+    if (event.maxVendors) {
+      const approvedCount = event.vendorApplications.filter(a => a.status === 'approved').length;
+      if (approvedCount >= event.maxVendors) {
+        return res.status(400).json({ error: 'This event has reached maximum vendor capacity' });
+      }
+    }
+    
+    event.vendorApplications.push({
+      vendorBusinessId: req.user.vendorBusinessId,
+      userId: req.userId,
+      applicationNotes,
+      status: 'pending'
+    });
+    
+    await event.save();
+    res.json({ message: 'Application submitted successfully', event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Respond to event invitation (accept/decline)
+app.put('/api/events/:id/invitation', authMiddleware, async (req, res) => {
+  try {
+    const { response } = req.body; // 'accepted' or 'declined'
+    
+    if (!['accepted', 'declined'].includes(response)) {
+      return res.status(400).json({ error: 'Response must be accepted or declined' });
+    }
+    
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    const invitation = event.assignedVendors.find(
+      v => v.vendorBusinessId?.toString() === req.user.vendorBusinessId?.toString()
+    );
+    
+    if (!invitation) {
+      return res.status(404).json({ error: 'No invitation found for your business' });
+    }
+    
+    invitation.status = response;
+    invitation.respondedAt = Date.now();
+    
+    await event.save();
+    res.json({ message: `Invitation ${response}`, event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload document for event application
+app.post('/api/events/:id/documents', authMiddleware, upload.single('file'), async (req, res) => {
+  try {
+    const { name } = req.body;
+    
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    const application = event.vendorApplications.find(
+      a => a.vendorBusinessId?.toString() === req.user.vendorBusinessId?.toString()
+    );
+    
+    if (!application) {
+      return res.status(404).json({ error: 'No application found for your business' });
+    }
+    
+    if (!application.uploadedDocuments) {
+      application.uploadedDocuments = [];
+    }
+    
+    application.uploadedDocuments.push({
+      name: name || req.file?.originalname,
+      url: req.file?.path || req.file?.location, // Depending on storage
+      uploadedAt: Date.now()
+    });
+    
+    await event.save();
+    res.json({ message: 'Document uploaded', application });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3542,6 +4356,117 @@ app.delete('/api/admin/businesses/:id', masterAdminMiddleware, async (req, res) 
 });
 
 // ===========================================
+// ADMIN ORGANIZER MANAGEMENT
+// ===========================================
+
+// Get all organizers
+app.get('/api/admin/organizers', masterAdminMiddleware, async (req, res) => {
+  try {
+    const organizers = await User.find({ isOrganizer: true })
+      .select('email firstName lastName isOrganizer organizerProfile createdAt')
+      .sort({ createdAt: -1 });
+    
+    // Get event counts for each organizer
+    const organizersWithCounts = await Promise.all(organizers.map(async (org) => {
+      const eventCount = await Event.countDocuments({ organizerId: org._id });
+      return {
+        ...org.toObject(),
+        eventCount
+      };
+    }));
+    
+    res.json({ organizers: organizersWithCounts });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Make user an organizer
+app.post('/api/admin/organizers', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { email, companyName } = req.body;
+    
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found with that email' });
+    }
+    
+    if (user.isOrganizer) {
+      return res.status(400).json({ error: 'User is already an organizer' });
+    }
+    
+    user.isOrganizer = true;
+    user.role = 'organizer';
+    user.organizerProfile = {
+      companyName: companyName || '',
+      verified: false,
+      disabled: false
+    };
+    user.updatedAt = new Date();
+    await user.save();
+    
+    res.json({ message: 'User is now an organizer', user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Toggle organizer status (enable/disable)
+app.put('/api/admin/organizers/:id/status', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { disabled, disabledReason, verified } = req.body;
+    
+    const user = await User.findById(req.params.id);
+    if (!user || !user.isOrganizer) {
+      return res.status(404).json({ error: 'Organizer not found' });
+    }
+    
+    if (typeof disabled !== 'undefined') {
+      user.organizerProfile.disabled = disabled;
+      user.organizerProfile.disabledReason = disabledReason || '';
+    }
+    if (typeof verified !== 'undefined') {
+      user.organizerProfile.verified = verified;
+    }
+    user.updatedAt = new Date();
+    await user.save();
+    
+    res.json({ message: disabled ? 'Organizer disabled' : 'Organizer enabled', user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin edit event (SuperAdmin can edit any event)
+app.put('/api/admin/events/:id', masterAdminMiddleware, async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    const { eventName, organizerName, description, startDate, endDate, city, state, address, status, maxVendors } = req.body;
+    
+    if (eventName) event.eventName = eventName;
+    if (organizerName) event.organizerName = organizerName;
+    if (description !== undefined) event.description = description;
+    if (startDate) event.startDate = new Date(startDate);
+    if (endDate) event.endDate = new Date(endDate);
+    if (city) event.location.city = city;
+    if (state) event.location.state = state;
+    if (address !== undefined) event.location.address = address;
+    if (status) event.status = status;
+    if (maxVendors !== undefined) event.maxVendors = maxVendors ? parseInt(maxVendors) : null;
+    event.updatedAt = new Date();
+    
+    await event.save();
+    res.json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===========================================
 // ADMIN SUBSCRIPTION MANAGEMENT
 // ===========================================
 
@@ -4118,6 +5043,94 @@ app.get('/api/admin/events/:id', masterAdminMiddleware, async (req, res) => {
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
+    
+    res.json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===========================================
+// ADMIN ORGANIZER MANAGEMENT
+// ===========================================
+
+// Get all organizers (admin)
+app.get('/api/admin/organizers', masterAdminMiddleware, async (req, res) => {
+  try {
+    const organizers = await User.find({ isOrganizer: true })
+      .select('-password')
+      .sort({ createdAt: -1 });
+    
+    // Get event counts for each organizer
+    const organizersWithStats = await Promise.all(organizers.map(async (org) => {
+      const eventCount = await Event.countDocuments({ organizerId: org._id });
+      const publishedEventCount = await Event.countDocuments({ organizerId: org._id, status: 'published' });
+      return {
+        ...org.toObject(),
+        eventCount,
+        publishedEventCount
+      };
+    }));
+    
+    res.json({ organizers: organizersWithStats });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Disable/Enable organizer (admin)
+app.put('/api/admin/organizers/:id/status', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { disabled, disabledReason } = req.body;
+    
+    const user = await User.findById(req.params.id);
+    if (!user || !user.isOrganizer) {
+      return res.status(404).json({ error: 'Organizer not found' });
+    }
+    
+    user.organizerProfile = user.organizerProfile || {};
+    user.organizerProfile.disabled = disabled;
+    if (disabledReason) user.organizerProfile.disabledReason = disabledReason;
+    
+    await user.save();
+    res.json({ organizer: { ...user.toObject(), password: undefined } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Verify organizer (admin)
+app.put('/api/admin/organizers/:id/verify', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { verified } = req.body;
+    
+    const user = await User.findById(req.params.id);
+    if (!user || !user.isOrganizer) {
+      return res.status(404).json({ error: 'Organizer not found' });
+    }
+    
+    user.organizerProfile = user.organizerProfile || {};
+    user.organizerProfile.verified = verified;
+    
+    await user.save();
+    res.json({ organizer: { ...user.toObject(), password: undefined } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin edit any event
+app.put('/api/admin/events/:id', masterAdminMiddleware, async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    const updates = req.body;
+    Object.assign(event, updates);
+    event.updatedAt = Date.now();
+    await event.save();
     
     res.json({ event });
   } catch (error) {
