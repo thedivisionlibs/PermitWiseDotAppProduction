@@ -2811,6 +2811,10 @@ const EventsScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [requestForm, setRequestForm] = useState({ eventName: '', organizerName: '', city: '', state: '', startDate: '', additionalInfo: '' });
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [requestSubmitted, setRequestSubmitted] = useState(false);
 
   // Plan check: Elite, Promo, or Lifetime required
   const hasAccess = subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration;
@@ -2824,6 +2828,28 @@ const EventsScreen = () => {
   };
 
   useEffect(() => { if (hasAccess) fetchMyEvents(); else setLoading(false); }, [hasAccess]);
+
+  const submitEventRequest = async () => {
+    setRequestSubmitting(true);
+    try {
+      await api.post('/suggestions', {
+        type: 'event_request',
+        title: `Event Request: ${requestForm.eventName}`,
+        description: requestForm.additionalInfo,
+        eventDetails: {
+          eventName: requestForm.eventName,
+          organizerName: requestForm.organizerName,
+          city: requestForm.city,
+          state: requestForm.state,
+          startDate: requestForm.startDate,
+          additionalInfo: requestForm.additionalInfo
+        }
+      });
+      setRequestSubmitted(true);
+      setTimeout(() => { setShowRequestModal(false); setRequestSubmitted(false); setRequestForm({ eventName: '', organizerName: '', city: '', state: '', startDate: '', additionalInfo: '' }); }, 2000);
+    } catch (err) { Alert.alert('Error', err.message); }
+    finally { setRequestSubmitting(false); }
+  };
 
   // Show upgrade modal for non-Elite users
   if (!hasAccess) {
@@ -2854,15 +2880,15 @@ const EventsScreen = () => {
             <View style={styles.upgradeModalFeatureRow}>
               <Icons.Check size={18} color={COLORS.success} />
               <View style={styles.upgradeModalFeatureContent}>
-                <Text style={styles.upgradeModalFeatureTitle}>Missing Permit Alerts</Text>
-                <Text style={styles.upgradeModalFeatureDesc}>Know exactly which permits or documents you need for each event</Text>
+                <Text style={styles.upgradeModalFeatureTitle}>Apply to Events</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Browse and apply to events looking for vendors like you</Text>
               </View>
             </View>
             <View style={styles.upgradeModalFeatureRow}>
               <Icons.Check size={18} color={COLORS.success} />
               <View style={styles.upgradeModalFeatureContent}>
-                <Text style={styles.upgradeModalFeatureTitle}>Expiration Warnings</Text>
-                <Text style={styles.upgradeModalFeatureDesc}>Get alerted if any permits will expire before an event date</Text>
+                <Text style={styles.upgradeModalFeatureTitle}>Missing Permit Alerts</Text>
+                <Text style={styles.upgradeModalFeatureDesc}>Know exactly which permits or documents you need for each event</Text>
               </View>
             </View>
             <View style={styles.upgradeModalFeatureRow}>
@@ -2882,7 +2908,54 @@ const EventsScreen = () => {
 
           <Button title="Upgrade to Elite" onPress={() => Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
           <Text style={styles.upgradeModalCancel}>14-day free trial • Cancel anytime</Text>
+          
+          <View style={styles.requestEventSection}>
+            <Text style={styles.requestEventText}>Know of an event that should be on PermitWise?</Text>
+            <TouchableOpacity style={styles.requestEventButton} onPress={() => setShowRequestModal(true)}>
+              <Text style={styles.requestEventButtonText}>Request an Event</Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
+        
+        {/* Event Request Modal - available even without Elite */}
+        <Modal visible={showRequestModal} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Request an Event</Text>
+                <TouchableOpacity onPress={() => setShowRequestModal(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+              </View>
+              
+              {requestSubmitted ? (
+                <View style={styles.requestSuccess}>
+                  <View style={styles.requestSuccessIcon}><Icons.Check size={32} color={COLORS.success} /></View>
+                  <Text style={styles.requestSuccessTitle}>Request Submitted!</Text>
+                  <Text style={styles.requestSuccessText}>We'll review your event request and add it to PermitWise soon.</Text>
+                </View>
+              ) : (
+                <ScrollView style={styles.modalBody}>
+                  <Text style={styles.requestIntro}>Tell us about an event you'd like to see on PermitWise for permit compliance tracking.</Text>
+                  <Input label="Event Name *" placeholder="Downtown Food Festival" value={requestForm.eventName} onChangeText={v => setRequestForm(f => ({ ...f, eventName: v }))} />
+                  <Input label="Organizer Name" placeholder="City Events Department" value={requestForm.organizerName} onChangeText={v => setRequestForm(f => ({ ...f, organizerName: v }))} />
+                  <View style={styles.row}>
+                    <View style={styles.halfInput}><Input label="City *" placeholder="Austin" value={requestForm.city} onChangeText={v => setRequestForm(f => ({ ...f, city: v }))} /></View>
+                    <View style={styles.halfInput}>
+                      <Text style={styles.label}>State *</Text>
+                      <TouchableOpacity style={styles.pickerButton} onPress={() => {}}>
+                        <Text style={requestForm.state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{requestForm.state || 'Select State'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <Input label="Additional Info" placeholder="Any other details about the event..." value={requestForm.additionalInfo} onChangeText={v => setRequestForm(f => ({ ...f, additionalInfo: v }))} multiline />
+                  <View style={styles.modalFooter}>
+                    <Button title="Cancel" variant="outline" onPress={() => setShowRequestModal(false)} style={{ flex: 1 }} />
+                    <Button title={requestSubmitting ? "Submitting..." : "Submit Request"} onPress={submitEventRequest} disabled={!requestForm.eventName || !requestForm.city || requestSubmitting} style={{ flex: 1 }} />
+                  </View>
+                </ScrollView>
+              )}
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     );
   }
@@ -2899,8 +2972,14 @@ const EventsScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>Event Readiness</Text>
-        <Text style={styles.pageSubtitle}>Your compliance status for assigned events</Text>
+        <View>
+          <Text style={styles.pageTitle}>Event Readiness</Text>
+          <Text style={styles.pageSubtitle}>Your compliance status for assigned events</Text>
+        </View>
+        <TouchableOpacity style={styles.requestEventButtonSmall} onPress={() => setShowRequestModal(true)}>
+          <Icons.Plus size={16} color={COLORS.primary} />
+          <Text style={styles.requestEventButtonSmallText}>Request</Text>
+        </TouchableOpacity>
       </View>
       <FlatList
         data={events}
@@ -2954,12 +3033,16 @@ const EventsScreen = () => {
           <View style={styles.emptyContainer}>
             <Icons.Event size={48} color={COLORS.gray300} />
             <Text style={styles.emptyTitle}>No events assigned</Text>
-            <Text style={styles.emptyText}>When event organizers using PermitWise add you to their vendor list, you'll see your compliance status here.</Text>
+            <Text style={styles.emptyText}>When event organizers add you to their vendor list, you'll see your compliance status here.</Text>
+            <TouchableOpacity style={styles.requestEventButtonLarge} onPress={() => setShowRequestModal(true)}>
+              <Text style={styles.requestEventButtonLargeText}>Know an event? Request it here</Text>
+            </TouchableOpacity>
           </View>
         }
         contentContainerStyle={styles.listContent}
       />
       
+      {/* Event Details Modal */}
       <Modal visible={!!selectedEvent} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -2998,6 +3081,44 @@ const EventsScreen = () => {
             <View style={styles.modalFooter}>
               <Button title="Close" onPress={() => setSelectedEvent(null)} variant="outline" />
             </View>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Event Request Modal */}
+      <Modal visible={showRequestModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Request an Event</Text>
+              <TouchableOpacity onPress={() => setShowRequestModal(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+            </View>
+            
+            {requestSubmitted ? (
+              <View style={styles.requestSuccess}>
+                <View style={styles.requestSuccessIcon}><Icons.Check size={32} color={COLORS.success} /></View>
+                <Text style={styles.requestSuccessTitle}>Request Submitted!</Text>
+                <Text style={styles.requestSuccessText}>We'll review your event request and add it to PermitWise soon.</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.modalBody}>
+                <Text style={styles.requestIntro}>Tell us about an event you'd like to see on PermitWise for permit compliance tracking.</Text>
+                <Input label="Event Name *" placeholder="Downtown Food Festival" value={requestForm.eventName} onChangeText={v => setRequestForm(f => ({ ...f, eventName: v }))} />
+                <Input label="Organizer Name" placeholder="City Events Department" value={requestForm.organizerName} onChangeText={v => setRequestForm(f => ({ ...f, organizerName: v }))} />
+                <View style={styles.row}>
+                  <View style={styles.halfInput}><Input label="City *" placeholder="Austin" value={requestForm.city} onChangeText={v => setRequestForm(f => ({ ...f, city: v }))} /></View>
+                  <View style={styles.halfInput}>
+                    <Text style={styles.label}>State</Text>
+                    <TextInput style={styles.input} placeholder="TX" value={requestForm.state} onChangeText={v => setRequestForm(f => ({ ...f, state: v }))} />
+                  </View>
+                </View>
+                <Input label="Additional Info" placeholder="Any other details about the event..." value={requestForm.additionalInfo} onChangeText={v => setRequestForm(f => ({ ...f, additionalInfo: v }))} multiline />
+                <View style={styles.modalFooter}>
+                  <Button title="Cancel" variant="outline" onPress={() => setShowRequestModal(false)} style={{ flex: 1 }} />
+                  <Button title={requestSubmitting ? "Submitting..." : "Submit Request"} onPress={submitEventRequest} disabled={!requestForm.eventName || !requestForm.city || requestSubmitting} style={{ flex: 1 }} />
+                </View>
+              </ScrollView>
+            )}
           </View>
         </View>
       </Modal>
@@ -3554,6 +3675,20 @@ const styles = StyleSheet.create({
   upgradeModalPricingNote: { fontSize: 13, color: COLORS.gray500, textAlign: 'center', marginTop: 8 },
   upgradeModalButton: { marginBottom: 12 },
   upgradeModalCancel: { fontSize: 13, color: COLORS.gray400, textAlign: 'center' },
+  // Event Request styles
+  requestEventSection: { marginTop: 32, paddingTop: 24, borderTopWidth: 1, borderTopColor: COLORS.gray200, alignItems: 'center' },
+  requestEventText: { fontSize: 14, color: COLORS.gray600, marginBottom: 12, textAlign: 'center' },
+  requestEventButton: { backgroundColor: COLORS.white, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: COLORS.primary },
+  requestEventButtonText: { fontSize: 14, fontWeight: '500', color: COLORS.primary },
+  requestEventButtonSmall: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: COLORS.gray100, borderRadius: 8 },
+  requestEventButtonSmallText: { fontSize: 13, fontWeight: '500', color: COLORS.primary },
+  requestEventButtonLarge: { marginTop: 20, paddingHorizontal: 20, paddingVertical: 12, backgroundColor: COLORS.gray100, borderRadius: 8 },
+  requestEventButtonLargeText: { fontSize: 14, color: COLORS.primary, fontWeight: '500' },
+  requestSuccess: { alignItems: 'center', paddingVertical: 40 },
+  requestSuccessIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  requestSuccessTitle: { fontSize: 18, fontWeight: '600', color: COLORS.gray800, marginBottom: 8 },
+  requestSuccessText: { fontSize: 14, color: COLORS.gray600, textAlign: 'center' },
+  requestIntro: { fontSize: 14, color: COLORS.gray600, marginBottom: 16, lineHeight: 20 },
   // Legacy upgrade styles (keeping for compatibility)
   upgradeContainer: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   upgradeIcon: { width: 80, height: 80, backgroundColor: '#e0e7ff', borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
