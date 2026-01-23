@@ -310,6 +310,7 @@ const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [business, setBusiness] = useState(null);
   const [subscription, setSubscription] = useState(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchUser = useCallback(async () => {
@@ -318,6 +319,7 @@ const AuthProvider = ({ children }) => {
       if (!token) { setLoading(false); return; }
       const data = await api.get('/auth/me');
       setUser(data.user); setBusiness(data.business); setSubscription(data.subscription);
+      setSubscriptionStatus(data.subscriptionStatus);
     } catch (error) { await AsyncStorage.removeItem('permitwise_token'); }
     finally { setLoading(false); }
   }, []);
@@ -338,11 +340,15 @@ const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     await AsyncStorage.removeItem('permitwise_token');
-    setUser(null); setBusiness(null); setSubscription(null);
+    setUser(null); setBusiness(null); setSubscription(null); setSubscriptionStatus(null);
   };
 
+  // Check if subscription allows write operations
+  const canWrite = subscriptionStatus?.canWrite ?? true;
+  const isExpired = subscriptionStatus?.isExpired ?? false;
+
   return (
-    <AuthContext.Provider value={{ user, business, subscription, loading, login, register, logout, fetchUser, updateBusiness: setBusiness, isAuthenticated: !!user, hasCompletedOnboarding: !!business }}>
+    <AuthContext.Provider value={{ user, business, subscription, subscriptionStatus, canWrite, isExpired, loading, login, register, logout, fetchUser, updateBusiness: setBusiness, isAuthenticated: !!user, hasCompletedOnboarding: !!business }}>
       {children}
     </AuthContext.Provider>
   );
@@ -356,6 +362,27 @@ const Button = ({ title, onPress, variant = 'primary', loading: isLoading, disab
     {isLoading ? <ActivityIndicator color={variant === 'primary' ? COLORS.white : COLORS.primary} /> : <Text style={[styles.btnText, variant !== 'primary' && styles.btnTextOutline]}>{title}</Text>}
   </TouchableOpacity>
 );
+
+// Expired Subscription Banner
+const ExpiredSubscriptionBanner = ({ onUpgrade }) => {
+  const { isExpired, subscriptionStatus } = useAuth();
+  
+  if (!isExpired) return null;
+  
+  return (
+    <View style={styles.expiredBanner}>
+      <View style={styles.expiredBannerContent}>
+        <Icons.Alert size={20} color="#dc2626" />
+        <Text style={styles.expiredBannerText}>
+          <Text style={styles.expiredBannerBold}>Subscription expired.</Text> Read-only access.
+        </Text>
+      </View>
+      <TouchableOpacity style={styles.expiredBannerBtn} onPress={onUpgrade}>
+        <Text style={styles.expiredBannerBtnText}>Upgrade</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
 
 const Input = ({ label, error, ...props }) => (
   <View style={styles.formGroup}>
@@ -1057,7 +1084,7 @@ const DashboardScreen = ({ navigation }) => {
 };
 
 const PermitsScreen = ({ navigation }) => {
-  const { business } = useAuth();
+  const { business, canWrite, isExpired } = useAuth();
   const [permits, setPermits] = useState([]); const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false);
   const [showAddCityModal, setShowAddCityModal] = useState(false);
@@ -1066,6 +1093,14 @@ const PermitsScreen = ({ navigation }) => {
   const [selectedSuggestions, setSelectedSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [addingSuggestions, setAddingSuggestions] = useState(false);
+
+  const handleAddPermit = () => {
+    if (!canWrite) {
+      Alert.alert('Subscription Expired', 'Please upgrade your subscription to add new permits.');
+      return;
+    }
+    navigation.navigate('AddPermit');
+  };
 
   const syncAndFetchPermits = async () => {
     try {
@@ -1084,6 +1119,10 @@ const PermitsScreen = ({ navigation }) => {
   };
 
   const fetchSuggestedPermits = async () => {
+    if (!canWrite) {
+      Alert.alert('Subscription Expired', 'Please upgrade your subscription to add permits.');
+      return;
+    }
     if (!business?.operatingCities?.[0]) return;
     setLoadingSuggestions(true);
     try {
@@ -1148,7 +1187,7 @@ const PermitsScreen = ({ navigation }) => {
           <TouchableOpacity style={[styles.addButton, { marginRight: 8, backgroundColor: COLORS.gray600 }]} onPress={() => setShowAddCityModal(true)}>
             <Icons.MapPin size={20} color={COLORS.white} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.addButton} onPress={() => navigation.navigate('AddPermit')}>
+          <TouchableOpacity style={styles.addButton} onPress={handleAddPermit}>
             <Icons.Plus size={20} color={COLORS.white} />
           </TouchableOpacity>
         </View>
@@ -1573,7 +1612,7 @@ const PermitDetailScreen = ({ route, navigation }) => {
 };
 
 const AddPermitScreen = ({ navigation }) => {
-  const { business } = useAuth();
+  const { business, canWrite, isExpired } = useAuth();
   const [loading, setLoading] = useState(false);
   const [permitTypes, setPermitTypes] = useState([]);
   const [jurisdictions, setJurisdictions] = useState([]);
@@ -1608,6 +1647,12 @@ const AddPermitScreen = ({ navigation }) => {
   };
 
   const handleSubmit = async () => {
+    // Check if user can write (subscription is active)
+    if (!canWrite) {
+      Alert.alert('Subscription Expired', 'Please upgrade your subscription to add new permits.');
+      return;
+    }
+    
     if (!selectedJurisdiction || !selectedPermitType) {
       Alert.alert('Error', 'Please select jurisdiction and permit type');
       return;
@@ -1625,7 +1670,14 @@ const AddPermitScreen = ({ navigation }) => {
       });
       Alert.alert('Success', 'Permit added');
       navigation.goBack();
-    } catch (e) { Alert.alert('Error', e.message); }
+    } catch (e) { 
+      // Handle subscription_expired error from server
+      if (e.message?.includes('subscription') || e.message?.includes('expired')) {
+        Alert.alert('Subscription Expired', 'Please upgrade your subscription to add new permits.');
+      } else {
+        Alert.alert('Error', e.message); 
+      }
+    }
     finally { setLoading(false); }
   };
 
@@ -1882,7 +1934,7 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
 };
 
 const SettingsScreen = ({ navigation }) => {
-  const { user, business, subscription, logout, fetchUser, updateBusiness } = useAuth();
+  const { user, business, subscription, subscriptionStatus, logout, fetchUser, updateBusiness } = useAuth();
   const [activeSection, setActiveSection] = useState(null);
   const [loading, setLoading] = useState(false);
   const [profileData, setProfileData] = useState({ firstName: user?.firstName || '', lastName: user?.lastName || '', phone: user?.phone || '' });
@@ -2196,14 +2248,27 @@ const SettingsScreen = ({ navigation }) => {
         )}
 
         <TouchableOpacity onPress={() => setShowSubscriptionModal(true)}>
-          <Card style={styles.settingsCard}>
+          <Card style={[styles.settingsCard, subscriptionStatus?.isExpired && styles.settingsCardExpired]}>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingsSection}>Subscription</Text>
-              <Text style={styles.subscriptionStatus}>{getSubscriptionStatusText()}</Text>
+              <Text style={[styles.subscriptionStatus, subscriptionStatus?.isExpired && { color: COLORS.danger }]}>
+                {subscriptionStatus?.isExpired ? 'Expired - Upgrade to restore access' : getSubscriptionStatusText()}
+              </Text>
             </View>
-            <Badge label={subscription?.plan?.toUpperCase() || 'FULL ACCESS'} variant="primary" />
+            <Badge label={subscription?.plan?.toUpperCase() || 'FULL ACCESS'} variant={subscriptionStatus?.isExpired ? 'danger' : 'primary'} />
           </Card>
         </TouchableOpacity>
+        
+        {/* Manage Subscription - opens Google Play / Apple subscription settings */}
+        {subscription?.stripeSubscriptionId && (
+          <TouchableOpacity onPress={() => InAppPurchase.manageSubscription()}>
+            <Card style={styles.settingsCard}>
+              <Text style={styles.settingsLabel}>Manage Subscription</Text>
+              <Text style={[styles.settingsHint, { marginTop: 2 }]}>Update payment method, cancel, or view history</Text>
+              <Icons.ChevronRight size={18} color={COLORS.gray400} />
+            </Card>
+          </TouchableOpacity>
+        )}
 
         <Card style={styles.settingsCard}>
           <Text style={styles.settingsSection}>Legal</Text>
@@ -3788,6 +3853,32 @@ const MainTabs = () => (
   </Tab.Navigator>
 );
 
+// Wrapper that includes subscription banner
+const MainTabsWithBanner = () => {
+  const { isExpired } = useAuth();
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  
+  return (
+    <View style={{ flex: 1 }}>
+      {isExpired && (
+        <View style={styles.expiredBanner}>
+          <View style={styles.expiredBannerContent}>
+            <Icons.Alert size={20} color="#dc2626" />
+            <Text style={styles.expiredBannerText}>
+              <Text style={styles.expiredBannerBold}>Subscription expired.</Text> Read-only access.
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.expiredBannerBtn} onPress={() => setShowUpgradeModal(true)}>
+            <Text style={styles.expiredBannerBtnText}>Upgrade</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      <MainTabs />
+      <SubscriptionModal visible={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} />
+    </View>
+  );
+};
+
 // ===========================================
 // APP ROOT
 // ===========================================
@@ -3797,7 +3888,7 @@ const AppContent = () => {
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={styles.loadingText}>Loading PermitWise...</Text></View>;
   if (!isAuthenticated) return <AuthNavigator />;
   if (!hasCompletedOnboarding) return <OnboardingScreen />;
-  return <MainTabs />;
+  return <MainTabsWithBanner />;
 };
 
 export default function App() {
@@ -4445,4 +4536,14 @@ const styles = StyleSheet.create({
   addItemBtnText: { fontSize: 14, color: COLORS.primary, fontWeight: '500' },
   // Modal styles for create/suggest checklist
   modalDesc: { fontSize: 14, color: COLORS.gray600, marginBottom: 16, lineHeight: 20 },
+  // Expired Subscription Banner
+  expiredBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#fef2f2', borderBottomWidth: 1, borderBottomColor: '#fca5a5' },
+  expiredBannerContent: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  expiredBannerText: { fontSize: 13, color: '#991b1b', flex: 1 },
+  expiredBannerBold: { fontWeight: '600' },
+  expiredBannerBtn: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#dc2626', borderRadius: 6 },
+  expiredBannerBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.white },
+  // Settings card expired state
+  settingsCardExpired: { borderWidth: 1, borderColor: '#fca5a5', backgroundColor: '#fef2f2' },
+  settingsHint: { fontSize: 12, color: COLORS.gray500 },
 });
