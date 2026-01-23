@@ -353,8 +353,8 @@ const documentSchema = new mongoose.Schema({
 const subscriptionSchema = new mongoose.Schema({
   vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness', required: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  plan: { type: String, enum: ['basic', 'pro', 'elite', 'trial', 'promo', 'lifetime'], default: 'trial' },
-  status: { type: String, enum: ['trial', 'active', 'past_due', 'canceled', 'paused', 'promo', 'lifetime'], default: 'trial' },
+  plan: { type: String, enum: ['free', 'basic', 'pro', 'elite', 'trial', 'promo', 'lifetime'], default: 'trial' },
+  status: { type: String, enum: ['trial', 'active', 'past_due', 'canceled', 'paused', 'promo', 'lifetime', 'expired', 'grace_period'], default: 'trial' },
   stripeCustomerId: { type: String },
   stripeSubscriptionId: { type: String },
   stripePriceId: { type: String },
@@ -362,6 +362,10 @@ const subscriptionSchema = new mongoose.Schema({
   currentPeriodEnd: { type: Date },
   trialEndsAt: { type: Date },
   canceledAt: { type: Date },
+  // Grace period tracking
+  gracePeriodEndsAt: { type: Date }, // 3 days after payment failure
+  lastPaymentFailedAt: { type: Date },
+  paymentFailureCount: { type: Number, default: 0 },
   // Promo/Lifetime fields
   promoGrantedBy: { type: String }, // Admin who granted the promo
   promoGrantedAt: { type: Date },
@@ -696,6 +700,212 @@ const masterAdminMiddleware = (req, res, next) => {
     return res.status(403).json({ error: 'Invalid admin token' });
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired admin token' });
+  }
+};
+
+// ===========================================
+// SUBSCRIPTION STATUS HELPERS & MIDDLEWARE
+// ===========================================
+
+// Helper: Check if subscription is in a valid/active state
+const isSubscriptionActive = (subscription) => {
+  if (!subscription) return false;
+  
+  const now = new Date();
+  const activeStatuses = ['active', 'trial', 'promo', 'lifetime', 'grace_period'];
+  
+  // Check basic status
+  if (!activeStatuses.includes(subscription.status)) return false;
+  
+  // Check trial expiration
+  if (subscription.status === 'trial' && subscription.trialEndsAt) {
+    if (new Date(subscription.trialEndsAt) < now) return false;
+  }
+  
+  // Check promo expiration
+  if (subscription.status === 'promo' && subscription.promoExpiresAt) {
+    if (new Date(subscription.promoExpiresAt) < now) return false;
+  }
+  
+  // Check grace period expiration
+  if (subscription.status === 'grace_period' && subscription.gracePeriodEndsAt) {
+    if (new Date(subscription.gracePeriodEndsAt) < now) return false;
+  }
+  
+  // Check current period end for active subscriptions
+  if (subscription.status === 'active' && subscription.currentPeriodEnd) {
+    if (new Date(subscription.currentPeriodEnd) < now) return false;
+  }
+  
+  return true;
+};
+
+// Helper: Get subscription status details for API responses
+const getSubscriptionStatus = async (vendorBusinessId) => {
+  const subscription = await Subscription.findOne({ vendorBusinessId });
+  
+  if (!subscription) {
+    return { 
+      status: 'none', 
+      isActive: false, 
+      isExpired: true,
+      canRead: true, 
+      canWrite: false, 
+      plan: 'free',
+      message: 'No subscription found'
+    };
+  }
+  
+  const isActive = isSubscriptionActive(subscription);
+  const now = new Date();
+  
+  let expirationDate = null;
+  if (subscription.status === 'trial') expirationDate = subscription.trialEndsAt;
+  else if (subscription.status === 'promo') expirationDate = subscription.promoExpiresAt;
+  else if (subscription.status === 'grace_period') expirationDate = subscription.gracePeriodEndsAt;
+  else if (subscription.status === 'active') expirationDate = subscription.currentPeriodEnd;
+  
+  const daysUntilExpiration = expirationDate ? Math.ceil((new Date(expirationDate) - now) / (1000 * 60 * 60 * 24)) : null;
+  
+  return {
+    status: subscription.status,
+    plan: subscription.plan,
+    isActive,
+    isExpired: !isActive,
+    canRead: true, // Always allow read access
+    canWrite: isActive, // Only allow write if active
+    expirationDate,
+    daysUntilExpiration,
+    features: subscription.features,
+    gracePeriodEndsAt: subscription.gracePeriodEndsAt,
+    message: isActive ? null : 'Your subscription has expired. Upgrade to continue using premium features.'
+  };
+};
+
+// Middleware: Require active subscription (for premium write operations)
+// Blocks: create, update, delete on premium features
+const requireActiveSubscription = async (req, res, next) => {
+  try {
+    if (!req.user?.vendorBusinessId) {
+      return res.status(400).json({ error: 'Business profile required' });
+    }
+    
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.user.vendorBusinessId });
+    const isActive = isSubscriptionActive(subscription);
+    
+    if (!isActive) {
+      return res.status(403).json({ 
+        error: 'subscription_expired',
+        message: 'Your subscription has expired. Please upgrade to continue using this feature.',
+        upgradeRequired: true,
+        currentPlan: subscription?.plan || 'free',
+        expiredAt: subscription?.currentPeriodEnd || subscription?.trialEndsAt || subscription?.gracePeriodEndsAt
+      });
+    }
+    
+    req.subscription = subscription;
+    next();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Middleware: Allow free tier (read-only) or paid users
+// Allows: GET requests, basic profile/permit viewing
+// Blocks: nothing - just attaches subscription info
+const requireFreeOrPaid = async (req, res, next) => {
+  try {
+    if (!req.user?.vendorBusinessId) {
+      return res.status(400).json({ error: 'Business profile required' });
+    }
+    
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.user.vendorBusinessId });
+    const isActive = isSubscriptionActive(subscription);
+    
+    // Attach subscription status to request for downstream use
+    req.subscription = subscription;
+    req.subscriptionActive = isActive;
+    req.canWrite = isActive;
+    
+    next();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Middleware: Check if write operations are allowed (for expired users trying to create/update)
+const requireWriteAccess = async (req, res, next) => {
+  try {
+    // If subscription already attached, use it
+    if (req.subscription !== undefined) {
+      if (!req.canWrite) {
+        return res.status(403).json({
+          error: 'subscription_expired',
+          message: 'Your subscription has expired. Upgrade to create or modify content.',
+          upgradeRequired: true
+        });
+      }
+      return next();
+    }
+    
+    // Otherwise check subscription
+    if (!req.user?.vendorBusinessId) {
+      return res.status(400).json({ error: 'Business profile required' });
+    }
+    
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.user.vendorBusinessId });
+    const isActive = isSubscriptionActive(subscription);
+    
+    if (!isActive) {
+      return res.status(403).json({
+        error: 'subscription_expired',
+        message: 'Your subscription has expired. Upgrade to create or modify content.',
+        upgradeRequired: true,
+        currentPlan: subscription?.plan || 'free'
+      });
+    }
+    
+    req.subscription = subscription;
+    next();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Middleware: Require specific premium feature
+const requirePremiumFeature = (feature) => async (req, res, next) => {
+  try {
+    if (!req.user?.vendorBusinessId) {
+      return res.status(400).json({ error: 'Business profile required' });
+    }
+    
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.user.vendorBusinessId });
+    const isActive = isSubscriptionActive(subscription);
+    
+    if (!isActive) {
+      return res.status(403).json({
+        error: 'subscription_expired',
+        message: 'Your subscription has expired. Please upgrade to access this feature.',
+        upgradeRequired: true,
+        requiredFeature: feature
+      });
+    }
+    
+    // Check if feature is available in plan
+    if (feature && subscription.features && !subscription.features[feature]) {
+      return res.status(403).json({
+        error: 'feature_unavailable',
+        message: `The ${feature} feature is not available in your current plan. Please upgrade.`,
+        upgradeRequired: true,
+        requiredFeature: feature,
+        currentPlan: subscription.plan
+      });
+    }
+    
+    req.subscription = subscription;
+    next();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 };
 
@@ -1070,8 +1280,14 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     const subscription = user.vendorBusinessId
       ? await Subscription.findOne({ vendorBusinessId: user.vendorBusinessId })
       : null;
+    
+    // Get detailed subscription status
+    let subscriptionStatus = null;
+    if (user.vendorBusinessId) {
+      subscriptionStatus = await getSubscriptionStatus(user.vendorBusinessId);
+    }
       
-    res.json({ user, business, subscription });
+    res.json({ user, business, subscription, subscriptionStatus });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1886,7 +2102,7 @@ app.get('/api/permits/:id', authMiddleware, async (req, res) => {
 });
 
 // Add permit to dashboard
-app.post('/api/permits', authMiddleware, async (req, res) => {
+app.post('/api/permits', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     const { permitTypeId, jurisdictionId, status, permitNumber, issueDate, expiryDate, notes } = req.body;
     
@@ -1935,7 +2151,7 @@ app.post('/api/permits', authMiddleware, async (req, res) => {
 });
 
 // Update permit
-app.put('/api/permits/:id', authMiddleware, async (req, res) => {
+app.put('/api/permits/:id', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     const { status, permitNumber, issueDate, expiryDate, notes } = req.body;
     
@@ -1959,7 +2175,7 @@ app.put('/api/permits/:id', authMiddleware, async (req, res) => {
 });
 
 // Delete permit from dashboard
-app.delete('/api/permits/:id', authMiddleware, async (req, res) => {
+app.delete('/api/permits/:id', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     const permit = await VendorPermit.findOneAndDelete({
       _id: req.params.id,
@@ -2070,7 +2286,7 @@ app.get('/api/documents', authMiddleware, async (req, res) => {
 });
 
 // Upload document
-app.post('/api/documents', authMiddleware, upload.single('file'), async (req, res) => {
+app.post('/api/documents', authMiddleware, requireWriteAccess, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -2488,7 +2704,7 @@ app.post('/api/checklists', masterAdminMiddleware, async (req, res) => {
 });
 
 // Start inspection
-app.post('/api/inspections', authMiddleware, checkFeature('inspectionChecklists'), async (req, res) => {
+app.post('/api/inspections', authMiddleware, requirePremiumFeature('inspectionChecklists'), async (req, res) => {
   try {
     const { checklistId, items, notes, inspectionDate, location } = req.body;
     
@@ -2883,7 +3099,7 @@ app.get('/api/events/:id', async (req, res) => {
 });
 
 // Check event readiness
-app.get('/api/events/:id/readiness', authMiddleware, checkFeature('eventIntegration'), async (req, res) => {
+app.get('/api/events/:id/readiness', authMiddleware, requirePremiumFeature('eventIntegration'), async (req, res) => {
   try {
     const event = await Event.findById(req.params.id)
       .populate('requiredPermitTypes');
@@ -3782,7 +3998,7 @@ app.get('/api/notifications', authMiddleware, async (req, res) => {
 });
 
 // Schedule notification
-app.post('/api/notifications', authMiddleware, async (req, res) => {
+app.post('/api/notifications', authMiddleware, requireActiveSubscription, async (req, res) => {
   try {
     const { type, channelAddress, subject, message, sendAt, relatedVendorPermitId } = req.body;
     
@@ -3954,7 +4170,7 @@ app.post('/webhook', async (req, res) => {
         // Get subscription from Stripe
         const stripeSubscription = await stripe.subscriptions.retrieve(session.subscription);
         
-        // Update or create subscription
+        // Update or create subscription - clear any grace period/failure data
         await Subscription.findOneAndUpdate(
           { vendorBusinessId },
           {
@@ -3967,53 +4183,109 @@ app.post('/webhook', async (req, res) => {
             stripePriceId: stripeSubscription.items.data[0].price.id,
             currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
             currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
-            features: PLAN_FEATURES[plan]
+            features: PLAN_FEATURES[plan],
+            // Clear grace period data on successful payment
+            gracePeriodEndsAt: null,
+            lastPaymentFailedAt: null,
+            paymentFailureCount: 0,
+            updatedAt: new Date()
           },
           { upsert: true, new: true }
         );
+        console.log(`Subscription activated for business ${vendorBusinessId}, plan: ${plan}`);
         break;
       }
       
       case 'invoice.paid': {
         const invoice = event.data.object;
+        // Payment successful - restore to active, clear grace period
         await Subscription.findOneAndUpdate(
           { stripeCustomerId: invoice.customer },
-          { status: 'active' }
+          { 
+            status: 'active',
+            gracePeriodEndsAt: null,
+            lastPaymentFailedAt: null,
+            paymentFailureCount: 0,
+            updatedAt: new Date()
+          }
         );
+        console.log(`Invoice paid for customer ${invoice.customer}`);
         break;
       }
       
       case 'invoice.payment_failed': {
         const invoice = event.data.object;
-        await Subscription.findOneAndUpdate(
-          { stripeCustomerId: invoice.customer },
-          { status: 'past_due' }
-        );
+        const subscription = await Subscription.findOne({ stripeCustomerId: invoice.customer });
+        
+        if (subscription) {
+          const failureCount = (subscription.paymentFailureCount || 0) + 1;
+          const now = new Date();
+          
+          // Set 3-day grace period on first failure
+          let gracePeriodEndsAt = subscription.gracePeriodEndsAt;
+          let newStatus = 'grace_period';
+          
+          if (!gracePeriodEndsAt) {
+            gracePeriodEndsAt = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000); // 3 days
+          }
+          
+          // If grace period has ended, expire the subscription
+          if (gracePeriodEndsAt < now) {
+            newStatus = 'expired';
+          }
+          
+          await Subscription.findOneAndUpdate(
+            { stripeCustomerId: invoice.customer },
+            { 
+              status: newStatus,
+              lastPaymentFailedAt: now,
+              paymentFailureCount: failureCount,
+              gracePeriodEndsAt,
+              updatedAt: new Date()
+            }
+          );
+          console.log(`Payment failed for customer ${invoice.customer}, status: ${newStatus}, failures: ${failureCount}`);
+        }
         break;
       }
       
       case 'customer.subscription.updated': {
-        const subscription = event.data.object;
-        const plan = subscription.metadata?.plan || 'basic';
+        const stripeSubscription = event.data.object;
+        const plan = stripeSubscription.metadata?.plan || 'basic';
+        
+        // Map Stripe status to our status
+        let ourStatus = 'active';
+        if (stripeSubscription.status === 'past_due') ourStatus = 'grace_period';
+        else if (stripeSubscription.status === 'canceled') ourStatus = 'canceled';
+        else if (stripeSubscription.status === 'unpaid') ourStatus = 'expired';
+        else if (stripeSubscription.status === 'paused') ourStatus = 'paused';
+        else if (stripeSubscription.status === 'active') ourStatus = 'active';
         
         await Subscription.findOneAndUpdate(
-          { stripeSubscriptionId: subscription.id },
+          { stripeSubscriptionId: stripeSubscription.id },
           {
-            status: subscription.status === 'active' ? 'active' : subscription.status,
-            currentPeriodStart: new Date(subscription.current_period_start * 1000),
-            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-            features: PLAN_FEATURES[plan]
+            status: ourStatus,
+            currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
+            currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+            features: PLAN_FEATURES[plan],
+            updatedAt: new Date()
           }
         );
+        console.log(`Subscription updated for ${stripeSubscription.id}, status: ${ourStatus}`);
         break;
       }
       
       case 'customer.subscription.deleted': {
-        const subscription = event.data.object;
+        const stripeSubscription = event.data.object;
         await Subscription.findOneAndUpdate(
-          { stripeSubscriptionId: subscription.id },
-          { status: 'canceled', canceledAt: new Date() }
+          { stripeSubscriptionId: stripeSubscription.id },
+          { 
+            status: 'canceled', 
+            canceledAt: new Date(),
+            updatedAt: new Date()
+          }
         );
+        console.log(`Subscription deleted/canceled for ${stripeSubscription.id}`);
         break;
       }
     }
