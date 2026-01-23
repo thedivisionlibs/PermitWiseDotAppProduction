@@ -2857,8 +2857,9 @@ const InspectionsScreen = () => {
 };
 
 const EventsScreen = () => {
-  const { user, subscription } = useAuth();
+  const { user, subscription, business } = useAuth();
   const [events, setEvents] = useState([]);
+  const [publishedEvents, setPublishedEvents] = useState([]);
   const [organizerEvents, setOrganizerEvents] = useState([]);
   const [vendorApplications, setVendorApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2867,6 +2868,9 @@ const EventsScreen = () => {
   const [selectedOrgEvent, setSelectedOrgEvent] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showApplyModal, setShowApplyModal] = useState(null);
+  const [applicationNotes, setApplicationNotes] = useState('');
+  const [applyingToEvent, setApplyingToEvent] = useState(false);
   const [requestForm, setRequestForm] = useState({ eventName: '', organizerName: '', city: '', state: '', startDate: '', additionalInfo: '' });
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [requestSubmitted, setRequestSubmitted] = useState(false);
@@ -2891,13 +2895,40 @@ const EventsScreen = () => {
     finally { setLoading(false); setRefreshing(false); }
   };
 
-  // Fetch vendor's events
+  // Fetch vendor's events and published events for browsing
   const fetchMyEvents = async () => {
     try {
-      const data = await api.get('/events/my-events');
-      setEvents(data.events || []);
+      const [myData, pubData] = await Promise.all([
+        api.get('/events/my-events'),
+        api.get('/events/published')
+      ]);
+      setEvents(myData.events || []);
+      setPublishedEvents(pubData.events || []);
     } catch (error) { console.error(error); }
     finally { setLoading(false); setRefreshing(false); }
+  };
+
+  // Apply to an event
+  const applyToEvent = async () => {
+    if (!showApplyModal) return;
+    setApplyingToEvent(true);
+    try {
+      await api.post(`/events/${showApplyModal._id}/apply`, { notes: applicationNotes });
+      Alert.alert('Success', 'Application submitted!');
+      setShowApplyModal(null);
+      setApplicationNotes('');
+      fetchMyEvents();
+    } catch (error) { Alert.alert('Error', error.message); }
+    finally { setApplyingToEvent(false); }
+  };
+
+  // Respond to event invitation (accept/decline)
+  const respondToInvitation = async (eventId, accept) => {
+    try {
+      await api.put(`/events/${eventId}/respond-invitation`, { accept });
+      Alert.alert('Success', accept ? 'Invitation accepted!' : 'Invitation declined');
+      fetchMyEvents();
+    } catch (error) { Alert.alert('Error', error.message); }
   };
 
   // Fetch applications for an event
@@ -3341,6 +3372,68 @@ const EventsScreen = () => {
     return COLORS.gray500;
   };
 
+  // Separate events by source
+  const organizerInvitations = events.filter(e => e.eventSource === 'organizer_invitation');
+  const participatingEvents = events.filter(e => e.eventSource === 'admin_added' || e.eventSource === 'vendor_application');
+  
+  // Available events to apply to (not already applied)
+  const appliedEventIds = new Set([
+    ...events.map(e => e._id),
+    ...publishedEvents.filter(e => e.vendorApplications?.some(a => a.vendorBusinessId === business?._id)).map(e => e._id)
+  ]);
+  const availableEvents = publishedEvents.filter(e => !appliedEventIds.has(e._id) && e.status === 'published');
+
+  const renderEventCard = (item) => (
+    <Card key={item._id} style={styles.eventReadinessCard}>
+      <View style={styles.eventReadinessHeader}>
+        <View style={styles.eventDateBadge}>
+          <Text style={styles.eventDateMonth}>{new Date(item.startDate).toLocaleDateString('en-US', { month: 'short' })}</Text>
+          <Text style={styles.eventDateDay}>{new Date(item.startDate).getDate()}</Text>
+        </View>
+        <View style={styles.eventReadinessInfo}>
+          <Text style={styles.eventReadinessName}>{item.eventName}</Text>
+          <Text style={styles.eventReadinessOrganizer}>by {item.organizerName}</Text>
+          <View style={styles.eventReadinessLocation}>
+            <Icons.MapPin size={12} color={COLORS.gray500} />
+            <Text style={styles.eventReadinessLocationText}>{item.location?.city}, {item.location?.state}</Text>
+          </View>
+        </View>
+        <View style={[styles.readinessBadge, { backgroundColor: getReadinessColor(item.readinessColor) + '20' }]}>
+          {item.readinessStatus === 'ready' ? (
+            <Icons.Check size={16} color={getReadinessColor(item.readinessColor)} />
+          ) : (
+            <Icons.Alert size={16} color={getReadinessColor(item.readinessColor)} />
+          )}
+        </View>
+      </View>
+      
+      {item.eventSource === 'organizer_invitation' && (
+        <View style={[styles.eventSourceBadge, { backgroundColor: '#dbeafe' }]}>
+          <Text style={[styles.eventSourceBadgeText, { color: COLORS.primary }]}>📩 Organizer Invitation</Text>
+        </View>
+      )}
+      
+      <View style={styles.eventReadinessProgress}>
+        <View style={styles.progressBarContainer}>
+          <View style={[styles.progressBarFill, { width: `${item.requiredPermitsCount > 0 ? (item.readyCount / item.requiredPermitsCount) * 100 : 100}%` }]} />
+        </View>
+        <Text style={styles.progressText}>{item.readyCount}/{item.requiredPermitsCount} ready</Text>
+      </View>
+      
+      {item.readinessStatus === 'ready' ? (
+        <View style={styles.readinessSuccess}>
+          <Icons.Check size={16} color={COLORS.success} />
+          <Text style={styles.readinessSuccessText}>All permits ready</Text>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.readinessIssues} onPress={() => setSelectedEvent(item)}>
+          <Text style={styles.readinessIssueText} numberOfLines={1}>{item.readinessLabel}</Text>
+          <Text style={styles.readinessViewDetails}>View Details →</Text>
+        </TouchableOpacity>
+      )}
+    </Card>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.pageHeader}>
@@ -3353,105 +3446,257 @@ const EventsScreen = () => {
           <Text style={styles.requestEventButtonSmallText}>Request</Text>
         </TouchableOpacity>
       </View>
-      <FlatList
-        data={events}
-        keyExtractor={item => item._id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchMyEvents(); }} />}
-        renderItem={({ item }) => (
-          <Card style={styles.eventReadinessCard}>
-            <View style={styles.eventReadinessHeader}>
-              <View style={styles.eventDateBadge}>
-                <Text style={styles.eventDateMonth}>{new Date(item.startDate).toLocaleDateString('en-US', { month: 'short' })}</Text>
-                <Text style={styles.eventDateDay}>{new Date(item.startDate).getDate()}</Text>
-              </View>
-              <View style={styles.eventReadinessInfo}>
-                <Text style={styles.eventReadinessName}>{item.eventName}</Text>
-                <Text style={styles.eventReadinessOrganizer}>by {item.organizerName}</Text>
-                <View style={styles.eventReadinessLocation}>
-                  <Icons.MapPin size={12} color={COLORS.gray500} />
-                  <Text style={styles.eventReadinessLocationText}>{item.location?.city}, {item.location?.state}</Text>
-                </View>
-              </View>
-              <View style={[styles.readinessBadge, { backgroundColor: getReadinessColor(item.readinessColor) + '20' }]}>
-                {item.readinessStatus === 'ready' ? (
-                  <Icons.Check size={16} color={getReadinessColor(item.readinessColor)} />
-                ) : (
-                  <Icons.Alert size={16} color={getReadinessColor(item.readinessColor)} />
-                )}
-              </View>
-            </View>
-            
-            <View style={styles.eventReadinessProgress}>
-              <View style={styles.progressBarContainer}>
-                <View style={[styles.progressBarFill, { width: `${item.requiredPermitsCount > 0 ? (item.readyCount / item.requiredPermitsCount) * 100 : 100}%` }]} />
-              </View>
-              <Text style={styles.progressText}>{item.readyCount}/{item.requiredPermitsCount} ready</Text>
-            </View>
-            
-            {item.readinessStatus === 'ready' ? (
-              <View style={styles.readinessSuccess}>
-                <Icons.Check size={16} color={COLORS.success} />
-                <Text style={styles.readinessSuccessText}>All permits ready</Text>
-              </View>
-            ) : (
-              <TouchableOpacity style={styles.readinessIssues} onPress={() => setSelectedEvent(item)}>
-                <Text style={styles.readinessIssueText} numberOfLines={1}>{item.readinessLabel}</Text>
-                <Text style={styles.readinessViewDetails}>View Details →</Text>
-              </TouchableOpacity>
-            )}
-          </Card>
-        )}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Icons.Event size={48} color={COLORS.gray300} />
-            <Text style={styles.emptyTitle}>No events assigned</Text>
-            <Text style={styles.emptyText}>When event organizers add you to their vendor list, you'll see your compliance status here.</Text>
-            <TouchableOpacity style={styles.requestEventButtonLarge} onPress={() => setShowRequestModal(true)}>
-              <Text style={styles.requestEventButtonLargeText}>Know an event? Request it here</Text>
-            </TouchableOpacity>
-          </View>
-        }
-        contentContainerStyle={styles.listContent}
-      />
       
-      {/* Event Details Modal */}
-      <Modal visible={!!selectedEvent} animationType="slide" transparent>
+      <ScrollView 
+        style={styles.listContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchMyEvents(); }} />}
+      >
+        {/* Organizer Invitations Section - Always show */}
+        <View style={styles.eventSection}>
+          <View style={styles.eventSectionHeader}>
+            <Text style={styles.eventSectionTitle}>📩 Organizer Invitations</Text>
+            <Text style={styles.eventSectionCount}>{organizerInvitations.length}</Text>
+          </View>
+          <Text style={styles.eventSectionDesc}>Events you've been personally invited to</Text>
+          {organizerInvitations.length > 0 ? (
+            organizerInvitations.map(item => (
+              <Card key={item._id} style={[styles.eventReadinessCard, item.invitationStatus === 'invited' && styles.pendingInvitationCard]}>
+                <View style={styles.eventReadinessHeader}>
+                  <View style={styles.eventDateBadge}>
+                    <Text style={styles.eventDateMonth}>{new Date(item.startDate).toLocaleDateString('en-US', { month: 'short' })}</Text>
+                    <Text style={styles.eventDateDay}>{new Date(item.startDate).getDate()}</Text>
+                  </View>
+                  <View style={styles.eventReadinessInfo}>
+                    <Text style={styles.eventReadinessName}>{item.eventName}</Text>
+                    <Text style={styles.eventReadinessOrganizer}>by {item.organizerName}</Text>
+                    <View style={styles.eventReadinessLocation}>
+                      <Icons.MapPin size={12} color={COLORS.gray500} />
+                      <Text style={styles.eventReadinessLocationText}>{item.location?.city}, {item.location?.state}</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.invitationStatusBadge, { backgroundColor: item.invitationStatus === 'invited' ? '#fef3c7' : item.invitationStatus === 'accepted' ? '#dcfce7' : '#fee2e2' }]}>
+                    <Text style={[styles.invitationStatusText, { color: item.invitationStatus === 'invited' ? '#92400e' : item.invitationStatus === 'accepted' ? '#166534' : '#dc2626' }]}>
+                      {item.invitationStatus === 'invited' ? 'Pending' : item.invitationStatus === 'accepted' ? 'Accepted' : 'Declined'}
+                    </Text>
+                  </View>
+                </View>
+                
+                {item.invitationStatus === 'invited' && (
+                  <View style={styles.invitationActions}>
+                    <Text style={styles.invitationPrompt}>You've been invited to participate!</Text>
+                    <View style={styles.invitationButtons}>
+                      <TouchableOpacity style={styles.acceptButton} onPress={() => respondToInvitation(item._id, true)}>
+                        <Text style={styles.acceptButtonText}>Accept</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.declineButton} onPress={() => respondToInvitation(item._id, false)}>
+                        <Text style={styles.declineButtonText}>Decline</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.viewDetailsButton} onPress={() => setSelectedEvent(item)}>
+                        <Text style={styles.viewDetailsButtonText}>Details</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+                
+                {item.invitationStatus === 'accepted' && (
+                  <>
+                    <View style={styles.eventReadinessProgress}>
+                      <View style={styles.progressBarContainer}>
+                        <View style={[styles.progressBarFill, { width: `${item.requiredPermitsCount > 0 ? (item.readyCount / item.requiredPermitsCount) * 100 : 100}%` }]} />
+                      </View>
+                      <Text style={styles.progressText}>{item.readyCount}/{item.requiredPermitsCount} ready</Text>
+                    </View>
+                    {item.readinessStatus === 'ready' ? (
+                      <View style={styles.readinessSuccess}>
+                        <Icons.Check size={16} color={COLORS.success} />
+                        <Text style={styles.readinessSuccessText}>All permits ready</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity style={styles.readinessIssues} onPress={() => setSelectedEvent(item)}>
+                        <Text style={styles.readinessIssueText} numberOfLines={1}>{item.readinessLabel}</Text>
+                        <Text style={styles.readinessViewDetails}>View Details →</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                )}
+              </Card>
+            ))
+          ) : (
+            <View style={styles.sectionEmpty}>
+              <Text style={styles.sectionEmptyText}>No invitations yet. When organizers invite you, they'll appear here.</Text>
+            </View>
+          )}
+        </View>
+        
+        {/* Browse Events Section - Always show */}
+        <View style={styles.eventSection}>
+          <View style={styles.eventSectionHeader}>
+            <Text style={styles.eventSectionTitle}>🔍 Browse Events</Text>
+            <Text style={styles.eventSectionCount}>{availableEvents.length}</Text>
+          </View>
+          <Text style={styles.eventSectionDesc}>Open events accepting vendor applications</Text>
+          {availableEvents.length > 0 ? (
+            availableEvents.map(event => (
+              <Card key={event._id} style={styles.browseEventCard}>
+                <View style={styles.browseEventHeader}>
+                  <View style={styles.eventDateBadge}>
+                    <Text style={styles.eventDateMonth}>{new Date(event.startDate).toLocaleDateString('en-US', { month: 'short' })}</Text>
+                    <Text style={styles.eventDateDay}>{new Date(event.startDate).getDate()}</Text>
+                  </View>
+                  <View style={styles.browseEventInfo}>
+                    <Text style={styles.browseEventName}>{event.eventName}</Text>
+                    <View style={styles.eventReadinessLocation}>
+                      <Icons.MapPin size={12} color={COLORS.gray500} />
+                      <Text style={styles.eventReadinessLocationText}>{event.location?.city}, {event.location?.state}</Text>
+                    </View>
+                    <Text style={styles.browseEventOrganizer}>By {event.organizerName}</Text>
+                  </View>
+                </View>
+                <Button title="Apply" size="sm" onPress={() => setShowApplyModal(event)} style={{ marginTop: 12 }} />
+              </Card>
+            ))
+          ) : (
+            <View style={styles.sectionEmpty}>
+              <Text style={styles.sectionEmptyText}>No events currently accepting applications. Check back soon!</Text>
+            </View>
+          )}
+        </View>
+        
+        {/* Participating Events Section - Always show */}
+        <View style={styles.eventSection}>
+          <View style={styles.eventSectionHeader}>
+            <Text style={styles.eventSectionTitle}>🎪 Your Participating Events</Text>
+            <Text style={styles.eventSectionCount}>{participatingEvents.length}</Text>
+          </View>
+          <Text style={styles.eventSectionDesc}>Events you've applied to or routine events</Text>
+          {participatingEvents.length > 0 ? (
+            participatingEvents.map(renderEventCard)
+          ) : (
+            <View style={styles.sectionEmpty}>
+              <Text style={styles.sectionEmptyText}>No participating events yet. Apply to events above!</Text>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+      
+      {/* Apply to Event Modal */}
+      <Modal visible={!!showApplyModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Apply to Event</Text>
+              <TouchableOpacity onPress={() => { setShowApplyModal(null); setApplicationNotes(''); }}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              <Text style={styles.applyEventName}>{showApplyModal?.eventName}</Text>
+              <View style={styles.applyEventMeta}>
+                <Text style={styles.applyEventMetaText}>📅 {showApplyModal && formatDate(showApplyModal.startDate)}</Text>
+                <Text style={styles.applyEventMetaText}>📍 {showApplyModal?.location?.city}, {showApplyModal?.location?.state}</Text>
+              </View>
+              <Input 
+                label="Application Notes (optional)" 
+                placeholder="Tell the organizer about your business..." 
+                value={applicationNotes} 
+                onChangeText={setApplicationNotes} 
+                multiline 
+              />
+              <View style={styles.modalFooter}>
+                <Button title="Cancel" variant="outline" onPress={() => { setShowApplyModal(null); setApplicationNotes(''); }} style={{ flex: 1 }} />
+                <Button title={applyingToEvent ? "Applying..." : "Submit Application"} onPress={applyToEvent} disabled={applyingToEvent} style={{ flex: 1 }} />
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Event Details Modal - Enhanced */}
+      <Modal visible={!!selectedEvent} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{selectedEvent?.eventName}</Text>
               <TouchableOpacity onPress={() => setSelectedEvent(null)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
             </View>
             
             <ScrollView style={styles.modalBody}>
-              <View style={styles.eventDetailSummary}>
-                <Text style={styles.eventDetailText}><Text style={styles.eventDetailLabel}>Date:</Text> {selectedEvent && formatDate(selectedEvent.startDate)}</Text>
-                <Text style={styles.eventDetailText}><Text style={styles.eventDetailLabel}>Location:</Text> {selectedEvent?.location?.city}, {selectedEvent?.location?.state}</Text>
-                <Text style={styles.eventDetailText}><Text style={styles.eventDetailLabel}>Organizer:</Text> {selectedEvent?.organizerName}</Text>
+              {/* Event Info Section */}
+              <View style={styles.detailSection}>
+                <Text style={styles.detailSectionTitle}>Event Information</Text>
+                <View style={styles.eventDetailSummary}>
+                  <Text style={styles.eventDetailText}><Text style={styles.eventDetailLabel}>Date:</Text> {selectedEvent && formatDate(selectedEvent.startDate)}</Text>
+                  <Text style={styles.eventDetailText}><Text style={styles.eventDetailLabel}>Location:</Text> {selectedEvent?.location?.city}, {selectedEvent?.location?.state}</Text>
+                  <Text style={styles.eventDetailText}><Text style={styles.eventDetailLabel}>Organizer:</Text> {selectedEvent?.organizerName}</Text>
+                  {selectedEvent?.description && (
+                    <Text style={styles.eventDetailText}><Text style={styles.eventDetailLabel}>Description:</Text> {selectedEvent.description}</Text>
+                  )}
+                </View>
               </View>
               
-              {selectedEvent?.issues?.length > 0 ? (
-                <View style={styles.issuesList}>
-                  <Text style={styles.issuesTitle}>Issues to Resolve:</Text>
-                  {selectedEvent.issues.map((issue, i) => (
-                    <View key={i} style={[styles.issueItem, { borderLeftColor: issue.type === 'missing' || issue.type === 'expired' ? COLORS.danger : COLORS.warning }]}>
-                      {issue.type === 'missing' && <Text style={styles.issueItemText}>🚫 <Text style={styles.issueBold}>{issue.permit}</Text> - Permit not found</Text>}
-                      {issue.type === 'expired' && <Text style={styles.issueItemText}>⏰ <Text style={styles.issueBold}>{issue.permit}</Text> - Expired</Text>}
-                      {issue.type === 'missing_document' && <Text style={styles.issueItemText}>📄 <Text style={styles.issueBold}>{issue.permit}</Text> - Document missing</Text>}
-                      {issue.type === 'in_progress' && <Text style={styles.issueItemText}>⏳ <Text style={styles.issueBold}>{issue.permit}</Text> - In progress</Text>}
+              {/* Invitation Actions for Pending */}
+              {selectedEvent?.eventSource === 'organizer_invitation' && selectedEvent?.invitationStatus === 'invited' && (
+                <View style={[styles.detailSection, styles.invitationBanner]}>
+                  <View style={styles.invitationBannerContent}>
+                    <Icons.Bell size={24} color={COLORS.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.invitationBannerTitle}>You've Been Invited!</Text>
+                      <Text style={styles.invitationBannerText}>The organizer has personally invited you to participate.</Text>
+                    </View>
+                  </View>
+                  <View style={styles.invitationResponseButtons}>
+                    <Button title="Accept Invitation" onPress={() => { respondToInvitation(selectedEvent._id, true); setSelectedEvent(null); }} style={{ flex: 1 }} />
+                    <Button title="Decline" variant="outline" onPress={() => { respondToInvitation(selectedEvent._id, false); setSelectedEvent(null); }} style={{ flex: 1 }} />
+                  </View>
+                </View>
+              )}
+              
+              {/* Required Permits Section */}
+              {selectedEvent?.requiredPermitTypes && selectedEvent.requiredPermitTypes.length > 0 && (
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailSectionTitle}>Required Permits ({selectedEvent.requiredPermitTypes.length})</Text>
+                  {selectedEvent.requiredPermitTypes.map((pt, i) => (
+                    <View key={i} style={styles.requiredPermitItem}>
+                      <Icons.Document size={16} color={COLORS.gray400} />
+                      <Text style={styles.requiredPermitText}>{typeof pt === 'object' ? pt.name : pt}</Text>
                     </View>
                   ))}
                 </View>
-              ) : (
-                <View style={styles.allGood}>
-                  <Icons.Check size={20} color={COLORS.success} />
-                  <Text style={styles.allGoodText}>All requirements met!</Text>
+              )}
+              
+              {/* Compliance Status - Only show if accepted or not an invitation */}
+              {(selectedEvent?.invitationStatus === 'accepted' || selectedEvent?.eventSource !== 'organizer_invitation' || !selectedEvent?.invitationStatus) && (
+                <View style={styles.detailSection}>
+                  <Text style={styles.detailSectionTitle}>Your Compliance Status</Text>
+                  <View style={styles.complianceOverview}>
+                    <View style={styles.progressBarContainer}>
+                      <View style={[styles.progressBarFill, { width: `${selectedEvent?.requiredPermitsCount > 0 ? (selectedEvent.readyCount / selectedEvent.requiredPermitsCount) * 100 : 100}%` }]} />
+                    </View>
+                    <Text style={styles.progressLabel}>{selectedEvent?.readyCount} of {selectedEvent?.requiredPermitsCount} permits ready</Text>
+                  </View>
+                  
+                  {selectedEvent?.issues?.length > 0 ? (
+                    <View style={styles.issuesList}>
+                      <Text style={styles.issuesIntro}>Issues to resolve:</Text>
+                      {selectedEvent.issues.map((issue, i) => (
+                        <View key={i} style={[styles.issueItem, { borderLeftColor: issue.type === 'missing' || issue.type === 'expired' ? COLORS.danger : COLORS.warning }]}>
+                          {issue.type === 'missing' && <Text style={styles.issueItemText}>🚫 <Text style={styles.issueBold}>{issue.permit}</Text> - Permit not found</Text>}
+                          {issue.type === 'expired' && <Text style={styles.issueItemText}>⏰ <Text style={styles.issueBold}>{issue.permit}</Text> - Expired</Text>}
+                          {issue.type === 'missing_document' && <Text style={styles.issueItemText}>📄 <Text style={styles.issueBold}>{issue.permit}</Text> - Document missing</Text>}
+                          {issue.type === 'in_progress' && <Text style={styles.issueItemText}>⏳ <Text style={styles.issueBold}>{issue.permit}</Text> - In progress</Text>}
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <View style={styles.allGood}>
+                      <Icons.Check size={20} color={COLORS.success} />
+                      <Text style={styles.allGoodText}>All requirements met! You're ready for this event.</Text>
+                    </View>
+                  )}
                 </View>
               )}
             </ScrollView>
             
             <View style={styles.modalFooter}>
-              <Button title="Close" onPress={() => setSelectedEvent(null)} variant="outline" />
+              <Button title="Close" onPress={() => setSelectedEvent(null)} variant="outline" style={{ flex: 1 }} />
             </View>
           </View>
         </View>
@@ -4113,6 +4358,51 @@ const styles = StyleSheet.create({
   appActionBtnText: { fontSize: 14, fontWeight: '500', color: '#16a34a' },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
   statusBadgeText: { fontSize: 11, fontWeight: '600' },
+  // Event Sections
+  eventSection: { marginBottom: 24 },
+  eventSectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, paddingHorizontal: 4 },
+  eventSectionTitle: { fontSize: 16, fontWeight: '600', color: COLORS.gray800 },
+  eventSectionCount: { fontSize: 14, color: COLORS.gray500, backgroundColor: COLORS.gray100, paddingHorizontal: 10, paddingVertical: 2, borderRadius: 12 },
+  eventSourceBadge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, marginTop: 8 },
+  eventSourceBadgeText: { fontSize: 12, fontWeight: '500' },
+  eventSectionDesc: { fontSize: 13, color: COLORS.gray500, marginBottom: 12, paddingHorizontal: 4 },
+  browseEventCard: { marginBottom: 12 },
+  browseEventHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  browseEventInfo: { flex: 1 },
+  browseEventName: { fontSize: 16, fontWeight: '600', color: COLORS.gray800, marginBottom: 4 },
+  browseEventOrganizer: { fontSize: 13, color: COLORS.gray500, marginTop: 2 },
+  applyEventName: { fontSize: 18, fontWeight: '600', color: COLORS.gray800, marginBottom: 8 },
+  applyEventMeta: { marginBottom: 16 },
+  applyEventMetaText: { fontSize: 14, color: COLORS.gray600, marginBottom: 4 },
+  // Section Empty State
+  sectionEmpty: { padding: 24, backgroundColor: COLORS.gray50, borderRadius: 12, alignItems: 'center' },
+  sectionEmptyText: { fontSize: 14, color: COLORS.gray500, textAlign: 'center' },
+  // Invitation Card Styles
+  pendingInvitationCard: { borderWidth: 2, borderColor: COLORS.warning, backgroundColor: '#fffbeb' },
+  invitationStatusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
+  invitationStatusText: { fontSize: 12, fontWeight: '600' },
+  invitationActions: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.gray200 },
+  invitationPrompt: { fontSize: 14, fontWeight: '500', color: COLORS.gray700, marginBottom: 10 },
+  invitationButtons: { flexDirection: 'row', gap: 8 },
+  acceptButton: { flex: 1, backgroundColor: COLORS.primary, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
+  acceptButtonText: { color: COLORS.white, fontWeight: '600', fontSize: 14 },
+  declineButton: { flex: 1, backgroundColor: COLORS.white, paddingVertical: 10, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: COLORS.gray300 },
+  declineButtonText: { color: COLORS.gray700, fontWeight: '500', fontSize: 14 },
+  viewDetailsButton: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, backgroundColor: COLORS.gray100 },
+  viewDetailsButtonText: { color: COLORS.primary, fontWeight: '500', fontSize: 14 },
+  // Event Detail Modal Sections
+  detailSection: { marginBottom: 20, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
+  detailSectionTitle: { fontSize: 16, fontWeight: '600', color: COLORS.gray800, marginBottom: 12 },
+  invitationBanner: { backgroundColor: '#eff6ff', borderRadius: 12, padding: 16, marginBottom: 16, borderBottomWidth: 0 },
+  invitationBannerContent: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  invitationBannerTitle: { fontSize: 16, fontWeight: '600', color: COLORS.primary, marginBottom: 4 },
+  invitationBannerText: { fontSize: 14, color: COLORS.gray600 },
+  invitationResponseButtons: { flexDirection: 'row', gap: 12, marginTop: 16 },
+  requiredPermitItem: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: COLORS.gray50, borderRadius: 8, marginBottom: 8 },
+  requiredPermitText: { fontSize: 14, color: COLORS.gray700, flex: 1 },
+  complianceOverview: { marginBottom: 16 },
+  progressLabel: { fontSize: 14, color: COLORS.gray600, marginTop: 8 },
+  issuesIntro: { fontSize: 14, color: COLORS.gray600, marginBottom: 12 },
   // Legacy upgrade styles (keeping for compatibility)
   upgradeContainer: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   upgradeIcon: { width: 80, height: 80, backgroundColor: '#e0e7ff', borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
