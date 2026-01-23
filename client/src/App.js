@@ -280,6 +280,103 @@ const EmptyState = ({ icon: Icon, title, description, action }) => (
   <div className="empty-state">{Icon && <div className="empty-state-icon"><Icon /></div>}<h3>{title}</h3>{description && <p>{description}</p>}{action}</div>
 );
 
+// Expired Subscription Banner - shows persistent banner for expired users
+const ExpiredSubscriptionBanner = () => {
+  const { subscriptionStatus, isExpired } = useAuth();
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  
+  if (!isExpired) return null;
+  
+  return (
+    <>
+      <div className="expired-banner">
+        <div className="expired-banner-content">
+          <Icons.Alert />
+          <span><strong>Your subscription has expired.</strong> You have read-only access. Upgrade to resume full functionality.</span>
+        </div>
+        <button className="expired-banner-btn" onClick={() => setShowUpgradeModal(true)}>Upgrade Now</button>
+      </div>
+      <UpgradeRequiredModal isOpen={showUpgradeModal} onClose={() => setShowUpgradeModal(false)} reason="Your subscription has expired" />
+    </>
+  );
+};
+
+// Upgrade Required Modal - shows when expired users try to use premium features
+const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires an active subscription', feature = null }) => {
+  const { subscriptionStatus, subscription } = useAuth();
+  
+  const planFeatures = {
+    basic: ['Permit tracking for 1 city', 'Document storage', 'Email reminders', 'Basic compliance dashboard'],
+    pro: ['Everything in Basic', 'Multi-city support (up to 3)', 'SMS alerts', 'Inspection checklists', 'PDF autofill'],
+    elite: ['Everything in Pro', 'Unlimited cities', 'Event integration', 'Team accounts', 'Priority support', 'API access']
+  };
+  
+  const planPrices = { basic: 29, pro: 49, elite: 99 };
+  
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Upgrade Required" size="lg">
+      <div className="upgrade-modal">
+        <div className="upgrade-reason">
+          <Icons.Lock />
+          <div>
+            <h3>{reason}</h3>
+            <p>Choose a plan to continue using PermitWise with full access to all features.</p>
+          </div>
+        </div>
+        
+        {feature && (
+          <div className="feature-highlight">
+            <strong>Feature needed:</strong> {feature}
+          </div>
+        )}
+        
+        <div className="plans-grid">
+          {['basic', 'pro', 'elite'].map(plan => (
+            <div key={plan} className={`plan-card ${plan === 'pro' ? 'recommended' : ''}`}>
+              {plan === 'pro' && <div className="plan-badge">Most Popular</div>}
+              <h4>{plan.charAt(0).toUpperCase() + plan.slice(1)}</h4>
+              <div className="plan-price">${planPrices[plan]}<span>/mo</span></div>
+              <ul className="plan-features">
+                {planFeatures[plan].map((f, i) => <li key={i}><Icons.Check /> {f}</li>)}
+              </ul>
+              <Button onClick={() => window.location.hash = 'settings'} className={plan === 'pro' ? '' : 'btn-outline'}>
+                {subscription?.plan === plan ? 'Current Plan' : 'Choose Plan'}
+              </Button>
+            </div>
+          ))}
+        </div>
+        
+        <p className="upgrade-note">All plans include a 14-day free trial. Cancel anytime.</p>
+      </div>
+    </Modal>
+  );
+};
+
+// Lock Icon overlay for premium sections
+const PremiumLock = ({ feature, children }) => {
+  const { isExpired, subscriptionStatus } = useAuth();
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  
+  // Check if feature is available
+  const hasFeature = subscriptionStatus?.features?.[feature] ?? false;
+  const isLocked = isExpired || !hasFeature;
+  
+  if (!isLocked) return children;
+  
+  return (
+    <>
+      <div className="premium-locked" onClick={() => setShowUpgrade(true)}>
+        <div className="locked-overlay">
+          <Icons.Lock />
+          <span>Premium Feature</span>
+        </div>
+        <div className="locked-content">{children}</div>
+      </div>
+      <UpgradeRequiredModal isOpen={showUpgrade} onClose={() => setShowUpgrade(false)} feature={feature} />
+    </>
+  );
+};
+
 // ===========================================
 // AUTH PROVIDER
 // ===========================================
@@ -287,6 +384,7 @@ const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [business, setBusiness] = useState(null);
   const [subscription, setSubscription] = useState(null);
+  const [subscriptionStatus, setSubscriptionStatus] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchUser = useCallback(async () => {
@@ -295,6 +393,7 @@ const AuthProvider = ({ children }) => {
       if (!token) { setLoading(false); return; }
       const data = await api.get('/auth/me');
       setUser(data.user); setBusiness(data.business); setSubscription(data.subscription);
+      setSubscriptionStatus(data.subscriptionStatus);
     } catch (error) { localStorage.removeItem('permitwise_token'); } 
     finally { setLoading(false); }
   }, []);
@@ -313,10 +412,14 @@ const AuthProvider = ({ children }) => {
     setUser(data.user); return data;
   };
 
-  const logout = () => { localStorage.removeItem('permitwise_token'); setUser(null); setBusiness(null); setSubscription(null); };
+  const logout = () => { localStorage.removeItem('permitwise_token'); setUser(null); setBusiness(null); setSubscription(null); setSubscriptionStatus(null); };
+
+  // Check if subscription allows write operations
+  const canWrite = subscriptionStatus?.canWrite ?? true;
+  const isExpired = subscriptionStatus?.isExpired ?? false;
 
   return (
-    <AuthContext.Provider value={{ user, business, subscription, loading, login, register, logout, fetchUser, updateBusiness: setBusiness, updateSubscription: setSubscription, isAuthenticated: !!user, hasCompletedOnboarding: !!business }}>
+    <AuthContext.Provider value={{ user, business, subscription, subscriptionStatus, canWrite, isExpired, loading, login, register, logout, fetchUser, updateBusiness: setBusiness, updateSubscription: setSubscription, isAuthenticated: !!user, hasCompletedOnboarding: !!business }}>
       {children}
     </AuthContext.Provider>
   );
@@ -1262,7 +1365,7 @@ const UploadDocumentModal = ({ isOpen, onClose, onSuccess }) => {
 const UploadModal = UploadDocumentModal; // Alias for Dashboard use
 
 const InspectionsPage = () => {
-  const { subscription } = useAuth();
+  const { subscription, subscriptionStatus } = useAuth();
   const [checklists, setChecklists] = useState([]); // Recommended checklists
   const [userChecklists, setUserChecklists] = useState([]); // User's custom checklists
   const [inspections, setInspections] = useState([]);
@@ -1352,13 +1455,19 @@ const InspectionsPage = () => {
   };
 
   if (!hasAccess) {
+    const isExpiredOrGrace = subscriptionStatus?.status === 'expired' || subscriptionStatus?.status === 'grace_period' || subscriptionStatus?.status === 'canceled';
+    
     return (
       <div className="upgrade-feature-page">
         <div className="upgrade-feature-content">
-          <div className="upgrade-feature-icon"><Icons.Checklist /></div>
-          <h1>Inspection Checklists</h1>
-          <Badge variant="warning">Pro Plan Required</Badge>
-          <p className="upgrade-feature-description">Never fail a health inspection again. Walk through every requirement step-by-step before the inspector arrives.</p>
+          <div className="upgrade-feature-icon">{isExpiredOrGrace ? <Icons.Lock /> : <Icons.Checklist />}</div>
+          <h1>{isExpiredOrGrace ? 'Subscription Expired' : 'Inspection Checklists'}</h1>
+          <Badge variant={isExpiredOrGrace ? 'danger' : 'warning'}>{isExpiredOrGrace ? 'Renew to Access' : 'Pro Plan Required'}</Badge>
+          <p className="upgrade-feature-description">
+            {isExpiredOrGrace 
+              ? 'Your subscription has expired. Renew now to access inspection checklists and ensure you never fail a health inspection.'
+              : 'Never fail a health inspection again. Walk through every requirement step-by-step before the inspector arrives.'}
+          </p>
           
           <div className="upgrade-feature-grid">
             <div className="upgrade-feature-item">
@@ -1389,8 +1498,8 @@ const InspectionsPage = () => {
             <p>Also includes SMS alerts, PDF autofill & multi-city support</p>
           </div>
 
-          <Button size="lg" onClick={() => window.location.hash = 'settings'}>Upgrade to Pro</Button>
-          <p className="upgrade-note">14-day free trial • Cancel anytime</p>
+          <Button size="lg" onClick={() => window.location.hash = 'settings'}>{isExpiredOrGrace ? 'Renew Subscription' : 'Upgrade to Pro'}</Button>
+          <p className="upgrade-note">{isExpiredOrGrace ? 'Restore full access immediately' : '14-day free trial • Cancel anytime'}</p>
         </div>
       </div>
     );
@@ -1576,13 +1685,14 @@ const InspectionsPage = () => {
 };
 
 const EventsPage = () => {
-  const { user, subscription, business } = useAuth();
+  const { user, subscription, business, subscriptionStatus, isExpired, canWrite } = useAuth();
   const [events, setEvents] = useState([]); const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [requestForm, setRequestForm] = useState({ eventName: '', organizerName: '', city: '', state: '', startDate: '', endDate: '', eventType: '', website: '', additionalInfo: '' });
   const [requestSubmitting, setRequestSubmitting] = useState(false);
   const [requestSubmitted, setRequestSubmitted] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   
   // Organizer portal state
   const [organizerEvents, setOrganizerEvents] = useState([]);
@@ -1929,14 +2039,21 @@ const EventsPage = () => {
   }
 
   // VENDOR VIEW - requires Elite plan
+  // Show different messaging for expired vs no plan
   if (!hasAccess) {
+    const isExpiredOrGrace = subscriptionStatus?.status === 'expired' || subscriptionStatus?.status === 'grace_period' || subscriptionStatus?.status === 'canceled';
+    
     return (
       <div className="upgrade-feature-page">
         <div className="upgrade-feature-content">
-          <div className="upgrade-feature-icon"><Icons.Event /></div>
-          <h1>Event Readiness</h1>
-          <Badge variant="warning">Elite Plan Required</Badge>
-          <p className="upgrade-feature-description">See your permit compliance status for events you've been invited to participate in. Know instantly if you're ready or what's missing.</p>
+          <div className="upgrade-feature-icon">{isExpiredOrGrace ? <Icons.Lock /> : <Icons.Event />}</div>
+          <h1>{isExpiredOrGrace ? 'Subscription Expired' : 'Event Readiness'}</h1>
+          <Badge variant={isExpiredOrGrace ? 'danger' : 'warning'}>{isExpiredOrGrace ? 'Renew to Access' : 'Elite Plan Required'}</Badge>
+          <p className="upgrade-feature-description">
+            {isExpiredOrGrace 
+              ? 'Your subscription has expired. Renew now to access event readiness features and see your compliance status for upcoming events.'
+              : 'See your permit compliance status for events you\'ve been invited to participate in. Know instantly if you\'re ready or what\'s missing.'}
+          </p>
           
           <div className="upgrade-feature-grid">
             <div className="upgrade-feature-item">
@@ -1967,8 +2084,8 @@ const EventsPage = () => {
             <p>Includes everything in Pro + team accounts & priority support</p>
           </div>
 
-          <Button size="lg" onClick={() => window.location.hash = 'settings'}>Upgrade to Elite</Button>
-          <p className="upgrade-note">14-day free trial • Cancel anytime</p>
+          <Button size="lg" onClick={() => window.location.hash = 'settings'}>{isExpiredOrGrace ? 'Renew Subscription' : 'Upgrade to Elite'}</Button>
+          <p className="upgrade-note">{isExpiredOrGrace ? 'Restore full access immediately' : '14-day free trial • Cancel anytime'}</p>
           
           <div className="request-event-section">
             <p>Know of an event that should be on PermitWise?</p>
@@ -4067,7 +4184,7 @@ const Sidebar = ({ activePage, onNavigate, onLogout }) => {
 
 const AppLayout = ({ children, activePage, onNavigate, onLogout }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  return (<div className="app-layout"><Sidebar activePage={activePage} onNavigate={(p) => { onNavigate(p); setMobileMenuOpen(false); }} onLogout={onLogout} /><div className="mobile-header"><button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}><Icons.Menu /></button><div className="logo"><Icons.Shield /><span>PermitWise</span></div></div>{mobileMenuOpen && <div className="mobile-nav-overlay" onClick={() => setMobileMenuOpen(false)}><Sidebar activePage={activePage} onNavigate={(p) => { onNavigate(p); setMobileMenuOpen(false); }} onLogout={onLogout} /></div>}<main className="main-content">{children}</main></div>);
+  return (<div className="app-layout"><Sidebar activePage={activePage} onNavigate={(p) => { onNavigate(p); setMobileMenuOpen(false); }} onLogout={onLogout} /><div className="mobile-header"><button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}><Icons.Menu /></button><div className="logo"><Icons.Shield /><span>PermitWise</span></div></div>{mobileMenuOpen && <div className="mobile-nav-overlay" onClick={() => setMobileMenuOpen(false)}><Sidebar activePage={activePage} onNavigate={(p) => { onNavigate(p); setMobileMenuOpen(false); }} onLogout={onLogout} /></div>}<main className="main-content"><ExpiredSubscriptionBanner />{children}</main></div>);
 };
 
 // ===========================================
