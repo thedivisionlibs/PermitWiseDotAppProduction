@@ -218,6 +218,19 @@ img { max-width: 100%; display: block; }
 .auth-footer { text-align: center; margin-top: 1.5rem; color: var(--gray-600); font-size: 0.875rem; }
 .auth-footer button { color: var(--primary); font-weight: 500; }
 .auth-footer button:hover { text-decoration: underline; }
+
+/* Account Type Selector */
+.account-type-selector { margin-bottom: 1.5rem; }
+.account-type-label { display: block; font-weight: 500; color: var(--gray-700); margin-bottom: 0.75rem; }
+.account-type-options { display: flex; gap: 1rem; }
+.account-type-option { flex: 1; display: flex; align-items: center; gap: 0.75rem; padding: 1rem; background: var(--gray-50); border: 2px solid var(--gray-200); border-radius: var(--radius); cursor: pointer; transition: all 0.15s; text-align: left; }
+.account-type-option:hover { border-color: var(--primary-light); background: white; }
+.account-type-option.active { border-color: var(--primary); background: white; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
+.account-type-icon { width: 40px; height: 40px; background: var(--primary-light); color: var(--primary); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.account-type-option.active .account-type-icon { background: var(--primary); color: white; }
+.account-type-info { flex: 1; }
+.account-type-title { display: block; font-weight: 600; color: var(--gray-800); font-size: 0.9375rem; }
+.account-type-desc { display: block; font-size: 0.8125rem; color: var(--gray-500); margin-top: 2px; }
 .auth-success { text-align: center; padding: 2rem; background: var(--white); border-radius: var(--radius-xl); box-shadow: var(--shadow-md); }
 .auth-success .success-icon { width: 64px; height: 64px; background: #dcfce7; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem; }
 .auth-success .success-icon svg { width: 32px; height: 32px; color: var(--success); }
@@ -2023,6 +2036,19 @@ img { max-width: 100%; display: block; }
 }
 .available-events-section h2 {
   margin: 0 0 0.25rem;
+}
+.events-section {
+  margin-bottom: 2rem;
+}
+.events-section-header {
+  margin-bottom: 1rem;
+}
+.events-section-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 .available-events-grid {
   display: grid;
