@@ -10,6 +10,9 @@
     "client:build": "cd client && npm run build",
     "mobile": "cd mobile && npm start",
     "install:all": "npm install && cd client && npm install && cd ../mobile && npm install",
+    "seed:jurisdictions": "node seeds/seed_jurisdictions.js",
+    "seed:permits": "node seeds/seed_permit_library.js",
+    "seed:all": "npm run seed:jurisdictions && npm run seed:permits"
     "seed": "node -e \"require('./server.js')\" --seed"
   },
   "keywords": [
