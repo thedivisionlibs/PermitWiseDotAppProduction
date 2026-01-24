@@ -2134,18 +2134,52 @@ const OrganizerSettingsScreen = ({ navigation }) => {
           <Text style={styles.pageTitle}>Organizer Settings</Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
             <Badge variant="primary">Organizer</Badge>
-            {isVerified ? (
+            {user?.organizerProfile?.disabled ? (
+              <Badge variant="danger">Disabled</Badge>
+            ) : isVerified ? (
               <Badge variant="success">✓ Verified</Badge>
+            ) : user?.organizerProfile?.verificationStatus === 'info_requested' ? (
+              <Badge variant="warning">Info Requested</Badge>
+            ) : user?.organizerProfile?.verificationStatus === 'rejected' ? (
+              <Badge variant="danger">Rejected</Badge>
             ) : (
               <Badge variant="warning">Pending</Badge>
             )}
           </View>
         </View>
 
-        {!isVerified && (
+        {/* Status Alerts */}
+        {user?.organizerProfile?.verificationStatus === 'info_requested' && (
+          <Card style={[styles.card, { backgroundColor: '#fef3c7', marginHorizontal: 20, marginBottom: 16 }]}>
+            <Text style={{ color: '#92400e', fontSize: 14, fontWeight: '600' }}>⚠️ Additional Information Requested</Text>
+            <Text style={{ color: '#92400e', fontSize: 14, marginTop: 8 }}>
+              {user?.organizerProfile?.adminNote || 'Please update your organization profile with the requested information.'}
+            </Text>
+          </Card>
+        )}
+
+        {user?.organizerProfile?.verificationStatus === 'rejected' && (
+          <Card style={[styles.card, { backgroundColor: '#fee2e2', marginHorizontal: 20, marginBottom: 16 }]}>
+            <Text style={{ color: '#991b1b', fontSize: 14, fontWeight: '600' }}>❌ Application Not Approved</Text>
+            <Text style={{ color: '#991b1b', fontSize: 14, marginTop: 8 }}>
+              {user?.organizerProfile?.disabledReason || 'Your organizer application was not approved. Please contact support.'}
+            </Text>
+          </Card>
+        )}
+
+        {user?.organizerProfile?.disabled && user?.organizerProfile?.verificationStatus !== 'rejected' && (
+          <Card style={[styles.card, { backgroundColor: '#fee2e2', marginHorizontal: 20, marginBottom: 16 }]}>
+            <Text style={{ color: '#991b1b', fontSize: 14, fontWeight: '600' }}>🚫 Account Disabled</Text>
+            <Text style={{ color: '#991b1b', fontSize: 14, marginTop: 8 }}>
+              {user?.organizerProfile?.disabledReason || 'Your organizer account has been disabled. Please contact support.'}
+            </Text>
+          </Card>
+        )}
+
+        {!isVerified && !user?.organizerProfile?.disabled && user?.organizerProfile?.verificationStatus !== 'info_requested' && user?.organizerProfile?.verificationStatus !== 'rejected' && (
           <Card style={[styles.card, { backgroundColor: '#dbeafe', marginHorizontal: 20, marginBottom: 16 }]}>
             <Text style={{ color: '#1e40af', fontSize: 14 }}>
-              <Text style={{ fontWeight: '600' }}>Verification Pending: </Text>
+              <Text style={{ fontWeight: '600' }}>⏳ Verification Pending: </Text>
               Your account is awaiting verification. You can create draft events while waiting.
             </Text>
           </Card>
@@ -4946,3 +4980,4 @@ const styles = StyleSheet.create({
   settingsCardExpired: { borderWidth: 1, borderColor: '#fca5a5', backgroundColor: '#fef2f2' },
   settingsHint: { fontSize: 12, color: COLORS.gray500 },
 });
+
