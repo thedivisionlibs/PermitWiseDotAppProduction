@@ -202,6 +202,40 @@ const daysUntil = (date) => date ? Math.ceil((new Date(date) - new Date()) / (10
 const getStatusLabel = (status) => ({ active: 'Active', expired: 'Expired', pending_renewal: 'Expiring Soon', missing: 'Missing', in_progress: 'In Progress' }[status] || status);
 const getStatusColor = (status) => ({ active: COLORS.success, expired: COLORS.danger, pending_renewal: COLORS.warning, missing: COLORS.gray400 }[status] || COLORS.gray500);
 
+// Phone number formatting - US format: (###) ###-####
+const formatPhoneNumber = (value) => {
+  if (!value) return '';
+  const digits = value.replace(/\D/g, '');
+  const phone = digits.startsWith('1') && digits.length > 10 ? digits.slice(1) : digits;
+  if (phone.length === 0) return '';
+  if (phone.length <= 3) return `(${phone}`;
+  if (phone.length <= 6) return `(${phone.slice(0, 3)}) ${phone.slice(3)}`;
+  return `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6, 10)}`;
+};
+
+const getPhoneDigits = (formatted) => {
+  if (!formatted) return '';
+  const digits = formatted.replace(/\D/g, '');
+  return digits.length === 10 ? `+1${digits}` : digits.length === 11 && digits.startsWith('1') ? `+${digits}` : digits;
+};
+
+const validatePhone = (value) => {
+  if (!value) return { valid: true, error: null };
+  const digits = value.replace(/\D/g, '');
+  const phone = digits.startsWith('1') && digits.length > 10 ? digits.slice(1) : digits;
+  if (phone.length < 10) return { valid: false, error: 'Phone number is too short' };
+  if (phone.length > 10) return { valid: false, error: 'Phone number is too long' };
+  return { valid: true, error: null };
+};
+
+const validateEmail = (email) => {
+  if (!email) return { valid: true, error: null };
+  if (!email.includes('@')) return { valid: false, error: 'Email must contain @' };
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) return { valid: false, error: 'Please enter a valid email' };
+  return { valid: true, error: null };
+};
+
 // Get secure file URL with authentication token
 const getSecureFileUrl = async (fileUrl) => {
   if (!fileUrl) return '';
@@ -391,6 +425,83 @@ const Input = ({ label, error, ...props }) => (
     {error && <Text style={styles.errorText}>{error}</Text>}
   </View>
 );
+
+// Phone Input with auto-formatting
+const PhoneInput = ({ label, value, onChangeText, error: externalError, required, ...props }) => {
+  const [displayValue, setDisplayValue] = useState(formatPhoneNumber(value || ''));
+  const [internalError, setInternalError] = useState(null);
+  
+  useEffect(() => {
+    setDisplayValue(formatPhoneNumber(value || ''));
+  }, [value]);
+  
+  const handleChange = (text) => {
+    const formatted = formatPhoneNumber(text);
+    setDisplayValue(formatted);
+    const validation = validatePhone(formatted);
+    setInternalError(validation.error);
+    const digits = getPhoneDigits(formatted);
+    onChangeText(digits);
+  };
+  
+  const error = externalError || internalError;
+  
+  return (
+    <View style={styles.formGroup}>
+      {label && <Text style={styles.label}>{label}{required && ' *'}</Text>}
+      <View style={styles.phoneInputWrapper}>
+        <View style={styles.phonePrefix}><Text style={styles.phonePrefixText}>+1</Text></View>
+        <TextInput 
+          style={[styles.input, styles.phoneInput, error && styles.inputError]} 
+          value={displayValue}
+          onChangeText={handleChange}
+          placeholder="(555) 123-4567"
+          placeholderTextColor={COLORS.gray400}
+          keyboardType="phone-pad"
+          maxLength={14}
+          {...props} 
+        />
+      </View>
+      {error && <Text style={styles.errorText}>{error}</Text>}
+    </View>
+  );
+};
+
+// Email Input with validation
+const EmailInput = ({ label, value, onChangeText, error: externalError, required, onBlur, ...props }) => {
+  const [internalError, setInternalError] = useState(null);
+  
+  const handleBlur = () => {
+    const validation = validateEmail(value);
+    setInternalError(validation.error);
+    if (onBlur) onBlur();
+  };
+  
+  const handleChange = (text) => {
+    if (internalError) setInternalError(null);
+    onChangeText(text);
+  };
+  
+  const error = externalError || internalError;
+  
+  return (
+    <View style={styles.formGroup}>
+      {label && <Text style={styles.label}>{label}{required && ' *'}</Text>}
+      <TextInput 
+        style={[styles.input, error && styles.inputError]} 
+        value={value}
+        onChangeText={handleChange}
+        onBlur={handleBlur}
+        placeholder="email@example.com"
+        placeholderTextColor={COLORS.gray400}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        {...props} 
+      />
+      {error && <Text style={styles.errorText}>{error}</Text>}
+    </View>
+  );
+};
 
 const PasswordInput = ({ label, value, onChangeText, error, ...props }) => {
   const [showPassword, setShowPassword] = useState(false);
@@ -685,8 +796,8 @@ const RegisterScreen = ({ navigation }) => {
           <View style={styles.halfInput}><Input label="First Name" value={form.firstName} onChangeText={v => setForm(f => ({ ...f, firstName: v }))} /></View>
           <View style={styles.halfInput}><Input label="Last Name" value={form.lastName} onChangeText={v => setForm(f => ({ ...f, lastName: v }))} /></View>
         </View>
-        <Input label="Email" value={form.email} onChangeText={v => setForm(f => ({ ...f, email: v }))} keyboardType="email-address" autoCapitalize="none" />
-        <Input label="Phone" value={form.phone} onChangeText={v => setForm(f => ({ ...f, phone: v }))} keyboardType="phone-pad" />
+        <EmailInput label="Email" value={form.email} onChangeText={v => setForm(f => ({ ...f, email: v }))} required />
+        <PhoneInput label="Phone" value={form.phone} onChangeText={v => setForm(f => ({ ...f, phone: v }))} />
         <PasswordInput label="Password" value={form.password} onChangeText={v => setForm(f => ({ ...f, password: v }))} />
         <PasswordStrengthIndicator password={form.password} />
         <PasswordInput label="Confirm Password" value={form.confirmPassword} onChangeText={v => setForm(f => ({ ...f, confirmPassword: v }))} />
@@ -2058,7 +2169,7 @@ const SettingsScreen = ({ navigation }) => {
           <Card style={styles.editCard}>
             <Input label="First Name" value={profileData.firstName} onChangeText={v => setProfileData(d => ({ ...d, firstName: v }))} />
             <Input label="Last Name" value={profileData.lastName} onChangeText={v => setProfileData(d => ({ ...d, lastName: v }))} />
-            <Input label="Phone" value={profileData.phone} onChangeText={v => setProfileData(d => ({ ...d, phone: v }))} keyboardType="phone-pad" />
+            <PhoneInput label="Phone" value={profileData.phone} onChangeText={v => setProfileData(d => ({ ...d, phone: v }))} />
             <Button title="Save Profile" onPress={handleProfileSave} loading={loading} />
           </Card>
         )}
@@ -2072,8 +2183,8 @@ const SettingsScreen = ({ navigation }) => {
             <Input label="DBA Name" value={businessData.dbaName} onChangeText={v => setBusinessData(d => ({ ...d, dbaName: v }))} />
             <Input label="EIN" value={businessData.ein} onChangeText={v => setBusinessData(d => ({ ...d, ein: v }))} placeholder="XX-XXXXXXX" />
             <View style={styles.row}>
-              <View style={styles.halfInput}><Input label="Phone" value={businessData.phone} onChangeText={v => setBusinessData(d => ({ ...d, phone: v }))} /></View>
-              <View style={styles.halfInput}><Input label="Email" value={businessData.email} onChangeText={v => setBusinessData(d => ({ ...d, email: v }))} /></View>
+              <View style={styles.halfInput}><PhoneInput label="Phone" value={businessData.phone} onChangeText={v => setBusinessData(d => ({ ...d, phone: v }))} /></View>
+              <View style={styles.halfInput}><EmailInput label="Email" value={businessData.email} onChangeText={v => setBusinessData(d => ({ ...d, email: v }))} /></View>
             </View>
             
             <Text style={[styles.label, { marginTop: 16 }]}>Food Handling</Text>
@@ -3832,7 +3943,8 @@ const PermitsStack = () => (
   </Stack.Navigator>
 );
 
-const MainTabs = () => (
+// Vendor tabs - full access
+const VendorTabs = () => (
   <Tab.Navigator screenOptions={({ route }) => ({
     headerShown: false,
     tabBarActiveTintColor: COLORS.primary,
@@ -3853,14 +3965,40 @@ const MainTabs = () => (
   </Tab.Navigator>
 );
 
+// Organizer tabs - Events and Settings only
+const OrganizerTabs = () => (
+  <Tab.Navigator screenOptions={({ route }) => ({
+    headerShown: false,
+    tabBarActiveTintColor: COLORS.primary,
+    tabBarInactiveTintColor: COLORS.gray400,
+    tabBarStyle: { backgroundColor: COLORS.white, borderTopColor: COLORS.gray200, paddingBottom: Platform.OS === 'ios' ? 20 : 8, height: Platform.OS === 'ios' ? 85 : 65 },
+    tabBarIcon: ({ color, size }) => {
+      const icons = { Events: Icons.Event, Settings: Icons.Settings };
+      const Icon = icons[route.name];
+      return Icon ? <Icon size={size} color={color} /> : null;
+    },
+  })}>
+    <Tab.Screen name="Events" component={EventsScreen} />
+    <Tab.Screen name="Settings" component={SettingsScreen} />
+  </Tab.Navigator>
+);
+
+// Dynamic tabs based on user type
+const MainTabs = () => {
+  const { user } = useAuth();
+  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  return isOrganizer ? <OrganizerTabs /> : <VendorTabs />;
+};
+
 // Wrapper that includes subscription banner
 const MainTabsWithBanner = () => {
-  const { isExpired } = useAuth();
+  const { user, isExpired } = useAuth();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
   
   return (
     <View style={{ flex: 1 }}>
-      {isExpired && (
+      {isExpired && !isOrganizer && (
         <View style={styles.expiredBanner}>
           <View style={styles.expiredBannerContent}>
             <Icons.Alert size={20} color="#dc2626" />
@@ -3883,11 +4021,13 @@ const MainTabsWithBanner = () => {
 // APP ROOT
 // ===========================================
 const AppContent = () => {
-  const { isAuthenticated, hasCompletedOnboarding, loading } = useAuth();
+  const { user, isAuthenticated, hasCompletedOnboarding, loading } = useAuth();
+  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
 
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={styles.loadingText}>Loading PermitWise...</Text></View>;
   if (!isAuthenticated) return <AuthNavigator />;
-  if (!hasCompletedOnboarding) return <OnboardingScreen />;
+  // Organizers skip onboarding (they don't need business setup)
+  if (!hasCompletedOnboarding && !isOrganizer) return <OnboardingScreen />;
   return <MainTabsWithBanner />;
 };
 
@@ -3922,6 +4062,10 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, fontWeight: '500', color: COLORS.gray700, marginBottom: 6 },
   input: { backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.gray300, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: COLORS.gray800 },
   inputError: { borderColor: COLORS.danger },
+  phoneInputWrapper: { flexDirection: 'row', alignItems: 'center' },
+  phonePrefix: { backgroundColor: COLORS.gray100, borderWidth: 1, borderColor: COLORS.gray300, borderTopLeftRadius: 8, borderBottomLeftRadius: 8, paddingHorizontal: 12, paddingVertical: 12, borderRightWidth: 0 },
+  phonePrefixText: { fontSize: 16, color: COLORS.gray600, fontWeight: '500' },
+  phoneInput: { flex: 1, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 },
   errorText: { fontSize: 13, color: COLORS.danger, marginTop: 4 },
   // Card
   card: { backgroundColor: COLORS.white, borderRadius: 12, padding: 16, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 },
