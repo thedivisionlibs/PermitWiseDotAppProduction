@@ -497,7 +497,14 @@ const eventSchema = new mongoose.Schema({
     invitedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     status: { type: String, enum: ['invited', 'accepted', 'declined'], default: 'invited' },
     respondedAt: Date,
-    notes: String
+    notes: String,
+    // Custom requirement completions for invited vendors
+    customRequirementCompletions: [{
+      requirementIndex: Number,
+      completed: { type: Boolean, default: false },
+      completedAt: Date,
+      notes: String
+    }]
   }],
   // Vendor applications - vendors who applied to this event
   vendorApplications: [{
@@ -510,6 +517,13 @@ const eventSchema = new mongoose.Schema({
     applicationNotes: String, // Vendor's application notes
     organizerNotes: String, // Organizer's private notes
     boothAssignment: String,
+    // Custom requirement completions - tracks vendor completion of organizer's custom requirements
+    customRequirementCompletions: [{
+      requirementIndex: Number, // Index in event's customPermitRequirements array
+      completed: { type: Boolean, default: false },
+      completedAt: Date,
+      notes: String
+    }],
     // Document uploads specific to this event
     uploadedDocuments: [{
       name: String,
@@ -1808,6 +1822,31 @@ app.get('/api/permit-types/required', async (req, res) => {
   }
 });
 
+// Get permit types by state (for event organizers)
+app.get('/api/permit-types/by-state', authMiddleware, async (req, res) => {
+  try {
+    const { state } = req.query;
+    
+    if (!state) {
+      return res.status(400).json({ error: 'state is required' });
+    }
+    
+    // Find all jurisdictions in this state
+    const jurisdictions = await Jurisdiction.find({ state, active: true });
+    const jurisdictionIds = jurisdictions.map(j => j._id);
+    
+    // Get all permit types for jurisdictions in this state
+    const permitTypes = await PermitType.find({
+      jurisdictionId: { $in: jurisdictionIds },
+      active: true
+    }).populate('jurisdictionId', 'name city state type').sort({ name: 1 });
+    
+    res.json({ permitTypes, state, jurisdictionCount: jurisdictions.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Create permit type (admin)
 app.post('/api/permit-types', masterAdminMiddleware, async (req, res) => {
   try {
@@ -1838,7 +1877,7 @@ app.put('/api/permit-types/:id', masterAdminMiddleware, async (req, res) => {
 // ===========================================
 
 // Sync permits - check for new permit types and add missing ones
-app.post('/api/permits/sync', authMiddleware, async (req, res) => {
+app.post('/api/permits/sync', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     if (!req.user.vendorBusinessId) {
       return res.status(404).json({ error: 'No business found' });
@@ -1925,7 +1964,7 @@ app.post('/api/permits/sync', authMiddleware, async (req, res) => {
 });
 
 // Sync food handling permits - add or remove based on toggle
-app.post('/api/permits/sync-food-handling', authMiddleware, async (req, res) => {
+app.post('/api/permits/sync-food-handling', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     const { handlesFood } = req.body;
     
@@ -2193,7 +2232,7 @@ app.delete('/api/permits/:id', authMiddleware, requireWriteAccess, async (req, r
 });
 
 // Add permits for a city
-app.post('/api/permits/add-city', authMiddleware, async (req, res) => {
+app.post('/api/permits/add-city', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     const { city, state } = req.body;
     
@@ -2862,7 +2901,7 @@ app.get('/api/user-checklists', authMiddleware, async (req, res) => {
 });
 
 // Create a personal checklist
-app.post('/api/user-checklists', authMiddleware, async (req, res) => {
+app.post('/api/user-checklists', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     const { name, description, category, items } = req.body;
     
@@ -3193,6 +3232,12 @@ app.post('/api/events/organizer/create', authMiddleware, async (req, res) => {
     
     const { eventName, description, startDate, endDate, location, city, state, address, eventType, maxVendors, applicationDeadline, feeStructure, requiredPermitTypes, customPermitRequirements, status } = req.body;
     
+    // Unverified organizers can only create drafts
+    const isVerified = req.user.organizerProfile?.verified;
+    if (!isVerified && status === 'published') {
+      return res.status(403).json({ error: 'Your organizer account must be verified by PermitWise to publish events. You can save events as drafts while awaiting verification.' });
+    }
+    
     if (!eventName) return res.status(400).json({ error: 'Event name is required' });
     if (!startDate) return res.status(400).json({ error: 'Start date is required' });
     if (!city || !state) return res.status(400).json({ error: 'City and state are required' });
@@ -3231,6 +3276,12 @@ app.put('/api/events/organizer/:id/status', authMiddleware, async (req, res) => 
   try {
     if (!req.user.isOrganizer) {
       return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    // Check verification for publishing
+    const isVerified = req.user.organizerProfile?.verified;
+    if (!isVerified && req.body.status === 'published') {
+      return res.status(403).json({ error: 'Your organizer account must be verified by PermitWise to publish events.' });
     }
     
     const event = await Event.findOne({ _id: req.params.id, organizerId: req.user._id });
@@ -3417,7 +3468,7 @@ app.get('/api/events/published', authMiddleware, async (req, res) => {
 });
 
 // Apply to event (vendor)
-app.post('/api/events/:id/apply', authMiddleware, async (req, res) => {
+app.post('/api/events/:id/apply', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     if (!req.user.vendorBusinessId) {
       return res.status(400).json({ error: 'You need a business profile to apply' });
@@ -3468,7 +3519,7 @@ app.post('/api/events/:id/apply', authMiddleware, async (req, res) => {
 });
 
 // Respond to event invitation (vendor)
-app.put('/api/events/:id/respond-invitation', authMiddleware, async (req, res) => {
+app.put('/api/events/:id/respond-invitation', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     if (!req.user.vendorBusinessId) {
       return res.status(400).json({ error: 'Business profile required' });
@@ -3492,6 +3543,69 @@ app.put('/api/events/:id/respond-invitation', authMiddleware, async (req, res) =
     
     await event.save();
     res.json({ success: true, status: invitation.status });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Mark custom requirement as complete (vendor)
+app.put('/api/events/:id/custom-requirement/:index', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.vendorBusinessId) {
+      return res.status(400).json({ error: 'Business profile required' });
+    }
+    
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    const requirementIndex = parseInt(req.params.index);
+    const { completed, notes } = req.body;
+    
+    // Check if requirement exists
+    if (!event.customPermitRequirements || requirementIndex >= event.customPermitRequirements.length) {
+      return res.status(404).json({ error: 'Custom requirement not found' });
+    }
+    
+    // Find vendor in assignedVendors or vendorApplications
+    let vendorEntry = event.assignedVendors.find(
+      av => av.vendorBusinessId.toString() === req.user.vendorBusinessId.toString()
+    );
+    
+    if (!vendorEntry) {
+      vendorEntry = event.vendorApplications.find(
+        va => va.vendorBusinessId.toString() === req.user.vendorBusinessId.toString() && va.status === 'approved'
+      );
+    }
+    
+    if (!vendorEntry) {
+      return res.status(403).json({ error: 'You are not assigned to this event' });
+    }
+    
+    // Initialize customRequirementCompletions array if needed
+    if (!vendorEntry.customRequirementCompletions) {
+      vendorEntry.customRequirementCompletions = [];
+    }
+    
+    // Find or create the completion record
+    let completion = vendorEntry.customRequirementCompletions.find(c => c.requirementIndex === requirementIndex);
+    
+    if (completion) {
+      completion.completed = completed;
+      completion.completedAt = completed ? new Date() : null;
+      if (notes) completion.notes = notes;
+    } else {
+      vendorEntry.customRequirementCompletions.push({
+        requirementIndex,
+        completed,
+        completedAt: completed ? new Date() : null,
+        notes: notes || ''
+      });
+    }
+    
+    await event.save();
+    res.json({ success: true, completed });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3860,7 +3974,7 @@ app.post('/api/organizer/events/:id/messages', authMiddleware, organizerMiddlewa
 // ===========================================
 
 // Apply to event (for published events that accept applications)
-app.post('/api/events/:id/apply', authMiddleware, async (req, res) => {
+app.post('/api/events/:id/apply', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     const { applicationNotes } = req.body;
     
@@ -3940,7 +4054,7 @@ app.put('/api/events/:id/invitation', authMiddleware, async (req, res) => {
 });
 
 // Upload document for event application
-app.post('/api/events/:id/documents', authMiddleware, upload.single('file'), async (req, res) => {
+app.post('/api/events/:id/documents', authMiddleware, requireWriteAccess, upload.single('file'), async (req, res) => {
   try {
     const { name } = req.body;
     
@@ -4624,6 +4738,85 @@ app.delete('/api/admin/users/:id', masterAdminMiddleware, async (req, res) => {
   try {
     await User.findByIdAndDelete(req.params.id);
     res.json({ message: 'User deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Get Organizers (pending and verified)
+app.get('/api/admin/organizers', masterAdminMiddleware, async (req, res) => {
+  try {
+    const organizers = await User.find({ isOrganizer: true })
+      .select('-password -resetPasswordToken -verificationToken')
+      .sort({ createdAt: -1 });
+    
+    // Separate into pending and verified
+    const pending = organizers.filter(o => !o.organizerProfile?.verified && !o.organizerProfile?.disabled);
+    const verified = organizers.filter(o => o.organizerProfile?.verified);
+    const disabled = organizers.filter(o => o.organizerProfile?.disabled);
+    
+    res.json({ organizers, pending, verified, disabled });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Verify Organizer
+app.put('/api/admin/organizers/:id/verify', masterAdminMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user || !user.isOrganizer) {
+      return res.status(404).json({ error: 'Organizer not found' });
+    }
+    
+    user.organizerProfile = user.organizerProfile || {};
+    user.organizerProfile.verified = true;
+    user.organizerProfile.verifiedAt = new Date();
+    user.organizerProfile.verifiedBy = req.adminId;
+    await user.save();
+    
+    res.json({ success: true, message: 'Organizer verified' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Revoke Organizer Verification
+app.put('/api/admin/organizers/:id/revoke', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user || !user.isOrganizer) {
+      return res.status(404).json({ error: 'Organizer not found' });
+    }
+    
+    user.organizerProfile = user.organizerProfile || {};
+    user.organizerProfile.verified = false;
+    user.organizerProfile.disabled = true;
+    user.organizerProfile.disabledReason = reason || 'Verification revoked by admin';
+    user.organizerProfile.disabledAt = new Date();
+    await user.save();
+    
+    res.json({ success: true, message: 'Organizer access revoked' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Re-enable Organizer
+app.put('/api/admin/organizers/:id/enable', masterAdminMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user || !user.isOrganizer) {
+      return res.status(404).json({ error: 'Organizer not found' });
+    }
+    
+    user.organizerProfile = user.organizerProfile || {};
+    user.organizerProfile.disabled = false;
+    user.organizerProfile.disabledReason = null;
+    await user.save();
+    
+    res.json({ success: true, message: 'Organizer re-enabled' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
