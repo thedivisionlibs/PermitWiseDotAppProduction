@@ -606,9 +606,9 @@ const PasswordStrengthIndicator = ({ password }) => {
   );
 };
 
-const RegisterPage = ({ onSwitch, onSuccess }) => {
+const RegisterPage = ({ onSwitch, onSuccess, defaultOrganizer = false }) => {
   const { register } = useAuth();
-  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '', firstName: '', lastName: '', phone: '', accountType: 'vendor' });
+  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '', firstName: '', lastName: '', phone: '', accountType: defaultOrganizer ? 'organizer' : 'vendor' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
@@ -2714,6 +2714,355 @@ const EventsPage = () => {
   );
 };
 
+// ===========================================
+// ORGANIZER SETTINGS PAGE
+// ===========================================
+const OrganizerSettingsPage = () => {
+  const { user, fetchUser } = useAuth();
+  const [activeTab, setActiveTab] = useState('profile');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  
+  const [profileData, setProfileData] = useState({
+    firstName: user?.firstName || '',
+    lastName: user?.lastName || '',
+    phone: user?.phone || ''
+  });
+  
+  const [organizationData, setOrganizationData] = useState({
+    companyName: user?.organizerProfile?.companyName || '',
+    description: user?.organizerProfile?.description || '',
+    website: user?.organizerProfile?.website || '',
+    phone: user?.organizerProfile?.phone || '',
+    contactEmail: user?.organizerProfile?.contactEmail || user?.email || ''
+  });
+  
+  const [notificationPrefs, setNotificationPrefs] = useState({
+    applicationReceived: user?.organizerProfile?.notifications?.applicationReceived ?? true,
+    applicationDeadline: user?.organizerProfile?.notifications?.applicationDeadline ?? true,
+    vendorCompliance: user?.organizerProfile?.notifications?.vendorCompliance ?? true,
+    eventReminders: user?.organizerProfile?.notifications?.eventReminders ?? true,
+    emailDigest: user?.organizerProfile?.notifications?.emailDigest ?? 'daily' // 'instant', 'daily', 'weekly', 'none'
+  });
+  
+  const [subscription, setSubscription] = useState(null);
+  
+  useEffect(() => {
+    // Fetch organizer subscription
+    api.get('/organizer/subscription').then(data => setSubscription(data.subscription)).catch(console.error);
+  }, []);
+  
+  const handleProfileSave = async () => {
+    setLoading(true);
+    try {
+      await api.put('/auth/profile', profileData);
+      await fetchUser();
+      setMessage('Profile updated successfully');
+    } catch (err) { setMessage(err.message); }
+    finally { setLoading(false); }
+  };
+  
+  const handleOrganizationSave = async () => {
+    setLoading(true);
+    try {
+      await api.put('/organizer/profile', organizationData);
+      await fetchUser();
+      setMessage('Organization profile updated');
+    } catch (err) { setMessage(err.message); }
+    finally { setLoading(false); }
+  };
+  
+  const handleNotificationsSave = async () => {
+    setLoading(true);
+    try {
+      await api.put('/organizer/notifications', notificationPrefs);
+      await fetchUser();
+      setMessage('Notification preferences saved');
+    } catch (err) { setMessage(err.message); }
+    finally { setLoading(false); }
+  };
+  
+  const handleUpgrade = async () => {
+    try {
+      const data = await api.post('/organizer/subscription/checkout');
+      if (data.url) window.location.href = data.url;
+    } catch (err) { alert(err.message); }
+  };
+  
+  const handleManageBilling = async () => {
+    try {
+      const data = await api.post('/organizer/subscription/portal');
+      if (data.url) window.location.href = data.url;
+    } catch (err) { alert(err.message); }
+  };
+  
+  const isVerified = user?.organizerProfile?.verified;
+  const tabs = ['profile', 'organization', 'notifications', 'billing'];
+  
+  return (
+    <div className="settings-page organizer-settings">
+      <div className="page-header">
+        <div>
+          <h1>Organizer Settings</h1>
+          <p>Manage your event organizer account</p>
+        </div>
+        <div className="header-badges">
+          <Badge variant="primary">Organizer</Badge>
+          {isVerified ? (
+            <Badge variant="success">✓ Verified</Badge>
+          ) : (
+            <Badge variant="warning">Pending Verification</Badge>
+          )}
+        </div>
+      </div>
+      
+      {!isVerified && (
+        <Alert type="info">
+          <strong>Verification Pending:</strong> Your organizer account is awaiting verification by PermitWise. 
+          You can create events as drafts, but publishing requires verification. This usually takes 1-2 business days.
+        </Alert>
+      )}
+      
+      <div className="settings-layout">
+        <div className="settings-nav">
+          {tabs.map(tab => (
+            <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>
+              {tab === 'organization' ? 'Organization' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
+        </div>
+        
+        <div className="settings-content">
+          {message && <Alert type="info" onClose={() => setMessage('')}>{message}</Alert>}
+          
+          {activeTab === 'profile' && (
+            <div className="settings-section">
+              <h2>Your Profile</h2>
+              <p className="section-description">Your personal account information</p>
+              
+              <div className="form-row">
+                <Input label="First Name" value={profileData.firstName} onChange={(e) => setProfileData(d => ({ ...d, firstName: e.target.value }))} />
+                <Input label="Last Name" value={profileData.lastName} onChange={(e) => setProfileData(d => ({ ...d, lastName: e.target.value }))} />
+              </div>
+              <Input label="Email" value={user?.email} disabled />
+              <PhoneInput label="Phone" value={profileData.phone} onChange={(e) => setProfileData(d => ({ ...d, phone: e.target.value }))} />
+              
+              <div className="form-actions">
+                <Button onClick={handleProfileSave} loading={loading}>Save Profile</Button>
+              </div>
+              
+              <div className="settings-divider" />
+              
+              <h3>Change Password</h3>
+              <p className="section-description">Use a strong password with at least 8 characters</p>
+              <ChangePasswordForm />
+            </div>
+          )}
+          
+          {activeTab === 'organization' && (
+            <div className="settings-section">
+              <h2>Organization Profile</h2>
+              <p className="section-description">This information is displayed to vendors when they view your events</p>
+              
+              <Input 
+                label="Organization Name *" 
+                value={organizationData.companyName} 
+                onChange={(e) => setOrganizationData(d => ({ ...d, companyName: e.target.value }))}
+                placeholder="e.g., Austin Food Events LLC"
+              />
+              
+              <div className="form-group">
+                <label className="form-label">Description</label>
+                <textarea 
+                  className="form-input form-textarea"
+                  value={organizationData.description}
+                  onChange={(e) => setOrganizationData(d => ({ ...d, description: e.target.value }))}
+                  placeholder="Tell vendors about your organization and the types of events you host..."
+                  rows={4}
+                />
+              </div>
+              
+              <Input 
+                label="Website" 
+                value={organizationData.website} 
+                onChange={(e) => setOrganizationData(d => ({ ...d, website: e.target.value }))}
+                placeholder="https://yourorganization.com"
+              />
+              
+              <div className="form-row">
+                <PhoneInput 
+                  label="Contact Phone" 
+                  value={organizationData.phone} 
+                  onChange={(e) => setOrganizationData(d => ({ ...d, phone: e.target.value }))} 
+                />
+                <EmailInput 
+                  label="Contact Email" 
+                  value={organizationData.contactEmail} 
+                  onChange={(e) => setOrganizationData(d => ({ ...d, contactEmail: e.target.value }))} 
+                />
+              </div>
+              
+              <div className="form-actions">
+                <Button onClick={handleOrganizationSave} loading={loading}>Save Organization</Button>
+              </div>
+            </div>
+          )}
+          
+          {activeTab === 'notifications' && (
+            <div className="settings-section">
+              <h2>Notification Preferences</h2>
+              <p className="section-description">Control how and when you receive updates about your events</p>
+              
+              <Card className="notification-card">
+                <label className="toggle-row">
+                  <span>New Vendor Applications</span>
+                  <input type="checkbox" checked={notificationPrefs.applicationReceived} onChange={(e) => setNotificationPrefs(d => ({ ...d, applicationReceived: e.target.checked }))} />
+                </label>
+                <p className="toggle-description">Get notified when a vendor applies to your event</p>
+              </Card>
+              
+              <Card className="notification-card">
+                <label className="toggle-row">
+                  <span>Application Deadlines</span>
+                  <input type="checkbox" checked={notificationPrefs.applicationDeadline} onChange={(e) => setNotificationPrefs(d => ({ ...d, applicationDeadline: e.target.checked }))} />
+                </label>
+                <p className="toggle-description">Reminders before your application deadlines close</p>
+              </Card>
+              
+              <Card className="notification-card">
+                <label className="toggle-row">
+                  <span>Vendor Compliance Updates</span>
+                  <input type="checkbox" checked={notificationPrefs.vendorCompliance} onChange={(e) => setNotificationPrefs(d => ({ ...d, vendorCompliance: e.target.checked }))} />
+                </label>
+                <p className="toggle-description">Get notified when vendor permit status changes</p>
+              </Card>
+              
+              <Card className="notification-card">
+                <label className="toggle-row">
+                  <span>Event Reminders</span>
+                  <input type="checkbox" checked={notificationPrefs.eventReminders} onChange={(e) => setNotificationPrefs(d => ({ ...d, eventReminders: e.target.checked }))} />
+                </label>
+                <p className="toggle-description">Reminders before your events start</p>
+              </Card>
+              
+              <div className="form-group">
+                <label className="form-label">Email Digest Frequency</label>
+                <Select 
+                  value={notificationPrefs.emailDigest} 
+                  onChange={(e) => setNotificationPrefs(d => ({ ...d, emailDigest: e.target.value }))}
+                  options={[
+                    { value: 'instant', label: 'Instant - Send immediately' },
+                    { value: 'daily', label: 'Daily Digest' },
+                    { value: 'weekly', label: 'Weekly Summary' },
+                    { value: 'none', label: 'No Emails' }
+                  ]}
+                />
+              </div>
+              
+              <div className="form-actions">
+                <Button onClick={handleNotificationsSave} loading={loading}>Save Preferences</Button>
+              </div>
+            </div>
+          )}
+          
+          {activeTab === 'billing' && (
+            <div className="settings-section">
+              <h2>Billing & Subscription</h2>
+              
+              <Card className="current-plan organizer-plan">
+                <div className="plan-header">
+                  <h3>Organizer Plan</h3>
+                  <Badge variant={subscription?.status === 'active' || subscription?.status === 'trial' ? 'success' : 'warning'}>
+                    {subscription?.status?.toUpperCase() || 'NO PLAN'}
+                  </Badge>
+                </div>
+                
+                {subscription?.status === 'trial' && subscription?.trialEndsAt && (
+                  <p className="trial-warning">
+                    <Icons.Clock /> Trial ends {formatDate(subscription.trialEndsAt)} ({Math.max(0, Math.ceil((new Date(subscription.trialEndsAt) - new Date()) / (1000 * 60 * 60 * 24)))} days left)
+                  </p>
+                )}
+                
+                {subscription?.status === 'active' && subscription?.currentPeriodEnd && (
+                  <p>Next billing: {formatDate(subscription.currentPeriodEnd)}</p>
+                )}
+              </Card>
+              
+              <Card className="plan-card organizer-upgrade">
+                <div className="plan-badge">Event Organizer</div>
+                <h3>Organizer Plan</h3>
+                <div className="price">$79<span>/month</span></div>
+                <ul className="plan-features">
+                  <li><Icons.Check /> Unlimited events</li>
+                  <li><Icons.Check /> Unlimited vendor invitations</li>
+                  <li><Icons.Check /> Vendor compliance tracking</li>
+                  <li><Icons.Check /> Custom permit requirements</li>
+                  <li><Icons.Check /> Application management</li>
+                  <li><Icons.Check /> Verified organizer badge</li>
+                  <li><Icons.Check /> Priority support</li>
+                </ul>
+                
+                {subscription?.status === 'active' ? (
+                  <Button variant="outline" onClick={handleManageBilling}>Manage Subscription</Button>
+                ) : (
+                  <>
+                    <Button onClick={handleUpgrade}>
+                      {subscription?.status === 'trial' ? 'Upgrade Now' : 'Subscribe - $79/mo'}
+                    </Button>
+                    <p className="plan-note">14-day free trial • Cancel anytime</p>
+                  </>
+                )}
+              </Card>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Change Password Form Component
+const ChangePasswordForm = () => {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setMessage('Passwords do not match');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setMessage('Password must be at least 8 characters');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.put('/auth/change-password', { currentPassword, newPassword });
+      setMessage('Password changed successfully');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) { setMessage(err.message); }
+    finally { setLoading(false); }
+  };
+  
+  return (
+    <form onSubmit={handleSubmit}>
+      {message && <Alert type={message.includes('success') ? 'success' : 'error'}>{message}</Alert>}
+      <Input label="Current Password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+      <Input label="New Password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+      <Input label="Confirm New Password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+      <Button type="submit" loading={loading} disabled={!currentPassword || !newPassword || !confirmPassword}>
+        Change Password
+      </Button>
+    </form>
+  );
+};
+
 const SettingsPage = () => {
   const { user, business, subscription, fetchUser, updateBusiness } = useAuth();
   const [activeTab, setActiveTab] = useState('profile'); const [loading, setLoading] = useState(false); const [message, setMessage] = useState('');
@@ -4479,6 +4828,7 @@ const App = () => {
   const [showPermitChecker, setShowPermitChecker] = useState(false);
   const [legalPage, setLegalPage] = useState(null); // 'privacy', 'terms', 'superadmin'
   const [resetToken, setResetToken] = useState(null);
+  const [registerAsOrganizer, setRegisterAsOrganizer] = useState(false);
 
   // Update default page when user loads
   useEffect(() => {
@@ -4507,7 +4857,14 @@ const App = () => {
       return;
     }
     // Auto-detect login/register from URL params (from landing page links)
-    if (params.get('register') === 'true') { setAuthView('register'); window.history.replaceState({}, '', window.location.pathname); }
+    if (params.get('register') === 'true') { 
+      setAuthView('register'); 
+      // Check if registering as organizer
+      if (params.get('organizer') === 'true') {
+        setRegisterAsOrganizer(true);
+      }
+      window.history.replaceState({}, '', window.location.pathname); 
+    }
     else if (params.get('login') === 'true' || window.location.pathname === '/app') { setAuthView('login'); }
     // Handle direct URL access to legal/superadmin pages
     const path = window.location.pathname;
@@ -4534,7 +4891,7 @@ const App = () => {
   if (!isAuthenticated) {
     if (showPermitChecker) return <PermitChecker onClose={() => setShowPermitChecker(false)} onGetStarted={(v) => { setShowPermitChecker(false); setAuthView(v); }} />;
     if (authView === 'login') return <LoginPage onSwitch={setAuthView} onSuccess={() => setAuthView(null)} />;
-    if (authView === 'register') return <RegisterPage onSwitch={setAuthView} onSuccess={() => setAuthView(null)} />;
+    if (authView === 'register') return <RegisterPage onSwitch={setAuthView} onSuccess={() => { setAuthView(null); setRegisterAsOrganizer(false); }} defaultOrganizer={registerAsOrganizer} />;
     if (authView === 'forgot') return <ForgotPasswordPage onSwitch={setAuthView} />;
     return <LoginPage onSwitch={setAuthView} onSuccess={() => setAuthView(null)} />;
   }
@@ -4549,7 +4906,7 @@ const App = () => {
       case 'documents': return isOrganizer ? <EventsPage /> : <DocumentsPage />; 
       case 'inspections': return isOrganizer ? <EventsPage /> : <InspectionsPage />; 
       case 'events': return <EventsPage />; 
-      case 'settings': return <SettingsPage />; 
+      case 'settings': return isOrganizer ? <OrganizerSettingsPage /> : <SettingsPage />; 
       default: return isOrganizer ? <EventsPage /> : <Dashboard onNavigate={handleNavigate} />; 
     } 
   };
