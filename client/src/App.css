@@ -2572,3 +2572,92 @@ img { max-width: 100%; display: block; }
     grid-template-columns: 1fr;
   }
 }
+
+/* Phone Input Styling */
+.phone-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.phone-prefix {
+  padding: 0.75rem 0.75rem;
+  background: var(--gray-100);
+  border: 1px solid var(--gray-300);
+  border-right: none;
+  border-radius: var(--radius) 0 0 var(--radius);
+  color: var(--gray-600);
+  font-weight: 500;
+}
+.phone-input {
+  border-radius: 0 var(--radius) var(--radius) 0 !important;
+  flex: 1;
+}
+
+/* Custom Requirements in Event Creation */
+.custom-requirement-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  padding: 12px;
+  background: var(--gray-50);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+}
+.custom-requirement-row .form-group {
+  flex: 1;
+  margin-bottom: 0;
+}
+.custom-requirement-row .form-group:first-child {
+  flex: 1.5;
+}
+.remove-req-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.remove-req-btn:hover {
+  background: var(--danger);
+  color: white;
+}
+
+/* Custom Requirements for Vendors */
+.custom-requirements-list {
+  margin-top: 16px;
+}
+.custom-req-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: var(--gray-50);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+}
+.custom-req-checkbox {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.custom-req-info {
+  flex: 1;
+}
+.custom-req-name {
+  font-weight: 500;
+  color: var(--gray-800);
+}
+.custom-req-desc {
+  font-size: 13px;
+  color: var(--gray-500);
+  margin-top: 2px;
+}
+.custom-req-item.completed {
+  background: #dcfce7;
+}
+.custom-req-item.completed .custom-req-name {
+  text-decoration: line-through;
+  color: var(--gray-500);
+}
