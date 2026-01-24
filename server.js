@@ -4926,85 +4926,6 @@ app.delete('/api/admin/users/:id', masterAdminMiddleware, async (req, res) => {
   }
 });
 
-// Admin Get Organizers (pending and verified)
-app.get('/api/admin/organizers', masterAdminMiddleware, async (req, res) => {
-  try {
-    const organizers = await User.find({ isOrganizer: true })
-      .select('-password -resetPasswordToken -verificationToken')
-      .sort({ createdAt: -1 });
-    
-    // Separate into pending and verified
-    const pending = organizers.filter(o => !o.organizerProfile?.verified && !o.organizerProfile?.disabled);
-    const verified = organizers.filter(o => o.organizerProfile?.verified);
-    const disabled = organizers.filter(o => o.organizerProfile?.disabled);
-    
-    res.json({ organizers, pending, verified, disabled });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Admin Verify Organizer
-app.put('/api/admin/organizers/:id/verify', masterAdminMiddleware, async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
-    if (!user || !user.isOrganizer) {
-      return res.status(404).json({ error: 'Organizer not found' });
-    }
-    
-    user.organizerProfile = user.organizerProfile || {};
-    user.organizerProfile.verified = true;
-    user.organizerProfile.verifiedAt = new Date();
-    user.organizerProfile.verifiedBy = req.adminId;
-    await user.save();
-    
-    res.json({ success: true, message: 'Organizer verified' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Admin Revoke Organizer Verification
-app.put('/api/admin/organizers/:id/revoke', masterAdminMiddleware, async (req, res) => {
-  try {
-    const { reason } = req.body;
-    const user = await User.findById(req.params.id);
-    if (!user || !user.isOrganizer) {
-      return res.status(404).json({ error: 'Organizer not found' });
-    }
-    
-    user.organizerProfile = user.organizerProfile || {};
-    user.organizerProfile.verified = false;
-    user.organizerProfile.disabled = true;
-    user.organizerProfile.disabledReason = reason || 'Verification revoked by admin';
-    user.organizerProfile.disabledAt = new Date();
-    await user.save();
-    
-    res.json({ success: true, message: 'Organizer access revoked' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Admin Re-enable Organizer
-app.put('/api/admin/organizers/:id/enable', masterAdminMiddleware, async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
-    if (!user || !user.isOrganizer) {
-      return res.status(404).json({ error: 'Organizer not found' });
-    }
-    
-    user.organizerProfile = user.organizerProfile || {};
-    user.organizerProfile.disabled = false;
-    user.organizerProfile.disabledReason = null;
-    await user.save();
-    
-    res.json({ success: true, message: 'Organizer re-enabled' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // Admin Businesses List
 app.get('/api/admin/businesses', masterAdminMiddleware, async (req, res) => {
   try {
@@ -5075,6 +4996,10 @@ app.post('/api/admin/organizers', masterAdminMiddleware, async (req, res) => {
   try {
     const { email, companyName } = req.body;
     
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
       return res.status(404).json({ error: 'User not found with that email' });
@@ -5089,12 +5014,147 @@ app.post('/api/admin/organizers', masterAdminMiddleware, async (req, res) => {
     user.organizerProfile = {
       companyName: companyName || '',
       verified: false,
-      disabled: false
+      disabled: false,
+      verificationStatus: 'pending',
+      notifications: {
+        applicationReceived: true,
+        applicationDeadline: true,
+        vendorCompliance: true,
+        eventReminders: true,
+        emailDigest: 'daily'
+      }
     };
     user.updatedAt = new Date();
     await user.save();
     
+    // Create organizer subscription
+    const orgSubscription = new OrganizerSubscription({
+      userId: user._id,
+      plan: 'trial',
+      status: 'trial',
+      trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
+    });
+    await orgSubscription.save();
+    
     res.json({ message: 'User is now an organizer', user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Approve organizer (verify)
+app.put('/api/admin/organizers/:id/approve', masterAdminMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user || !user.isOrganizer) {
+      return res.status(404).json({ error: 'Organizer not found' });
+    }
+    
+    user.organizerProfile = user.organizerProfile || {};
+    user.organizerProfile.verified = true;
+    user.organizerProfile.verifiedAt = new Date();
+    user.organizerProfile.verifiedBy = req.adminId;
+    user.organizerProfile.verificationStatus = 'approved';
+    user.organizerProfile.disabled = false;
+    user.organizerProfile.disabledReason = null;
+    user.organizerProfile.adminNote = null;
+    user.updatedAt = new Date();
+    await user.save();
+    
+    // Send approval email
+    await sendEmail(
+      user.email,
+      'Your PermitWise Organizer Account is Verified!',
+      `
+        <h1>Congratulations! 🎉</h1>
+        <p>Hi ${user.firstName || 'there'},</p>
+        <p>Your event organizer account has been verified. You can now:</p>
+        <ul>
+          <li>Create and publish events</li>
+          <li>Invite vendors to participate</li>
+          <li>Track vendor compliance</li>
+        </ul>
+        <a href="${CLIENT_URL}/app" style="background: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Go to Dashboard</a>
+        <p>Best,<br>The PermitWise Team</p>
+      `
+    );
+    
+    res.json({ success: true, message: 'Organizer approved and verified' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Reject organizer
+app.put('/api/admin/organizers/:id/reject', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user || !user.isOrganizer) {
+      return res.status(404).json({ error: 'Organizer not found' });
+    }
+    
+    user.organizerProfile = user.organizerProfile || {};
+    user.organizerProfile.verified = false;
+    user.organizerProfile.disabled = true;
+    user.organizerProfile.verificationStatus = 'rejected';
+    user.organizerProfile.disabledReason = reason || 'Application rejected';
+    user.organizerProfile.disabledAt = new Date();
+    user.updatedAt = new Date();
+    await user.save();
+    
+    // Send rejection email
+    await sendEmail(
+      user.email,
+      'Update on Your PermitWise Organizer Application',
+      `
+        <h1>Application Status Update</h1>
+        <p>Hi ${user.firstName || 'there'},</p>
+        <p>Unfortunately, we were unable to approve your event organizer application at this time.</p>
+        ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+        <p>If you believe this was a mistake or have questions, please contact our support team.</p>
+        <p>Best,<br>The PermitWise Team</p>
+      `
+    );
+    
+    res.json({ success: true, message: 'Organizer rejected' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Request more info from organizer
+app.put('/api/admin/organizers/:id/request-info', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user || !user.isOrganizer) {
+      return res.status(404).json({ error: 'Organizer not found' });
+    }
+    
+    user.organizerProfile = user.organizerProfile || {};
+    user.organizerProfile.verificationStatus = 'info_requested';
+    user.organizerProfile.adminNote = reason || 'Please provide additional information';
+    user.organizerProfile.infoRequestedAt = new Date();
+    user.updatedAt = new Date();
+    await user.save();
+    
+    // Send info request email
+    await sendEmail(
+      user.email,
+      'Additional Information Needed for Your PermitWise Application',
+      `
+        <h1>We Need More Information</h1>
+        <p>Hi ${user.firstName || 'there'},</p>
+        <p>Thank you for applying to be an event organizer on PermitWise. To complete your verification, we need some additional information:</p>
+        <p style="background: #f3f4f6; padding: 16px; border-radius: 8px;"><strong>${reason || 'Please provide additional information about your organization.'}</strong></p>
+        <p>Please log in to your account and update your organization profile with the requested information.</p>
+        <a href="${CLIENT_URL}/app" style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Update Profile</a>
+        <p>Best,<br>The PermitWise Team</p>
+      `
+    );
+    
+    res.json({ success: true, message: 'Information request sent' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -5110,12 +5170,20 @@ app.put('/api/admin/organizers/:id/status', masterAdminMiddleware, async (req, r
       return res.status(404).json({ error: 'Organizer not found' });
     }
     
+    user.organizerProfile = user.organizerProfile || {};
     if (typeof disabled !== 'undefined') {
       user.organizerProfile.disabled = disabled;
       user.organizerProfile.disabledReason = disabledReason || '';
+      if (disabled) {
+        user.organizerProfile.disabledAt = new Date();
+      }
     }
     if (typeof verified !== 'undefined') {
       user.organizerProfile.verified = verified;
+      if (verified) {
+        user.organizerProfile.verifiedAt = new Date();
+        user.organizerProfile.verificationStatus = 'approved';
+      }
     }
     user.updatedAt = new Date();
     await user.save();
@@ -5732,94 +5800,6 @@ app.get('/api/admin/events/:id', masterAdminMiddleware, async (req, res) => {
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
-    
-    res.json({ event });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===========================================
-// ADMIN ORGANIZER MANAGEMENT
-// ===========================================
-
-// Get all organizers (admin)
-app.get('/api/admin/organizers', masterAdminMiddleware, async (req, res) => {
-  try {
-    const organizers = await User.find({ isOrganizer: true })
-      .select('-password')
-      .sort({ createdAt: -1 });
-    
-    // Get event counts for each organizer
-    const organizersWithStats = await Promise.all(organizers.map(async (org) => {
-      const eventCount = await Event.countDocuments({ organizerId: org._id });
-      const publishedEventCount = await Event.countDocuments({ organizerId: org._id, status: 'published' });
-      return {
-        ...org.toObject(),
-        eventCount,
-        publishedEventCount
-      };
-    }));
-    
-    res.json({ organizers: organizersWithStats });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Disable/Enable organizer (admin)
-app.put('/api/admin/organizers/:id/status', masterAdminMiddleware, async (req, res) => {
-  try {
-    const { disabled, disabledReason } = req.body;
-    
-    const user = await User.findById(req.params.id);
-    if (!user || !user.isOrganizer) {
-      return res.status(404).json({ error: 'Organizer not found' });
-    }
-    
-    user.organizerProfile = user.organizerProfile || {};
-    user.organizerProfile.disabled = disabled;
-    if (disabledReason) user.organizerProfile.disabledReason = disabledReason;
-    
-    await user.save();
-    res.json({ organizer: { ...user.toObject(), password: undefined } });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Verify organizer (admin)
-app.put('/api/admin/organizers/:id/verify', masterAdminMiddleware, async (req, res) => {
-  try {
-    const { verified } = req.body;
-    
-    const user = await User.findById(req.params.id);
-    if (!user || !user.isOrganizer) {
-      return res.status(404).json({ error: 'Organizer not found' });
-    }
-    
-    user.organizerProfile = user.organizerProfile || {};
-    user.organizerProfile.verified = verified;
-    
-    await user.save();
-    res.json({ organizer: { ...user.toObject(), password: undefined } });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Admin edit any event
-app.put('/api/admin/events/:id', masterAdminMiddleware, async (req, res) => {
-  try {
-    const event = await Event.findById(req.params.id);
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-    
-    const updates = req.body;
-    Object.assign(event, updates);
-    event.updatedAt = Date.now();
-    await event.save();
     
     res.json({ event });
   } catch (error) {
