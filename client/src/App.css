@@ -2661,3 +2661,64 @@ img { max-width: 100%; display: block; }
   text-decoration: line-through;
   color: var(--gray-500);
 }
+
+/* Organizer Settings */
+.organizer-settings .header-badges {
+  display: flex;
+  gap: 8px;
+}
+.organizer-settings .settings-divider {
+  height: 1px;
+  background: var(--gray-200);
+  margin: 32px 0;
+}
+.form-textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+.organizer-plan {
+  background: linear-gradient(135deg, #dbeafe 0%, #ede9fe 100%);
+  border: 2px solid var(--primary);
+}
+.plan-badge {
+  display: inline-block;
+  background: var(--primary);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 100px;
+  margin-bottom: 12px;
+}
+.organizer-upgrade {
+  text-align: center;
+  padding: 32px;
+}
+.organizer-upgrade .price {
+  font-size: 48px;
+  font-weight: 700;
+  color: var(--primary);
+}
+.organizer-upgrade .price span {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--gray-500);
+}
+.organizer-upgrade .plan-features {
+  text-align: left;
+  margin: 24px auto;
+  max-width: 280px;
+}
+.organizer-upgrade .plan-note {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--gray-500);
+}
+.trial-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--warning);
+  font-weight: 500;
+}
