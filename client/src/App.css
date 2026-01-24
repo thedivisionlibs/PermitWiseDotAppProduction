@@ -2722,3 +2722,89 @@ img { max-width: 100%; display: block; }
   color: var(--warning);
   font-weight: 500;
 }
+
+/* SuperAdmin Organizer Management */
+.organizer-actions .action-btn-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.organizer-actions .btn {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.highlight-row {
+  background: #fef3c7 !important;
+}
+.highlight-row:hover {
+  background: #fde68a !important;
+}
+.admin-note-cell {
+  max-width: 150px;
+}
+.admin-note-preview {
+  font-size: 12px;
+  color: var(--gray-500);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.admin-note-preview.text-danger {
+  color: var(--danger);
+}
+.text-muted {
+  color: var(--gray-400);
+}
+.organizer-action-modal .organizer-info-preview {
+  background: var(--gray-50);
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.organizer-action-modal .organizer-info-preview p {
+  margin: 4px 0;
+  font-size: 14px;
+}
+.organizer-action-modal .action-confirm {
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.organizer-action-modal .action-description {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.organizer-action-modal .success-text {
+  color: var(--success);
+  background: #dcfce7;
+  padding: 12px;
+  border-radius: 8px;
+}
+.organizer-action-modal .reason-input {
+  margin-bottom: 16px;
+}
+.btn-success, .btn.variant-success {
+  background: var(--success);
+  border-color: var(--success);
+  color: white;
+}
+.btn-success:hover, .btn.variant-success:hover {
+  background: #059669;
+  border-color: #059669;
+}
+.btn-warning, .btn.variant-warning {
+  background: var(--warning);
+  border-color: var(--warning);
+  color: white;
+}
+.btn-warning:hover, .btn.variant-warning:hover {
+  background: #d97706;
+  border-color: #d97706;
+}
+.badge.variant-info {
+  background: #dbeafe;
+  color: #1e40af;
+}
