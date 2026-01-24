@@ -2816,10 +2816,41 @@ const OrganizerSettingsPage = () => {
         </div>
       </div>
       
-      {!isVerified && (
+      {/* Status Alerts */}
+      {user?.organizerProfile?.verificationStatus === 'info_requested' && (
+        <Alert type="warning">
+          <strong>⚠️ Additional Information Requested</strong>
+          <p style={{ marginTop: '8px', marginBottom: '0' }}>
+            {user?.organizerProfile?.adminNote || 'Please update your organization profile with the requested information.'}
+          </p>
+        </Alert>
+      )}
+      
+      {user?.organizerProfile?.verificationStatus === 'rejected' && (
+        <Alert type="error">
+          <strong>❌ Application Not Approved</strong>
+          <p style={{ marginTop: '8px', marginBottom: '0' }}>
+            {user?.organizerProfile?.disabledReason || 'Your organizer application was not approved. Please contact support for more information.'}
+          </p>
+        </Alert>
+      )}
+      
+      {user?.organizerProfile?.disabled && user?.organizerProfile?.verificationStatus !== 'rejected' && (
+        <Alert type="error">
+          <strong>🚫 Account Disabled</strong>
+          <p style={{ marginTop: '8px', marginBottom: '0' }}>
+            {user?.organizerProfile?.disabledReason || 'Your organizer account has been disabled. Please contact support.'}
+          </p>
+        </Alert>
+      )}
+      
+      {!isVerified && !user?.organizerProfile?.disabled && user?.organizerProfile?.verificationStatus !== 'info_requested' && user?.organizerProfile?.verificationStatus !== 'rejected' && (
         <Alert type="info">
-          <strong>Verification Pending:</strong> Your organizer account is awaiting verification by PermitWise. 
-          You can create events as drafts, but publishing requires verification. This usually takes 1-2 business days.
+          <strong>⏳ Verification Pending</strong>
+          <p style={{ marginTop: '8px', marginBottom: '0' }}>
+            Your organizer account is awaiting verification by PermitWise. 
+            You can create events as drafts, but publishing requires verification. This usually takes 1-2 business days.
+          </p>
         </Alert>
       )}
       
@@ -3548,20 +3579,71 @@ const SuperAdminPage = ({ onBack }) => {
     finally { setLoading(false); }
   };
 
-  // Organizer management
-  const toggleOrganizerStatus = async (userId, disabled) => {
+  // Organizer management state
+  const [organizerModal, setOrganizerModal] = useState({ show: false, organizer: null, action: null, reason: '' });
+
+  // Organizer management functions
+  const toggleOrganizerStatus = async (userId, disabled, reason = '') => {
     try {
-      await adminApi(`/admin/organizers/${userId}/status`, 'PUT', { disabled });
+      await adminApi(`/admin/organizers/${userId}/status`, 'PUT', { disabled, disabledReason: reason });
       fetchData('organizers');
       setMessage(disabled ? 'Organizer disabled' : 'Organizer enabled');
     } catch (err) { setMessage(err.message); }
   };
 
+  const approveOrganizer = async (userId) => {
+    try {
+      await adminApi(`/admin/organizers/${userId}/approve`, 'PUT');
+      fetchData('organizers');
+      setMessage('Organizer approved successfully');
+      setOrganizerModal({ show: false, organizer: null, action: null, reason: '' });
+    } catch (err) { setMessage(err.message); }
+  };
+
+  const rejectOrganizer = async (userId, reason) => {
+    try {
+      await adminApi(`/admin/organizers/${userId}/reject`, 'PUT', { reason });
+      fetchData('organizers');
+      setMessage('Organizer rejected');
+      setOrganizerModal({ show: false, organizer: null, action: null, reason: '' });
+    } catch (err) { setMessage(err.message); }
+  };
+
+  const requestOrganizerInfo = async (userId, reason) => {
+    try {
+      await adminApi(`/admin/organizers/${userId}/request-info`, 'PUT', { reason });
+      fetchData('organizers');
+      setMessage('Information request sent');
+      setOrganizerModal({ show: false, organizer: null, action: null, reason: '' });
+    } catch (err) { setMessage(err.message); }
+  };
+
+  const handleOrganizerAction = () => {
+    if (!organizerModal.organizer) return;
+    const { action, reason } = organizerModal;
+    const userId = organizerModal.organizer._id;
+    
+    if (action === 'approve') {
+      approveOrganizer(userId);
+    } else if (action === 'reject') {
+      if (!reason) { setMessage('Please provide a reason for rejection'); return; }
+      rejectOrganizer(userId, reason);
+    } else if (action === 'request-info') {
+      if (!reason) { setMessage('Please specify what information is needed'); return; }
+      requestOrganizerInfo(userId, reason);
+    } else if (action === 'disable') {
+      toggleOrganizerStatus(userId, true, reason);
+      setOrganizerModal({ show: false, organizer: null, action: null, reason: '' });
+    }
+  };
+
   const createOrganizerAccount = async (email) => {
+    if (!email) { setMessage('Please enter an email address'); return; }
     try {
       await adminApi('/admin/organizers', 'POST', { email });
       fetchData('organizers');
       setMessage('Organizer account created');
+      document.getElementById('newOrganizerEmail').value = '';
     } catch (err) { setMessage(err.message); }
   };
 
@@ -3974,33 +4056,137 @@ const SuperAdminPage = ({ onBack }) => {
             </div>
             <div className="admin-table-container">
               <table className="admin-table">
-                <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Events</th><th>Status</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Events</th><th>Status</th><th>Admin Note</th><th>Actions</th></tr></thead>
                 <tbody>
                   {data.organizers.length === 0 ? (
-                    <tr><td colSpan="6" className="empty-row">No organizers yet</td></tr>
-                  ) : data.organizers.map(org => (
-                    <tr key={org._id}>
-                      <td><strong>{org.firstName} {org.lastName}</strong></td>
-                      <td>{org.email}</td>
-                      <td>{org.organizerProfile?.companyName || 'N/A'}</td>
-                      <td>{org.eventCount || 0} events</td>
-                      <td>
-                        <Badge variant={org.organizerProfile?.disabled ? 'danger' : org.organizerProfile?.verified ? 'success' : 'warning'}>
-                          {org.organizerProfile?.disabled ? 'Disabled' : org.organizerProfile?.verified ? 'Verified' : 'Pending'}
-                        </Badge>
-                      </td>
-                      <td className="actions-cell">
-                        {org.organizerProfile?.disabled ? (
-                          <Button size="sm" onClick={() => toggleOrganizerStatus(org._id, false)}>Enable</Button>
-                        ) : (
-                          <Button size="sm" variant="danger" onClick={() => toggleOrganizerStatus(org._id, true)}>Disable</Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                    <tr><td colSpan="7" className="empty-row">No organizers yet</td></tr>
+                  ) : data.organizers.map(org => {
+                    const status = org.organizerProfile?.disabled ? 'disabled' : 
+                                   org.organizerProfile?.verified ? 'verified' : 
+                                   org.organizerProfile?.verificationStatus === 'info_requested' ? 'info_requested' :
+                                   org.organizerProfile?.verificationStatus === 'rejected' ? 'rejected' : 'pending';
+                    return (
+                      <tr key={org._id} className={status === 'pending' ? 'highlight-row' : ''}>
+                        <td><strong>{org.firstName} {org.lastName}</strong></td>
+                        <td>{org.email}</td>
+                        <td>{org.organizerProfile?.companyName || <em className="text-muted">Not set</em>}</td>
+                        <td>{org.eventCount || 0} events</td>
+                        <td>
+                          <Badge variant={
+                            status === 'disabled' ? 'danger' : 
+                            status === 'verified' ? 'success' : 
+                            status === 'rejected' ? 'danger' :
+                            status === 'info_requested' ? 'info' : 'warning'
+                          }>
+                            {status === 'disabled' ? '🚫 Disabled' : 
+                             status === 'verified' ? '✓ Verified' : 
+                             status === 'rejected' ? '✗ Rejected' :
+                             status === 'info_requested' ? '❓ Info Requested' : '⏳ Pending'}
+                          </Badge>
+                        </td>
+                        <td className="admin-note-cell">
+                          {org.organizerProfile?.adminNote && (
+                            <span className="admin-note-preview" title={org.organizerProfile.adminNote}>
+                              {org.organizerProfile.adminNote.substring(0, 30)}...
+                            </span>
+                          )}
+                          {org.organizerProfile?.disabledReason && status === 'disabled' && (
+                            <span className="admin-note-preview text-danger" title={org.organizerProfile.disabledReason}>
+                              {org.organizerProfile.disabledReason.substring(0, 30)}...
+                            </span>
+                          )}
+                        </td>
+                        <td className="actions-cell organizer-actions">
+                          {status === 'disabled' ? (
+                            <Button size="sm" variant="success" onClick={() => toggleOrganizerStatus(org._id, false)}>
+                              Enable
+                            </Button>
+                          ) : status === 'verified' ? (
+                            <Button size="sm" variant="danger" onClick={() => setOrganizerModal({ show: true, organizer: org, action: 'disable', reason: '' })}>
+                              Disable
+                            </Button>
+                          ) : (
+                            <div className="action-btn-group">
+                              <Button size="sm" variant="success" onClick={() => setOrganizerModal({ show: true, organizer: org, action: 'approve', reason: '' })}>
+                                ✓ Approve
+                              </Button>
+                              <Button size="sm" variant="warning" onClick={() => setOrganizerModal({ show: true, organizer: org, action: 'request-info', reason: '' })}>
+                                ❓ Request Info
+                              </Button>
+                              <Button size="sm" variant="danger" onClick={() => setOrganizerModal({ show: true, organizer: org, action: 'reject', reason: '' })}>
+                                ✗ Reject
+                              </Button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
+            
+            {/* Organizer Action Modal */}
+            <Modal isOpen={organizerModal.show} onClose={() => setOrganizerModal({ show: false, organizer: null, action: null, reason: '' })} 
+                   title={organizerModal.action === 'approve' ? 'Approve Organizer' : 
+                          organizerModal.action === 'reject' ? 'Reject Organizer' : 
+                          organizerModal.action === 'request-info' ? 'Request More Information' : 
+                          organizerModal.action === 'disable' ? 'Disable Organizer' : 'Organizer Action'}>
+              {organizerModal.organizer && (
+                <div className="organizer-action-modal">
+                  <div className="organizer-info-preview">
+                    <p><strong>Name:</strong> {organizerModal.organizer.firstName} {organizerModal.organizer.lastName}</p>
+                    <p><strong>Email:</strong> {organizerModal.organizer.email}</p>
+                    <p><strong>Company:</strong> {organizerModal.organizer.organizerProfile?.companyName || 'Not provided'}</p>
+                  </div>
+                  
+                  {organizerModal.action === 'approve' ? (
+                    <div className="action-confirm">
+                      <p className="action-description success-text">
+                        <Icons.Check /> This will verify the organizer and allow them to publish events. They will receive an email notification.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="reason-input">
+                      <label className="form-label">
+                        {organizerModal.action === 'reject' ? 'Rejection Reason *' : 
+                         organizerModal.action === 'request-info' ? 'What information is needed? *' : 
+                         'Reason (optional)'}
+                      </label>
+                      <textarea 
+                        className="form-input form-textarea"
+                        value={organizerModal.reason}
+                        onChange={(e) => setOrganizerModal(m => ({ ...m, reason: e.target.value }))}
+                        placeholder={
+                          organizerModal.action === 'reject' ? 'Please explain why this application is being rejected...' :
+                          organizerModal.action === 'request-info' ? 'Please specify what additional information is needed (e.g., proof of business registration, event history)...' :
+                          'Optional: provide a reason for disabling this account...'
+                        }
+                        rows={4}
+                      />
+                      {(organizerModal.action === 'reject' || organizerModal.action === 'request-info') && (
+                        <p className="form-hint">The organizer will receive an email with this message.</p>
+                      )}
+                    </div>
+                  )}
+                  
+                  <div className="modal-actions">
+                    <Button variant="outline" onClick={() => setOrganizerModal({ show: false, organizer: null, action: null, reason: '' })}>
+                      Cancel
+                    </Button>
+                    <Button 
+                      variant={organizerModal.action === 'approve' ? 'success' : organizerModal.action === 'request-info' ? 'warning' : 'danger'}
+                      onClick={handleOrganizerAction}
+                    >
+                      {organizerModal.action === 'approve' ? 'Approve & Verify' : 
+                       organizerModal.action === 'reject' ? 'Reject Application' : 
+                       organizerModal.action === 'request-info' ? 'Send Request' : 
+                       'Disable Organizer'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </Modal>
           </div>
         )}
 
