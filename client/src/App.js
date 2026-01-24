@@ -130,6 +130,47 @@ const getStatusLabel = (status) => {
   return labels[status] || status;
 };
 
+// Phone number formatting - US format: (###) ###-####
+const formatPhoneNumber = (value) => {
+  if (!value) return '';
+  // Remove all non-digits
+  const digits = value.replace(/\D/g, '');
+  // Remove leading 1 if present (country code)
+  const phone = digits.startsWith('1') && digits.length > 10 ? digits.slice(1) : digits;
+  // Format based on length
+  if (phone.length === 0) return '';
+  if (phone.length <= 3) return `(${phone}`;
+  if (phone.length <= 6) return `(${phone.slice(0, 3)}) ${phone.slice(3)}`;
+  return `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6, 10)}`;
+};
+
+// Extract raw digits from formatted phone (for API)
+const getPhoneDigits = (formatted) => {
+  if (!formatted) return '';
+  const digits = formatted.replace(/\D/g, '');
+  // Return with +1 prefix for storage
+  return digits.length === 10 ? `+1${digits}` : digits.length === 11 && digits.startsWith('1') ? `+${digits}` : digits;
+};
+
+// Validate phone number (must be exactly 10 digits after formatting)
+const validatePhone = (value) => {
+  if (!value) return { valid: true, error: null }; // Empty is ok (optional field)
+  const digits = value.replace(/\D/g, '');
+  const phone = digits.startsWith('1') && digits.length > 10 ? digits.slice(1) : digits;
+  if (phone.length < 10) return { valid: false, error: 'Phone number is too short' };
+  if (phone.length > 10) return { valid: false, error: 'Phone number is too long' };
+  return { valid: true, error: null };
+};
+
+// Validate email address
+const validateEmail = (email) => {
+  if (!email) return { valid: true, error: null }; // Empty is ok (optional field)
+  if (!email.includes('@')) return { valid: false, error: 'Email must contain @' };
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) return { valid: false, error: 'Please enter a valid email address' };
+  return { valid: true, error: null };
+};
+
 // ===========================================
 // COMMON COMPONENTS
 // ===========================================
@@ -146,6 +187,84 @@ const Input = ({ label, error, className = '', ...props }) => (
     {error && <span className="form-error">{error}</span>}
   </div>
 );
+
+// Phone Input with auto-formatting
+const PhoneInput = ({ label, value, onChange, error: externalError, required, ...props }) => {
+  const [displayValue, setDisplayValue] = useState(formatPhoneNumber(value || ''));
+  const [internalError, setInternalError] = useState(null);
+  
+  useEffect(() => {
+    setDisplayValue(formatPhoneNumber(value || ''));
+  }, [value]);
+  
+  const handleChange = (e) => {
+    const formatted = formatPhoneNumber(e.target.value);
+    setDisplayValue(formatted);
+    
+    // Validate
+    const validation = validatePhone(formatted);
+    setInternalError(validation.error);
+    
+    // Pass raw digits to parent for API
+    const digits = getPhoneDigits(formatted);
+    onChange({ target: { value: digits, name: e.target.name } });
+  };
+  
+  const error = externalError || internalError;
+  
+  return (
+    <div className="form-group">
+      {label && <label className="form-label">{label}{required && ' *'}</label>}
+      <div className="phone-input-wrapper">
+        <span className="phone-prefix">+1</span>
+        <input 
+          className={`form-input phone-input ${error ? 'error' : ''}`} 
+          value={displayValue}
+          onChange={handleChange}
+          placeholder="(555) 123-4567"
+          maxLength={14}
+          {...props} 
+        />
+      </div>
+      {error && <span className="form-error">{error}</span>}
+    </div>
+  );
+};
+
+// Email Input with validation
+const EmailInput = ({ label, value, onChange, error: externalError, required, onBlur, ...props }) => {
+  const [internalError, setInternalError] = useState(null);
+  
+  const handleBlur = (e) => {
+    const validation = validateEmail(e.target.value);
+    setInternalError(validation.error);
+    if (onBlur) onBlur(e);
+  };
+  
+  const handleChange = (e) => {
+    // Clear error on typing
+    if (internalError) setInternalError(null);
+    onChange(e);
+  };
+  
+  const error = externalError || internalError;
+  
+  return (
+    <div className="form-group">
+      {label && <label className="form-label">{label}{required && ' *'}</label>}
+      <input 
+        type="email"
+        className={`form-input ${error ? 'error' : ''}`} 
+        value={value}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        placeholder="email@example.com"
+        {...props} 
+      />
+      {error && <span className="form-error">{error}</span>}
+    </div>
+  );
+};
 
 const Select = ({ label, options, error, ...props }) => (
   <div className="form-group">
@@ -532,8 +651,8 @@ const RegisterPage = ({ onSwitch, onSuccess }) => {
         </div>
         
         <div className="form-row"><Input label="First Name" value={formData.firstName} onChange={(e) => setFormData(f => ({ ...f, firstName: e.target.value }))} required /><Input label="Last Name" value={formData.lastName} onChange={(e) => setFormData(f => ({ ...f, lastName: e.target.value }))} required /></div>
-        <Input label="Email" type="email" value={formData.email} onChange={(e) => setFormData(f => ({ ...f, email: e.target.value }))} required />
-        <Input label="Phone" type="tel" value={formData.phone} onChange={(e) => setFormData(f => ({ ...f, phone: e.target.value }))} />
+        <EmailInput label="Email" value={formData.email} onChange={(e) => setFormData(f => ({ ...f, email: e.target.value }))} required />
+        <PhoneInput label="Phone" value={formData.phone} onChange={(e) => setFormData(f => ({ ...f, phone: e.target.value }))} />
         <div className="password-input-wrapper">
           <Input label="Password" type={showPassword ? 'text' : 'password'} value={formData.password} onChange={(e) => setFormData(f => ({ ...f, password: e.target.value }))} required />
           <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)}>{showPassword ? <Icons.EyeOff /> : <Icons.Eye />}</button>
@@ -1739,9 +1858,6 @@ const EventsPage = () => {
           // Fetch organizer's events
           const orgData = await api.get('/events/organizer/my-events');
           setOrganizerEvents(orgData.events || []);
-          // Fetch available permit types for event requirements
-          const ptData = await api.get('/permit-types/all');
-          setAvailablePermitTypes(ptData.permitTypes || []);
         }
         if (hasAccess) {
           // Fetch vendor's assigned events
@@ -1756,6 +1872,31 @@ const EventsPage = () => {
     };
     fetchData();
   }, [hasAccess, isOrganizer]);
+
+  // Fetch permit types by state for event creation
+  const fetchPermitTypesByState = async (state) => {
+    if (!state) {
+      setAvailablePermitTypes([]);
+      return;
+    }
+    try {
+      const ptData = await api.get(`/permit-types/by-state?state=${state}`);
+      setAvailablePermitTypes(ptData.permitTypes || []);
+      // Clear selected permits when state changes
+      setNewOrgEvent(ev => ({ ...ev, requiredPermitTypes: [] }));
+    } catch (err) {
+      console.error('Error fetching permit types by state:', err);
+      // Fallback to all permit types
+      const ptData = await api.get('/permit-types/all');
+      setAvailablePermitTypes(ptData.permitTypes || []);
+    }
+  };
+
+  // Handle state change in event creation form
+  const handleEventStateChange = (newState) => {
+    setNewOrgEvent(ev => ({ ...ev, state: newState }));
+    fetchPermitTypesByState(newState);
+  };
 
   const submitEventRequest = async () => {
     setRequestSubmitting(true);
@@ -2015,7 +2156,7 @@ const EventsPage = () => {
               </div>
               <div className="form-row">
                 <Input label="City *" placeholder="Austin" value={newOrgEvent.city} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, city: e.target.value }))} />
-                <Select label="State *" value={newOrgEvent.state} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+                <Select label="State *" value={newOrgEvent.state} onChange={(e) => handleEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
               </div>
               <Input label="Venue Address" placeholder="123 Main Street" value={newOrgEvent.address} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, address: e.target.value }))} />
             </div>
@@ -2049,9 +2190,11 @@ const EventsPage = () => {
             <div className="form-section">
               <div className="form-section-title">Required Permits</div>
               <p className="form-hint">Select permits vendors must have to participate in your event</p>
-              {availablePermitTypes.length > 0 ? (
+              {!newOrgEvent.state ? (
+                <p className="empty-text">Please select a state above to see available permits for that location.</p>
+              ) : availablePermitTypes.length > 0 ? (
                 <div className="permit-type-checkboxes">
-                  {availablePermitTypes.slice(0, 30).map(pt => (
+                  {availablePermitTypes.map(pt => (
                     <label key={pt._id} className="checkbox-label">
                       <input type="checkbox" checked={newOrgEvent.requiredPermitTypes?.includes(pt._id)} onChange={(e) => {
                         if (e.target.checked) {
@@ -2060,13 +2203,59 @@ const EventsPage = () => {
                           setNewOrgEvent(ev => ({ ...ev, requiredPermitTypes: (ev.requiredPermitTypes || []).filter(id => id !== pt._id) }));
                         }
                       }} />
-                      <span>{pt.name} <small>({pt.jurisdictionId?.city}, {pt.jurisdictionId?.state})</small></span>
+                      <span>{pt.name} <small>({pt.jurisdictionId?.city || 'State-wide'})</small></span>
                     </label>
                   ))}
                 </div>
               ) : (
-                <p className="empty-text">Loading permit types...</p>
+                <p className="empty-text">No permits found for {newOrgEvent.state}. You can add custom requirements below.</p>
               )}
+            </div>
+            <div className="form-section">
+              <div className="form-section-title">Custom Requirements</div>
+              <p className="form-hint">Add any additional requirements vendors must complete (insurance certificates, health inspections, etc.)</p>
+              {(newOrgEvent.customPermitRequirements || []).map((req, index) => (
+                <div key={index} className="custom-requirement-row">
+                  <Input 
+                    placeholder="Requirement name (e.g., General Liability Insurance)" 
+                    value={req.name || ''} 
+                    onChange={(e) => {
+                      const updated = [...(newOrgEvent.customPermitRequirements || [])];
+                      updated[index] = { ...updated[index], name: e.target.value };
+                      setNewOrgEvent(ev => ({ ...ev, customPermitRequirements: updated }));
+                    }} 
+                  />
+                  <Input 
+                    placeholder="Description (optional)" 
+                    value={req.description || ''} 
+                    onChange={(e) => {
+                      const updated = [...(newOrgEvent.customPermitRequirements || [])];
+                      updated[index] = { ...updated[index], description: e.target.value };
+                      setNewOrgEvent(ev => ({ ...ev, customPermitRequirements: updated }));
+                    }} 
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-outline btn-sm remove-req-btn"
+                    onClick={() => {
+                      const updated = (newOrgEvent.customPermitRequirements || []).filter((_, i) => i !== index);
+                      setNewOrgEvent(ev => ({ ...ev, customPermitRequirements: updated }));
+                    }}
+                  >
+                    <Icons.X /> Remove
+                  </button>
+                </div>
+              ))}
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  const updated = [...(newOrgEvent.customPermitRequirements || []), { name: '', description: '', required: true }];
+                  setNewOrgEvent(ev => ({ ...ev, customPermitRequirements: updated }));
+                }}
+              >
+                <Icons.Plus /> Add Custom Requirement
+              </Button>
             </div>
             <div className="form-actions">
               <Button onClick={createOrganizerEvent} disabled={!newOrgEvent.eventName || !newOrgEvent.startDate || !newOrgEvent.city || !newOrgEvent.state}>
@@ -2597,7 +2786,7 @@ const SettingsPage = () => {
               <h2>Profile</h2>
               <div className="form-row"><Input label="First Name" value={profileData.firstName} onChange={(e) => setProfileData(d => ({ ...d, firstName: e.target.value }))} /><Input label="Last Name" value={profileData.lastName} onChange={(e) => setProfileData(d => ({ ...d, lastName: e.target.value }))} /></div>
               <Input label="Email" value={user?.email} disabled />
-              <Input label="Phone" value={profileData.phone} onChange={(e) => setProfileData(d => ({ ...d, phone: e.target.value }))} placeholder="+1 (555) 123-4567" />
+              <PhoneInput label="Phone" value={profileData.phone} onChange={(e) => setProfileData(d => ({ ...d, phone: e.target.value }))} />
               <Button onClick={handleProfileSave} loading={loading}>Save Profile</Button>
             </div>
           )}
@@ -2608,7 +2797,7 @@ const SettingsPage = () => {
               <Input label="Business Name" value={businessData.businessName} onChange={(e) => setBusinessData(d => ({ ...d, businessName: e.target.value }))} />
               <Input label="DBA Name (Doing Business As)" value={businessData.dbaName} onChange={(e) => setBusinessData(d => ({ ...d, dbaName: e.target.value }))} />
               <Input label="EIN (Tax ID)" value={businessData.ein} onChange={(e) => setBusinessData(d => ({ ...d, ein: e.target.value }))} placeholder="XX-XXXXXXX" />
-              <div className="form-row"><Input label="Business Phone" value={businessData.phone} onChange={(e) => setBusinessData(d => ({ ...d, phone: e.target.value }))} /><Input label="Business Email" value={businessData.email} onChange={(e) => setBusinessData(d => ({ ...d, email: e.target.value }))} /></div>
+              <div className="form-row"><PhoneInput label="Business Phone" value={businessData.phone} onChange={(e) => setBusinessData(d => ({ ...d, phone: e.target.value }))} /><EmailInput label="Business Email" value={businessData.email} onChange={(e) => setBusinessData(d => ({ ...d, email: e.target.value }))} /></div>
               
               <h3>Food Handling</h3>
               <Card className="notification-card">
@@ -4224,9 +4413,54 @@ const SuperAdminPage = ({ onBack }) => {
 // LAYOUT
 // ===========================================
 const Sidebar = ({ activePage, onNavigate, onLogout }) => {
-  const { business, subscription } = useAuth();
-  const navItems = [{ id: 'dashboard', label: 'Dashboard', icon: Icons.Dashboard }, { id: 'permits', label: 'Permits', icon: Icons.Permit }, { id: 'documents', label: 'Documents', icon: Icons.Document }, { id: 'inspections', label: 'Inspections', icon: Icons.Checklist }, { id: 'events', label: 'Events', icon: Icons.Event }, { id: 'settings', label: 'Settings', icon: Icons.Settings }];
-  return (<aside className="sidebar"><div className="sidebar-header"><div className="logo"><Icons.Shield /><span>PermitWise</span></div></div>{business && <div className="sidebar-business"><span>{business.businessName}</span><Badge>{subscription?.plan?.toUpperCase() || 'TRIAL'}</Badge></div>}<nav className="sidebar-nav">{navItems.map(item => <button key={item.id} className={`nav-item ${activePage === item.id ? 'active' : ''}`} onClick={() => onNavigate(item.id)}><item.icon /><span>{item.label}</span></button>)}</nav><div className="sidebar-footer"><button className="nav-item" onClick={onLogout}><Icons.Logout /><span>Logout</span></button></div></aside>);
+  const { user, business, subscription } = useAuth();
+  
+  // Check if user is an organizer (not a vendor)
+  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  
+  // All nav items
+  const allNavItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: Icons.Dashboard, vendorOnly: true },
+    { id: 'permits', label: 'Permits', icon: Icons.Permit, vendorOnly: true },
+    { id: 'documents', label: 'Documents', icon: Icons.Document, vendorOnly: true },
+    { id: 'inspections', label: 'Inspections', icon: Icons.Checklist, vendorOnly: true },
+    { id: 'events', label: 'Events', icon: Icons.Event },
+    { id: 'settings', label: 'Settings', icon: Icons.Settings }
+  ];
+  
+  // Filter nav items: organizers only see Events and Settings
+  const navItems = isOrganizer 
+    ? allNavItems.filter(item => !item.vendorOnly)
+    : allNavItems;
+  
+  return (
+    <aside className="sidebar">
+      <div className="sidebar-header">
+        <div className="logo"><Icons.Shield /><span>PermitWise</span></div>
+      </div>
+      {isOrganizer ? (
+        <div className="sidebar-business organizer">
+          <span>{user?.organizerProfile?.organizationName || 'Event Organizer'}</span>
+          <Badge variant="primary">ORGANIZER</Badge>
+        </div>
+      ) : business && (
+        <div className="sidebar-business">
+          <span>{business.businessName}</span>
+          <Badge>{subscription?.plan?.toUpperCase() || 'TRIAL'}</Badge>
+        </div>
+      )}
+      <nav className="sidebar-nav">
+        {navItems.map(item => (
+          <button key={item.id} className={`nav-item ${activePage === item.id ? 'active' : ''}`} onClick={() => onNavigate(item.id)}>
+            <item.icon /><span>{item.label}</span>
+          </button>
+        ))}
+      </nav>
+      <div className="sidebar-footer">
+        <button className="nav-item" onClick={onLogout}><Icons.Logout /><span>Logout</span></button>
+      </div>
+    </aside>
+  );
 };
 
 const AppLayout = ({ children, activePage, onNavigate, onLogout }) => {
@@ -4238,12 +4472,30 @@ const AppLayout = ({ children, activePage, onNavigate, onLogout }) => {
 // MAIN APP
 // ===========================================
 const App = () => {
-  const { isAuthenticated, hasCompletedOnboarding, loading, logout } = useAuth();
-  const [currentPage, setCurrentPage] = useState('dashboard');
+  const { user, isAuthenticated, hasCompletedOnboarding, loading, logout } = useAuth();
+  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  const [currentPage, setCurrentPage] = useState(isOrganizer ? 'events' : 'dashboard');
   const [authView, setAuthView] = useState(null);
   const [showPermitChecker, setShowPermitChecker] = useState(false);
   const [legalPage, setLegalPage] = useState(null); // 'privacy', 'terms', 'superadmin'
   const [resetToken, setResetToken] = useState(null);
+
+  // Update default page when user loads
+  useEffect(() => {
+    if (isOrganizer && currentPage === 'dashboard') {
+      setCurrentPage('events');
+    }
+  }, [isOrganizer, currentPage]);
+
+  // Prevent organizers from navigating to vendor-only pages
+  const handleNavigate = (page) => {
+    const vendorOnlyPages = ['dashboard', 'permits', 'documents', 'inspections'];
+    if (isOrganizer && vendorOnlyPages.includes(page)) {
+      setCurrentPage('events');
+    } else {
+      setCurrentPage(page);
+    }
+  };
 
   useEffect(() => { 
     const params = new URLSearchParams(window.location.search);
@@ -4286,9 +4538,22 @@ const App = () => {
     if (authView === 'forgot') return <ForgotPasswordPage onSwitch={setAuthView} />;
     return <LoginPage onSwitch={setAuthView} onSuccess={() => setAuthView(null)} />;
   }
-  if (!hasCompletedOnboarding) return <OnboardingPage onComplete={() => window.location.reload()} />;
-  const renderPage = () => { switch (currentPage) { case 'dashboard': return <Dashboard onNavigate={setCurrentPage} />; case 'permits': return <PermitsPage />; case 'documents': return <DocumentsPage />; case 'inspections': return <InspectionsPage />; case 'events': return <EventsPage />; case 'settings': return <SettingsPage />; default: return <Dashboard onNavigate={setCurrentPage} />; } };
-  return <AppLayout activePage={currentPage} onNavigate={setCurrentPage} onLogout={logout}>{renderPage()}</AppLayout>;
+  
+  // Organizers skip onboarding (they don't need business setup)
+  if (!hasCompletedOnboarding && !isOrganizer) return <OnboardingPage onComplete={() => window.location.reload()} />;
+  
+  const renderPage = () => { 
+    switch (currentPage) { 
+      case 'dashboard': return isOrganizer ? <EventsPage /> : <Dashboard onNavigate={handleNavigate} />; 
+      case 'permits': return isOrganizer ? <EventsPage /> : <PermitsPage />; 
+      case 'documents': return isOrganizer ? <EventsPage /> : <DocumentsPage />; 
+      case 'inspections': return isOrganizer ? <EventsPage /> : <InspectionsPage />; 
+      case 'events': return <EventsPage />; 
+      case 'settings': return <SettingsPage />; 
+      default: return isOrganizer ? <EventsPage /> : <Dashboard onNavigate={handleNavigate} />; 
+    } 
+  };
+  return <AppLayout activePage={currentPage} onNavigate={handleNavigate} onLogout={logout}>{renderPage()}</AppLayout>;
 };
 
 const AppWithAuth = () => <AuthProvider><App /></AuthProvider>;
