@@ -2044,6 +2044,261 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
   );
 };
 
+// ===========================================
+// ORGANIZER SETTINGS SCREEN (Mobile)
+// ===========================================
+const OrganizerSettingsScreen = ({ navigation }) => {
+  const { user, fetchUser, logout } = useAuth();
+  const [activeSection, setActiveSection] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [subscription, setSubscription] = useState(null);
+  
+  const [profileData, setProfileData] = useState({
+    firstName: user?.firstName || '',
+    lastName: user?.lastName || '',
+    phone: user?.phone || ''
+  });
+  
+  const [organizationData, setOrganizationData] = useState({
+    companyName: user?.organizerProfile?.companyName || '',
+    description: user?.organizerProfile?.description || '',
+    website: user?.organizerProfile?.website || '',
+    phone: user?.organizerProfile?.phone || '',
+    contactEmail: user?.organizerProfile?.contactEmail || user?.email || ''
+  });
+  
+  const [notificationPrefs, setNotificationPrefs] = useState({
+    applicationReceived: user?.organizerProfile?.notifications?.applicationReceived ?? true,
+    applicationDeadline: user?.organizerProfile?.notifications?.applicationDeadline ?? true,
+    vendorCompliance: user?.organizerProfile?.notifications?.vendorCompliance ?? true,
+    eventReminders: user?.organizerProfile?.notifications?.eventReminders ?? true
+  });
+
+  useEffect(() => {
+    api.get('/organizer/subscription').then(data => setSubscription(data.subscription)).catch(console.error);
+  }, []);
+
+  const isVerified = user?.organizerProfile?.verified;
+
+  const handleProfileSave = async () => {
+    setLoading(true);
+    try {
+      await api.put('/auth/profile', profileData);
+      await fetchUser();
+      Alert.alert('Success', 'Profile updated');
+      setActiveSection(null);
+    } catch (err) { Alert.alert('Error', err.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleOrganizationSave = async () => {
+    setLoading(true);
+    try {
+      await api.put('/organizer/profile', organizationData);
+      await fetchUser();
+      Alert.alert('Success', 'Organization profile updated');
+      setActiveSection(null);
+    } catch (err) { Alert.alert('Error', err.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleNotificationsSave = async () => {
+    setLoading(true);
+    try {
+      await api.put('/organizer/notifications', notificationPrefs);
+      await fetchUser();
+      Alert.alert('Success', 'Notification preferences saved');
+      setActiveSection(null);
+    } catch (err) { Alert.alert('Error', err.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleUpgrade = async () => {
+    try {
+      const data = await api.post('/organizer/subscription/checkout');
+      if (data.url) Linking.openURL(data.url);
+    } catch (err) { Alert.alert('Error', err.message); }
+  };
+
+  const handleLogout = () => {
+    Alert.alert('Log Out', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Log Out', style: 'destructive', onPress: logout }
+    ]);
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <ScrollView>
+        <View style={styles.pageHeader}>
+          <Text style={styles.pageTitle}>Organizer Settings</Text>
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+            <Badge variant="primary">Organizer</Badge>
+            {isVerified ? (
+              <Badge variant="success">✓ Verified</Badge>
+            ) : (
+              <Badge variant="warning">Pending</Badge>
+            )}
+          </View>
+        </View>
+
+        {!isVerified && (
+          <Card style={[styles.card, { backgroundColor: '#dbeafe', marginHorizontal: 20, marginBottom: 16 }]}>
+            <Text style={{ color: '#1e40af', fontSize: 14 }}>
+              <Text style={{ fontWeight: '600' }}>Verification Pending: </Text>
+              Your account is awaiting verification. You can create draft events while waiting.
+            </Text>
+          </Card>
+        )}
+
+        {/* Profile Card */}
+        <Card style={styles.profileCard}>
+          <View style={styles.profileAvatar}>
+            <Text style={styles.profileInitials}>{user?.firstName?.[0]}{user?.lastName?.[0]}</Text>
+          </View>
+          <View style={styles.profileInfo}>
+            <Text style={styles.profileName}>{user?.firstName} {user?.lastName}</Text>
+            <Text style={styles.profileEmail}>{user?.email}</Text>
+          </View>
+        </Card>
+
+        {/* Profile Settings */}
+        <TouchableOpacity onPress={() => setActiveSection(activeSection === 'profile' ? null : 'profile')}>
+          <Card style={styles.settingsCard}>
+            <Text style={styles.settingsSection}>Profile Settings</Text>
+            <Icons.Edit size={18} color={COLORS.gray400} />
+          </Card>
+        </TouchableOpacity>
+        {activeSection === 'profile' && (
+          <Card style={styles.editCard}>
+            <Input label="First Name" value={profileData.firstName} onChangeText={v => setProfileData(d => ({ ...d, firstName: v }))} />
+            <Input label="Last Name" value={profileData.lastName} onChangeText={v => setProfileData(d => ({ ...d, lastName: v }))} />
+            <PhoneInput label="Phone" value={profileData.phone} onChangeText={v => setProfileData(d => ({ ...d, phone: v }))} />
+            <Button title="Save Profile" onPress={handleProfileSave} loading={loading} />
+          </Card>
+        )}
+
+        {/* Organization Settings */}
+        <TouchableOpacity onPress={() => setActiveSection(activeSection === 'organization' ? null : 'organization')}>
+          <Card style={styles.settingsCard}>
+            <Text style={styles.settingsSection}>Organization Profile</Text>
+            <Icons.Edit size={18} color={COLORS.gray400} />
+          </Card>
+        </TouchableOpacity>
+        {activeSection === 'organization' && (
+          <Card style={styles.editCard}>
+            <Input label="Organization Name" value={organizationData.companyName} onChangeText={v => setOrganizationData(d => ({ ...d, companyName: v }))} placeholder="e.g., Austin Food Events LLC" />
+            <Input label="Description" value={organizationData.description} onChangeText={v => setOrganizationData(d => ({ ...d, description: v }))} placeholder="Tell vendors about your organization..." multiline />
+            <Input label="Website" value={organizationData.website} onChangeText={v => setOrganizationData(d => ({ ...d, website: v }))} placeholder="https://yourorganization.com" keyboardType="url" />
+            <View style={styles.row}>
+              <View style={styles.halfInput}>
+                <PhoneInput label="Contact Phone" value={organizationData.phone} onChangeText={v => setOrganizationData(d => ({ ...d, phone: v }))} />
+              </View>
+              <View style={styles.halfInput}>
+                <EmailInput label="Contact Email" value={organizationData.contactEmail} onChangeText={v => setOrganizationData(d => ({ ...d, contactEmail: v }))} />
+              </View>
+            </View>
+            <Button title="Save Organization" onPress={handleOrganizationSave} loading={loading} />
+          </Card>
+        )}
+
+        {/* Notification Settings */}
+        <TouchableOpacity onPress={() => setActiveSection(activeSection === 'notifications' ? null : 'notifications')}>
+          <Card style={styles.settingsCard}>
+            <Text style={styles.settingsSection}>Notifications</Text>
+            <Icons.Edit size={18} color={COLORS.gray400} />
+          </Card>
+        </TouchableOpacity>
+        {activeSection === 'notifications' && (
+          <Card style={styles.editCard}>
+            <TouchableOpacity style={styles.toggleRow} onPress={() => setNotificationPrefs(d => ({ ...d, applicationReceived: !d.applicationReceived }))}>
+              <View style={styles.toggleInfo}>
+                <Text style={styles.toggleTitle}>New Vendor Applications</Text>
+                <Text style={styles.toggleDesc}>Get notified when vendors apply</Text>
+              </View>
+              <View style={[styles.toggleSwitch, notificationPrefs.applicationReceived && styles.toggleSwitchActive]}>
+                <View style={[styles.toggleKnob, notificationPrefs.applicationReceived && styles.toggleKnobActive]} />
+              </View>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.toggleRow} onPress={() => setNotificationPrefs(d => ({ ...d, applicationDeadline: !d.applicationDeadline }))}>
+              <View style={styles.toggleInfo}>
+                <Text style={styles.toggleTitle}>Application Deadlines</Text>
+                <Text style={styles.toggleDesc}>Reminders before deadlines close</Text>
+              </View>
+              <View style={[styles.toggleSwitch, notificationPrefs.applicationDeadline && styles.toggleSwitchActive]}>
+                <View style={[styles.toggleKnob, notificationPrefs.applicationDeadline && styles.toggleKnobActive]} />
+              </View>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.toggleRow} onPress={() => setNotificationPrefs(d => ({ ...d, vendorCompliance: !d.vendorCompliance }))}>
+              <View style={styles.toggleInfo}>
+                <Text style={styles.toggleTitle}>Vendor Compliance Updates</Text>
+                <Text style={styles.toggleDesc}>When vendor permit status changes</Text>
+              </View>
+              <View style={[styles.toggleSwitch, notificationPrefs.vendorCompliance && styles.toggleSwitchActive]}>
+                <View style={[styles.toggleKnob, notificationPrefs.vendorCompliance && styles.toggleKnobActive]} />
+              </View>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.toggleRow} onPress={() => setNotificationPrefs(d => ({ ...d, eventReminders: !d.eventReminders }))}>
+              <View style={styles.toggleInfo}>
+                <Text style={styles.toggleTitle}>Event Reminders</Text>
+                <Text style={styles.toggleDesc}>Reminders before your events start</Text>
+              </View>
+              <View style={[styles.toggleSwitch, notificationPrefs.eventReminders && styles.toggleSwitchActive]}>
+                <View style={[styles.toggleKnob, notificationPrefs.eventReminders && styles.toggleKnobActive]} />
+              </View>
+            </TouchableOpacity>
+            
+            <Button title="Save Preferences" onPress={handleNotificationsSave} loading={loading} style={{ marginTop: 12 }} />
+          </Card>
+        )}
+
+        {/* Subscription */}
+        <TouchableOpacity onPress={() => setActiveSection(activeSection === 'billing' ? null : 'billing')}>
+          <Card style={[styles.settingsCard, { backgroundColor: '#ecfdf5', borderColor: '#10b981', borderWidth: 1 }]}>
+            <View>
+              <Text style={[styles.settingsSection, { color: '#065f46' }]}>Organizer Plan</Text>
+              <Text style={{ color: '#047857', fontSize: 12 }}>
+                {subscription?.status === 'active' ? 'Active' : subscription?.status === 'trial' ? `Trial - ${Math.max(0, Math.ceil((new Date(subscription?.trialEndsAt) - new Date()) / (1000 * 60 * 60 * 24)))} days left` : 'Inactive'}
+              </Text>
+            </View>
+            <Text style={{ color: '#065f46', fontWeight: '700', fontSize: 18 }}>$79/mo</Text>
+          </Card>
+        </TouchableOpacity>
+        {activeSection === 'billing' && (
+          <Card style={styles.editCard}>
+            <View style={{ alignItems: 'center', padding: 16 }}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: COLORS.gray800, marginBottom: 8 }}>Organizer Plan Features</Text>
+              <View style={{ width: '100%' }}>
+                {['Unlimited events', 'Unlimited vendor invitations', 'Vendor compliance tracking', 'Custom permit requirements', 'Application management', 'Verified organizer badge', 'Priority support'].map((feature, i) => (
+                  <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 }}>
+                    <Icons.Check size={16} color="#10b981" />
+                    <Text style={{ color: COLORS.gray700 }}>{feature}</Text>
+                  </View>
+                ))}
+              </View>
+              {subscription?.status !== 'active' && (
+                <Button title="Upgrade - $79/month" onPress={handleUpgrade} style={{ marginTop: 16, backgroundColor: '#10b981' }} />
+              )}
+            </View>
+          </Card>
+        )}
+
+        {/* Logout */}
+        <TouchableOpacity onPress={handleLogout}>
+          <Card style={[styles.settingsCard, styles.logoutCard]}>
+            <Text style={styles.logoutText}>Log Out</Text>
+          </Card>
+        </TouchableOpacity>
+
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
 const SettingsScreen = ({ navigation }) => {
   const { user, business, subscription, subscriptionStatus, logout, fetchUser, updateBusiness } = useAuth();
   const [activeSection, setActiveSection] = useState(null);
@@ -3979,7 +4234,7 @@ const OrganizerTabs = () => (
     },
   })}>
     <Tab.Screen name="Events" component={EventsScreen} />
-    <Tab.Screen name="Settings" component={SettingsScreen} />
+    <Tab.Screen name="Settings" component={OrganizerSettingsScreen} />
   </Tab.Navigator>
 );
 
@@ -4691,4 +4946,3 @@ const styles = StyleSheet.create({
   settingsCardExpired: { borderWidth: 1, borderColor: '#fca5a5', backgroundColor: '#fef2f2' },
   settingsHint: { fontSize: 12, color: COLORS.gray500 },
 });
-
