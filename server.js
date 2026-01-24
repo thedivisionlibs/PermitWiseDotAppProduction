@@ -385,6 +385,32 @@ const subscriptionSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
+// Organizer Subscription Schema (separate from vendor subscriptions)
+const organizerSubscriptionSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  plan: { type: String, enum: ['trial', 'organizer', 'lifetime'], default: 'trial' },
+  status: { type: String, enum: ['trial', 'active', 'past_due', 'canceled', 'expired', 'lifetime'], default: 'trial' },
+  price: { type: Number, default: 79 }, // $79/month
+  stripeCustomerId: { type: String },
+  stripeSubscriptionId: { type: String },
+  stripePriceId: { type: String },
+  currentPeriodStart: { type: Date },
+  currentPeriodEnd: { type: Date },
+  trialEndsAt: { type: Date, default: () => new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) }, // 14 days
+  canceledAt: { type: Date },
+  features: {
+    unlimitedEvents: { type: Boolean, default: true },
+    unlimitedInvitations: { type: Boolean, default: true },
+    complianceTracking: { type: Boolean, default: true },
+    customRequirements: { type: Boolean, default: true },
+    applicationManagement: { type: Boolean, default: true },
+    verifiedBadge: { type: Boolean, default: true },
+    prioritySupport: { type: Boolean, default: true }
+  },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
 // Notification Schema
 const notificationSchema = new mongoose.Schema({
   vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness', required: true },
@@ -623,6 +649,7 @@ const PermitType = mongoose.model('PermitType', permitTypeSchema);
 const VendorPermit = mongoose.model('VendorPermit', vendorPermitSchema);
 const Document = mongoose.model('Document', documentSchema);
 const Subscription = mongoose.model('Subscription', subscriptionSchema);
+const OrganizerSubscription = mongoose.model('OrganizerSubscription', organizerSubscriptionSchema);
 const Notification = mongoose.model('Notification', notificationSchema);
 const InspectionChecklist = mongoose.model('InspectionChecklist', inspectionChecklistSchema);
 const VendorInspection = mongoose.model('VendorInspection', vendorInspectionSchema);
@@ -1088,11 +1115,29 @@ app.post('/api/auth/register', async (req, res) => {
       organizerProfile: isOrganizer ? {
         companyName: companyName || '',
         verified: false,
-        disabled: false
+        disabled: false,
+        notifications: {
+          applicationReceived: true,
+          applicationDeadline: true,
+          vendorCompliance: true,
+          eventReminders: true,
+          emailDigest: 'daily'
+        }
       } : undefined
     });
     
     await user.save();
+    
+    // Create organizer subscription with trial
+    if (isOrganizer) {
+      const orgSubscription = new OrganizerSubscription({
+        userId: user._id,
+        plan: 'trial',
+        status: 'trial',
+        trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) // 14 days
+      });
+      await orgSubscription.save();
+    }
     
     // Send verification email
     const verifyUrl = `${CLIENT_URL}/verify-email?token=${verificationToken}`;
@@ -1106,6 +1151,7 @@ app.post('/api/auth/register', async (req, res) => {
         <a href="${verifyUrl}" style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Verify Email</a>
         <p>Or copy this link: ${verifyUrl}</p>
         <p>This link expires in 24 hours.</p>
+        ${isOrganizer ? '<p><strong>Note:</strong> Your organizer account will need to be verified by PermitWise before you can publish events. This usually takes 1-2 business days.</p>' : ''}
         <p>Best,<br>The PermitWise Team</p>
       `
     );
@@ -1670,6 +1716,143 @@ app.post('/api/business/logo', authMiddleware, upload.single('logo'), async (req
     await VendorBusiness.findByIdAndUpdate(req.user.vendorBusinessId, { logo: logoUrl });
     
     res.json({ logoUrl });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===========================================
+// ORGANIZER ROUTES
+// ===========================================
+
+// Get organizer subscription
+app.get('/api/organizer/subscription', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    // Find organizer subscription (stored on user record)
+    const subscription = await OrganizerSubscription.findOne({ userId: req.userId });
+    
+    res.json({ subscription: subscription || { status: 'trial', trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) } });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update organizer profile
+app.put('/api/organizer/profile', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const { companyName, description, website, phone, contactEmail } = req.body;
+    
+    const user = await User.findById(req.userId);
+    user.organizerProfile = {
+      ...user.organizerProfile,
+      companyName,
+      description,
+      website,
+      phone,
+      contactEmail
+    };
+    user.updatedAt = new Date();
+    await user.save();
+    
+    res.json({ user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update organizer notification preferences
+app.put('/api/organizer/notifications', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const { applicationReceived, applicationDeadline, vendorCompliance, eventReminders, emailDigest } = req.body;
+    
+    const user = await User.findById(req.userId);
+    user.organizerProfile = {
+      ...user.organizerProfile,
+      notifications: {
+        applicationReceived,
+        applicationDeadline,
+        vendorCompliance,
+        eventReminders,
+        emailDigest
+      }
+    };
+    user.updatedAt = new Date();
+    await user.save();
+    
+    res.json({ user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Organizer subscription checkout
+app.post('/api/organizer/subscription/checkout', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    // Create Stripe checkout session for organizer plan
+    const session = await stripe.checkout.sessions.create({
+      customer_email: req.user.email,
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          product_data: {
+            name: 'PermitWise Organizer Plan',
+            description: 'Unlimited events, vendor management, compliance tracking'
+          },
+          unit_amount: 7900, // $79.00
+          recurring: { interval: 'month' }
+        },
+        quantity: 1
+      }],
+      mode: 'subscription',
+      success_url: `${CLIENT_URL}/app?success=true`,
+      cancel_url: `${CLIENT_URL}/app?canceled=true`,
+      metadata: {
+        userId: req.userId.toString(),
+        type: 'organizer'
+      }
+    });
+    
+    res.json({ url: session.url });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Organizer billing portal
+app.post('/api/organizer/subscription/portal', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const subscription = await OrganizerSubscription.findOne({ userId: req.userId });
+    if (!subscription?.stripeCustomerId) {
+      return res.status(400).json({ error: 'No active subscription found' });
+    }
+    
+    const session = await stripe.billingPortal.sessions.create({
+      customer: subscription.stripeCustomerId,
+      return_url: `${CLIENT_URL}/app#settings`
+    });
+    
+    res.json({ url: session.url });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
