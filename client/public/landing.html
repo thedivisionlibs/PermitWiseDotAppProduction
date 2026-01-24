@@ -974,6 +974,107 @@
     }
     .plan-btn { width: 100%; }
     
+    /* ========== ORGANIZER PRICING ========== */
+    .organizer-pricing-section {
+      margin-top: 64px;
+      padding-top: 64px;
+      border-top: 2px solid var(--gray-200);
+      text-align: center;
+    }
+    .organizer-badge {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    }
+    .organizer-pricing-title {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin: 16px 0 8px;
+    }
+    .organizer-pricing-desc {
+      color: var(--gray-600);
+      max-width: 500px;
+      margin: 0 auto 32px;
+    }
+    .organizer-plan-card {
+      background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+      border: 2px solid #10b981;
+      border-radius: 20px;
+      padding: 48px;
+      max-width: 700px;
+      margin: 0 auto;
+      text-align: left;
+    }
+    .organizer-plan-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .organizer-plan-name {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #065f46;
+      margin: 0;
+    }
+    .organizer-plan-price .amount {
+      font-size: 48px;
+      font-weight: 800;
+      color: #065f46;
+    }
+    .organizer-plan-price .period {
+      font-size: 16px;
+      color: #047857;
+    }
+    .organizer-plan-features {
+      display: grid;
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+    .organizer-feature {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .organizer-feature svg {
+      width: 24px;
+      height: 24px;
+      color: #10b981;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .organizer-feature div {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .organizer-feature strong {
+      color: #065f46;
+      font-size: 15px;
+    }
+    .organizer-feature span {
+      color: #047857;
+      font-size: 14px;
+    }
+    .organizer-plan-btn {
+      width: 100%;
+      background: #10b981;
+      border-color: #10b981;
+      font-size: 16px;
+      padding: 14px 28px;
+    }
+    .organizer-plan-btn:hover {
+      background: #059669;
+      border-color: #059669;
+    }
+    .organizer-plan-note {
+      text-align: center;
+      color: #047857;
+      font-size: 13px;
+      margin-top: 12px;
+    }
+    
     /* ========== EVENT ORGANIZERS SECTION ========== */
     .organizers-section {
       padding: 100px 0;
@@ -2066,6 +2167,62 @@
             <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> Dedicated support</li>
           </ul>
           <a href="/app?register=true" class="btn btn-outline plan-btn">Start Free Trial</a>
+        </div>
+      </div>
+      
+      <!-- Organizer Pricing -->
+      <div class="organizer-pricing-section">
+        <div class="section-badge organizer-badge">For Event Organizers</div>
+        <h3 class="organizer-pricing-title">Host events and manage vendor compliance</h3>
+        <p class="organizer-pricing-desc">A separate platform for event organizers to verify vendor compliance and streamline applications.</p>
+        
+        <div class="organizer-plan-card">
+          <div class="organizer-plan-header">
+            <h4 class="organizer-plan-name">Organizer Plan</h4>
+            <div class="organizer-plan-price">
+              <span class="amount">$79</span>
+              <span class="period">/month</span>
+            </div>
+          </div>
+          <div class="organizer-plan-features">
+            <div class="organizer-feature">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              <div>
+                <strong>Unlimited Events</strong>
+                <span>Create and manage as many events as you need</span>
+              </div>
+            </div>
+            <div class="organizer-feature">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              <div>
+                <strong>Vendor Compliance Tracking</strong>
+                <span>See real-time permit status for all your vendors</span>
+              </div>
+            </div>
+            <div class="organizer-feature">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              <div>
+                <strong>Application Management</strong>
+                <span>Accept applications, approve vendors, manage waitlists</span>
+              </div>
+            </div>
+            <div class="organizer-feature">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              <div>
+                <strong>Custom Requirements</strong>
+                <span>Add insurance, certifications, or other requirements</span>
+              </div>
+            </div>
+            <div class="organizer-feature">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+              <div>
+                <strong>Verified Badge</strong>
+                <span>Build trust with vendors through verification</span>
+              </div>
+            </div>
+          </div>
+          <a href="/app?register=true&organizer=true" class="btn btn-primary organizer-plan-btn">Start 14-Day Free Trial</a>
+          <p class="organizer-plan-note">No credit card required • Cancel anytime</p>
         </div>
       </div>
     </div>
