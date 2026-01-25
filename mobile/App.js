@@ -193,6 +193,20 @@ const api = {
   post: (endpoint, body) => api.request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
   put: (endpoint, body) => api.request(endpoint, { method: 'PUT', body: JSON.stringify(body) }),
   delete: (endpoint) => api.request(endpoint, { method: 'DELETE' }),
+  // Upload method for FormData (file uploads) - doesn't set Content-Type, lets fetch handle it
+  async upload(endpoint, formData) {
+    const token = await AsyncStorage.getItem('permitwise_token');
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Upload failed');
+    return data;
+  }
 };
 
 // ===========================================
