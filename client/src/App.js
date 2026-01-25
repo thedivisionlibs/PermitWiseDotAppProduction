@@ -1023,6 +1023,7 @@ const Dashboard = ({ onNavigate }) => {
   const [stats, setStats] = useState(null); const [loading, setLoading] = useState(true);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [resendMessage, setResendMessage] = useState('');
 
   useEffect(() => { 
     const fetchStats = async () => { 
@@ -1044,6 +1045,17 @@ const Dashboard = ({ onNavigate }) => {
     }
   }, []);
 
+  const handleResendVerification = async () => {
+    try {
+      await api.post('/auth/resend-verification');
+      setResendMessage('Verification email sent! Check your inbox.');
+      setTimeout(() => setResendMessage(''), 5000);
+    } catch (error) {
+      setResendMessage(error.message || 'Failed to send email. Please try again.');
+      setTimeout(() => setResendMessage(''), 5000);
+    }
+  };
+
   const getExpiryLabel = (daysUntil) => {
     if (daysUntil <= 0) return { text: 'Expired!', variant: 'danger' };
     if (daysUntil <= 7) return { text: `Expires in ${daysUntil} day${daysUntil > 1 ? 's' : ''} — inspectors often check this first!`, variant: 'danger' };
@@ -1057,7 +1069,13 @@ const Dashboard = ({ onNavigate }) => {
 
   return (
     <div className="dashboard">
-      {!user?.emailVerified && <div className="email-banner"><Icons.Bell /> Verify your email to ensure you receive permit alerts. <button onClick={() => api.post('/auth/resend-verification')}>Resend</button></div>}
+      {!user?.emailVerified && (
+        <div className="email-banner">
+          <Icons.Bell /> Verify your email to ensure you receive permit alerts. 
+          <button onClick={handleResendVerification}>Resend</button>
+          {resendMessage && <span className="resend-message">{resendMessage}</span>}
+        </div>
+      )}
       <div className="dashboard-header"><div><h1>Welcome, {business?.businessName}!</h1><p>Compliance overview</p></div>{subscription?.status === 'trial' && <Alert type="warning">Trial ends {formatDate(subscription.trialEndsAt)}</Alert>}</div>
       {needsAttention > 0 && (
         <Card className="aha-banner">
