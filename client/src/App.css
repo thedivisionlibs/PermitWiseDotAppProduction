@@ -530,6 +530,7 @@ img { max-width: 100%; display: block; }
 }
 .email-banner svg { width: 18px; height: 18px; flex-shrink: 0; }
 .email-banner button { background: none; border: none; color: #b45309; font-weight: 600; cursor: pointer; text-decoration: underline; margin-left: auto; }
+.email-banner .resend-message { margin-left: 12px; font-weight: 600; color: #166534; background: #dcfce7; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
 
 /* Aha Moment Banner */
 .aha-banner {
