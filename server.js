@@ -311,7 +311,8 @@ const vendorPermitSchema = new mongoose.Schema({
   permitNumber: { type: String },
   issueDate: { type: Date },
   expiryDate: { type: Date },
-  documentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Document' },
+  documentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Document' }, // Primary document (legacy)
+  documents: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Document' }], // Multiple documents
   notes: { type: String },
   remindersSent: [{
     daysBeforeExpiry: Number,
@@ -2262,6 +2263,7 @@ app.get('/api/permits', authMiddleware, async (req, res) => {
       .populate('permitTypeId')
       .populate('jurisdictionId', 'name city state type')
       .populate('documentId')
+      .populate('documents')
       .sort({ expiryDate: 1 });
     
     // Update statuses based on expiry
@@ -2311,7 +2313,8 @@ app.get('/api/permits/:id', authMiddleware, async (req, res) => {
     })
       .populate('permitTypeId')
       .populate('jurisdictionId')
-      .populate('documentId');
+      .populate('documentId')
+      .populate('documents');
       
     if (!permit) {
       return res.status(404).json({ error: 'Permit not found' });
@@ -2384,7 +2387,8 @@ app.put('/api/permits/:id', authMiddleware, requireWriteAccess, async (req, res)
     )
       .populate('permitTypeId')
       .populate('jurisdictionId')
-      .populate('documentId');
+      .populate('documentId')
+      .populate('documents');
     
     if (!permit) {
       return res.status(404).json({ error: 'Permit not found' });
@@ -2535,10 +2539,24 @@ app.post('/api/documents', authMiddleware, requireWriteAccess, upload.single('fi
     
     // If related to a permit, update the permit (verify ownership first)
     if (relatedEntityType === 'permit' && relatedEntityId) {
-      await VendorPermit.findOneAndUpdate(
-        { _id: relatedEntityId, vendorBusinessId: req.user.vendorBusinessId },
-        { documentId: document._id }
-      );
+      const permit = await VendorPermit.findOne({
+        _id: relatedEntityId,
+        vendorBusinessId: req.user.vendorBusinessId
+      });
+      
+      if (permit) {
+        // Set documentId if not already set (for backward compatibility)
+        if (!permit.documentId) {
+          permit.documentId = document._id;
+        }
+        // Add to documents array
+        if (!permit.documents) {
+          permit.documents = [];
+        }
+        permit.documents.push(document._id);
+        permit.updatedAt = new Date();
+        await permit.save();
+      }
     }
     
     res.status(201).json({ document });
