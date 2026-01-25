@@ -186,7 +186,14 @@ const api = {
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Request failed');
+    if (!response.ok) {
+      // Don't throw error for subscription_expired - just return null and let UI handle via banner
+      if (data.error === 'subscription_expired') {
+        console.log('Subscription expired - operation blocked');
+        return { _subscriptionExpired: true };
+      }
+      throw new Error(data.error || 'Request failed');
+    }
     return data;
   },
   get: (endpoint) => api.request(endpoint),
@@ -204,7 +211,13 @@ const api = {
       body: formData
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Upload failed');
+    if (!response.ok) {
+      if (data.error === 'subscription_expired') {
+        console.log('Subscription expired - upload blocked');
+        return { _subscriptionExpired: true };
+      }
+      throw new Error(data.error || 'Upload failed');
+    }
     return data;
   }
 };
@@ -1732,8 +1745,35 @@ const PermitDetailScreen = ({ route, navigation }) => {
         
         {/* Document Section */}
         <Card style={styles.detailCard}>
-          <Text style={styles.permitTypeInfoTitle}>Document</Text>
-          {permit.documentId ? (
+          <View style={styles.documentHeader}>
+            <Text style={styles.permitTypeInfoTitle}>Documents</Text>
+            {(permit.documents?.length > 0 || permit.documentId) && (
+              <Text style={styles.documentCount}>({permit.documents?.length || 1})</Text>
+            )}
+          </View>
+          
+          {/* Show all documents */}
+          {permit.documents && permit.documents.length > 0 ? (
+            permit.documents.map((doc, index) => (
+              <TouchableOpacity 
+                key={doc._id || index} 
+                style={[styles.documentPreview, index > 0 && { marginTop: 8 }]} 
+                onPress={async () => {
+                  if (doc.fileUrl) {
+                    const secureUrl = await getSecureFileUrl(doc.fileUrl);
+                    await Linking.openURL(secureUrl);
+                  }
+                }}
+              >
+                <Icons.Document size={24} color={COLORS.primary} />
+                <View style={styles.documentInfo}>
+                  <Text style={styles.documentName} numberOfLines={1}>{doc.originalName || `Document ${index + 1}`}</Text>
+                  <Text style={styles.documentHint}>Tap to view</Text>
+                </View>
+                <Icons.Download size={20} color={COLORS.primary} />
+              </TouchableOpacity>
+            ))
+          ) : permit.documentId ? (
             <TouchableOpacity style={styles.documentPreview} onPress={handleViewDocument}>
               <Icons.Document size={24} color={COLORS.primary} />
               <View style={styles.documentInfo}>
@@ -1742,19 +1782,28 @@ const PermitDetailScreen = ({ route, navigation }) => {
               </View>
               <Icons.Download size={20} color={COLORS.primary} />
             </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={styles.uploadDocArea} onPress={handleUploadDocument} disabled={uploading}>
-              {uploading ? (
-                <ActivityIndicator color={COLORS.primary} />
-              ) : (
-                <>
-                  <Icons.Upload size={32} color={COLORS.gray400} />
-                  <Text style={styles.uploadDocText}>Tap to upload document</Text>
+          ) : null}
+          
+          {/* Always show upload option */}
+          <TouchableOpacity 
+            style={[styles.uploadDocArea, (permit.documents?.length > 0 || permit.documentId) && { marginTop: 12, paddingVertical: 16 }]} 
+            onPress={handleUploadDocument} 
+            disabled={uploading}
+          >
+            {uploading ? (
+              <ActivityIndicator color={COLORS.primary} />
+            ) : (
+              <>
+                <Icons.Upload size={24} color={COLORS.gray400} />
+                <Text style={styles.uploadDocText}>
+                  {(permit.documents?.length > 0 || permit.documentId) ? '+ Add Another Document' : 'Tap to upload document'}
+                </Text>
+                {!(permit.documents?.length > 0 || permit.documentId) && (
                   <Text style={styles.uploadDocHint}>Photo or scan of your permit</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
+                )}
+              </>
+            )}
+          </TouchableOpacity>
         </Card>
         
         {subscription?.features?.autofill && (
@@ -4433,15 +4482,57 @@ const OrganizerTabs = () => (
 // Dynamic tabs based on user type
 const MainTabs = () => {
   const { user } = useAuth();
-  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  // Check if user is organizer (even if disabled - we'll show disabled message in OrganizerTabs)
+  const isOrganizer = user?.isOrganizer;
   return isOrganizer ? <OrganizerTabs /> : <VendorTabs />;
+};
+
+// Disabled Account Screen
+const DisabledAccountScreen = ({ reason, type }) => {
+  const { logout } = useAuth();
+  
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+        <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#fee2e2', justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
+          <Icons.Alert size={40} color="#dc2626" />
+        </View>
+        <Text style={{ fontSize: 22, fontWeight: '700', color: COLORS.gray900, marginBottom: 12, textAlign: 'center' }}>
+          Account {type === 'rejected' ? 'Not Approved' : 'Disabled'}
+        </Text>
+        <Text style={{ fontSize: 15, color: COLORS.gray600, textAlign: 'center', marginBottom: 24, lineHeight: 22 }}>
+          {reason || (type === 'rejected' 
+            ? 'Your organizer application was not approved.' 
+            : 'Your account has been disabled by an administrator.')}
+        </Text>
+        <View style={{ backgroundColor: '#f3f4f6', padding: 16, borderRadius: 12, width: '100%', marginBottom: 24 }}>
+          <Text style={{ fontSize: 14, color: COLORS.gray700, textAlign: 'center' }}>
+            If you believe this is an error, please contact support at{' '}
+            <Text style={{ color: COLORS.primary, fontWeight: '600' }}>support@permitwise.app</Text>
+          </Text>
+        </View>
+        <Button title="Log Out" variant="outline" onPress={logout} style={{ width: '100%' }} />
+      </View>
+    </SafeAreaView>
+  );
 };
 
 // Wrapper that includes subscription banner
 const MainTabsWithBanner = () => {
   const { user, isExpired } = useAuth();
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  const isOrganizer = user?.isOrganizer;
+  const isDisabled = user?.organizerProfile?.disabled || user?.organizerProfile?.verificationStatus === 'rejected';
+  
+  // Show disabled screen for disabled organizers
+  if (isOrganizer && isDisabled) {
+    return (
+      <DisabledAccountScreen 
+        reason={user?.organizerProfile?.disabledReason} 
+        type={user?.organizerProfile?.verificationStatus === 'rejected' ? 'rejected' : 'disabled'}
+      />
+    );
+  }
   
   return (
     <View style={{ flex: 1 }}>
@@ -4469,7 +4560,7 @@ const MainTabsWithBanner = () => {
 // ===========================================
 const AppContent = () => {
   const { user, isAuthenticated, hasCompletedOnboarding, loading } = useAuth();
-  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  const isOrganizer = user?.isOrganizer;
 
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /><Text style={styles.loadingText}>Loading PermitWise...</Text></View>;
   if (!isAuthenticated) return <AuthNavigator />;
@@ -4565,12 +4656,19 @@ const styles = StyleSheet.create({
   pickerButtonText: { fontSize: 16, color: COLORS.gray800 },
   pickerButtonPlaceholder: { fontSize: 16, color: COLORS.gray400 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: COLORS.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 8 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
+  modalTitle: { fontSize: 18, fontWeight: '600', color: COLORS.gray900 },
+  modalBody: { padding: 20 },
+  modalFooter: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  modalDesc: { fontSize: 14, color: COLORS.gray600, marginBottom: 16 },
+  modalActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
   pickerModal: { backgroundColor: COLORS.white, borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '60%' },
   pickerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: COLORS.gray200 },
   pickerTitle: { fontSize: 18, fontWeight: '600' },
   pickerDone: { fontSize: 16, color: COLORS.primary, fontWeight: '600' },
   pickerScroll: { padding: 8 },
-  pickerItem: { padding: 16, borderRadius: 8 },
+  pickerItem: { padding: 16, borderRadius: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   pickerItemSelected: { backgroundColor: COLORS.gray100 },
   pickerItemText: { fontSize: 16, color: COLORS.gray700 },
   pickerItemTextSelected: { color: COLORS.primary, fontWeight: '500' },
@@ -4916,12 +5014,14 @@ const styles = StyleSheet.create({
   suggestItemMeta: { fontSize: 11, color: COLORS.gray400, marginTop: 6 },
   suggestModalFooter: { flexDirection: 'row', padding: 20, borderTopWidth: 1, borderTopColor: COLORS.gray100, gap: 12 },
   // Document upload in permit detail
+  documentHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  documentCount: { fontSize: 12, color: COLORS.gray500, marginLeft: 4 },
   documentPreview: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: COLORS.gray50, borderRadius: 8 },
   documentInfo: { flex: 1 },
   documentName: { fontSize: 14, fontWeight: '500', color: COLORS.gray700 },
   documentHint: { fontSize: 12, color: COLORS.primary, marginTop: 2 },
   uploadDocArea: { alignItems: 'center', justifyContent: 'center', padding: 24, borderWidth: 2, borderStyle: 'dashed', borderColor: COLORS.gray300, borderRadius: 8, backgroundColor: COLORS.gray50 },
-  uploadDocText: { fontSize: 14, fontWeight: '500', color: COLORS.gray600, marginTop: 12 },
+  uploadDocText: { fontSize: 14, fontWeight: '500', color: COLORS.gray600, marginTop: 8 },
   uploadDocHint: { fontSize: 12, color: COLORS.gray400, marginTop: 4 },
   // Event styles
   filterTabs: { flexDirection: 'row', paddingHorizontal: 20, marginBottom: 16, gap: 8 },
