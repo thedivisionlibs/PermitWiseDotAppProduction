@@ -2765,8 +2765,19 @@ app.post('/api/autofill/generate', authMiddleware, checkFeature('autofill'), asy
     
     // Save PDF
     const pdfBytes = await pdfDoc.save();
-    const fileName = `application-${permitType.name.replace(/\s+/g, '-').toLowerCase()}-${Date.now()}.pdf`;
-    const filePath = path.join(__dirname, 'uploads', fileName);
+    // Sanitize filename - remove slashes, special chars, convert spaces to dashes
+    const sanitizedName = permitType.name
+      .replace(/[\/\\:*?"<>|]/g, '') // Remove invalid filename characters
+      .replace(/\s+/g, '-')           // Replace spaces with dashes
+      .toLowerCase()
+      .substring(0, 50);              // Limit length
+    const fileName = `application-${sanitizedName}-${Date.now()}.pdf`;
+    const uploadsDir = path.join(__dirname, 'uploads');
+    // Ensure uploads directory exists
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    const filePath = path.join(uploadsDir, fileName);
     fs.writeFileSync(filePath, pdfBytes);
     
     // Save as document
@@ -3304,6 +3315,23 @@ app.get('/api/events/my-events', authMiddleware, async (req, res) => {
   }
 });
 
+// Get published events (for vendors to browse/apply) - MUST be before /api/events/:id
+app.get('/api/events/published', authMiddleware, async (req, res) => {
+  try {
+    const events = await Event.find({
+      status: 'published',
+      startDate: { $gte: new Date() }
+    })
+      .populate('requiredPermitTypes', 'name')
+      .sort({ startDate: 1 })
+      .limit(50);
+      
+    res.json({ events });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get event details
 app.get('/api/events/:id', async (req, res) => {
   try {
@@ -3632,23 +3660,6 @@ app.post('/api/events/organizer/:id/invite', authMiddleware, async (req, res) =>
 });
 
 // ====== VENDOR EVENT ENDPOINTS ======
-
-// Get published events (for vendors to browse/apply)
-app.get('/api/events/published', authMiddleware, async (req, res) => {
-  try {
-    const events = await Event.find({
-      status: 'published',
-      startDate: { $gte: new Date() }
-    })
-      .populate('requiredPermitTypes', 'name')
-      .sort({ startDate: 1 })
-      .limit(50);
-      
-    res.json({ events });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 // Apply to event (vendor)
 app.post('/api/events/:id/apply', authMiddleware, requireWriteAccess, async (req, res) => {
