@@ -1381,8 +1381,12 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
     fd.append('relatedEntityId', localPermit._id); 
     try { 
       const docResponse = await api.upload('/documents', fd);
-      // Update local permit with the new document
-      setLocalPermit(prev => ({ ...prev, documentId: docResponse.document }));
+      // Update local permit with the new document (add to documents array)
+      setLocalPermit(prev => ({
+        ...prev,
+        documentId: prev.documentId || docResponse.document,
+        documents: [...(prev.documents || []), docResponse.document]
+      }));
       onUpdate(); 
     } catch (error) { setUploadError(error.message); } finally { setUploading(false); e.target.value = ''; } 
   };
@@ -1465,16 +1469,33 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
         )}
         
         <div className="detail-document">
-          <h4>Document</h4>
+          <h4>Documents {(localPermit.documents?.length || (localPermit.documentId ? 1 : 0)) > 0 && <span className="doc-count">({localPermit.documents?.length || 1})</span>}</h4>
           {uploadError && <Alert type="error">{uploadError}</Alert>}
-          {localPermit.documentId ? (
-            <div className="document-preview"><Icons.Document /><span>{localPermit.documentId.originalName}</span><a href={getSecureFileUrl(localPermit.documentId.fileUrl)} target="_blank" rel="noopener noreferrer"><Icons.Download /></a></div>
-          ) : (
-            <div className="upload-area">
-              <input type="file" id="permit-upload" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" onChange={handleUpload} hidden />
-              <label htmlFor="permit-upload">{uploading ? 'Uploading...' : 'Upload Document (PDF, JPG, PNG)'}</label>
+          
+          {/* Show all documents */}
+          {localPermit.documents && localPermit.documents.length > 0 ? (
+            <div className="documents-list">
+              {localPermit.documents.map((doc, index) => (
+                <div key={doc._id || index} className="document-preview">
+                  <Icons.Document />
+                  <span>{doc.originalName || `Document ${index + 1}`}</span>
+                  <a href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer"><Icons.Download /></a>
+                </div>
+              ))}
             </div>
-          )}
+          ) : localPermit.documentId ? (
+            <div className="document-preview">
+              <Icons.Document />
+              <span>{localPermit.documentId.originalName}</span>
+              <a href={getSecureFileUrl(localPermit.documentId.fileUrl)} target="_blank" rel="noopener noreferrer"><Icons.Download /></a>
+            </div>
+          ) : null}
+          
+          {/* Always show upload option */}
+          <div className="upload-area" style={{ marginTop: (localPermit.documents?.length > 0 || localPermit.documentId) ? '12px' : '0' }}>
+            <input type="file" id="permit-upload" accept=".pdf,.jpg,.jpeg,.png,.gif,.webp" onChange={handleUpload} hidden />
+            <label htmlFor="permit-upload">{uploading ? 'Uploading...' : (localPermit.documents?.length > 0 || localPermit.documentId) ? '+ Add Another Document' : 'Upload Document (PDF, JPG, PNG)'}</label>
+          </div>
         </div>
         
         <div className="modal-actions">
@@ -4963,13 +4984,37 @@ const SuperAdminPage = ({ onBack }) => {
 };
 
 // ===========================================
+// DISABLED ACCOUNT PAGE
+// ===========================================
+const DisabledAccountPage = ({ reason, type, onLogout }) => (
+  <div className="disabled-account-page">
+    <div className="disabled-account-container">
+      <div className="disabled-icon">
+        <Icons.Alert />
+      </div>
+      <h1>Account {type === 'rejected' ? 'Not Approved' : 'Disabled'}</h1>
+      <p className="disabled-reason">
+        {reason || (type === 'rejected' 
+          ? 'Your organizer application was not approved.' 
+          : 'Your account has been disabled by an administrator.')}
+      </p>
+      <div className="disabled-help">
+        <p>If you believe this is an error, please contact support at</p>
+        <a href="mailto:support@permitwise.app">support@permitwise.app</a>
+      </div>
+      <Button variant="outline" onClick={onLogout}>Log Out</Button>
+    </div>
+  </div>
+);
+
+// ===========================================
 // LAYOUT
 // ===========================================
 const Sidebar = ({ activePage, onNavigate, onLogout }) => {
   const { user, business, subscription } = useAuth();
   
-  // Check if user is an organizer (not a vendor)
-  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  // Check if user is an organizer (regardless of disabled status - handled elsewhere)
+  const isOrganizer = user?.isOrganizer;
   
   // All nav items
   const allNavItems = [
@@ -5026,7 +5071,8 @@ const AppLayout = ({ children, activePage, onNavigate, onLogout }) => {
 // ===========================================
 const App = () => {
   const { user, isAuthenticated, hasCompletedOnboarding, loading, logout } = useAuth();
-  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  const isOrganizer = user?.isOrganizer;
+  const isOrganizerDisabled = user?.isOrganizer && (user?.organizerProfile?.disabled || user?.organizerProfile?.verificationStatus === 'rejected');
   const [currentPage, setCurrentPage] = useState(isOrganizer ? 'events' : 'dashboard');
   const [authView, setAuthView] = useState(null);
   const [showPermitChecker, setShowPermitChecker] = useState(false);
@@ -5102,6 +5148,17 @@ const App = () => {
   
   // Organizers skip onboarding (they don't need business setup)
   if (!hasCompletedOnboarding && !isOrganizer) return <OnboardingPage onComplete={() => window.location.reload()} />;
+  
+  // Show disabled page for disabled/rejected organizers
+  if (isOrganizerDisabled) {
+    return (
+      <DisabledAccountPage 
+        reason={user?.organizerProfile?.disabledReason} 
+        type={user?.organizerProfile?.verificationStatus === 'rejected' ? 'rejected' : 'disabled'}
+        onLogout={logout}
+      />
+    );
+  }
   
   const renderPage = () => { 
     switch (currentPage) { 
