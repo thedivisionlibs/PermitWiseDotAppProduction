@@ -7,6 +7,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Svg, { Path, Circle, Rect, Polyline, Line } from 'react-native-svg';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 
 // ===========================================
 // CONFIGURATION
@@ -1124,6 +1125,15 @@ const DashboardScreen = ({ navigation }) => {
 
   const needsAttention = (stats?.permits?.missing || 0) + (stats?.permits?.expired || 0) + (stats?.permits?.pendingRenewal || 0);
 
+  const handleResendVerification = async () => {
+    try {
+      await api.post('/auth/resend-verification');
+      Alert.alert('Email Sent', 'A new verification email has been sent to your inbox. Please check your email and click the verification link.');
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Failed to send verification email. Please try again.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchStats(); }} />}>
@@ -1131,7 +1141,7 @@ const DashboardScreen = ({ navigation }) => {
           <View style={styles.emailBanner}>
             <Icons.Bell size={16} color="#92400e" />
             <Text style={styles.emailBannerText}>Verify your email for permit alerts</Text>
-            <TouchableOpacity onPress={() => api.post('/auth/resend-verification')}><Text style={styles.emailBannerLink}>Resend</Text></TouchableOpacity>
+            <TouchableOpacity onPress={handleResendVerification}><Text style={styles.emailBannerLink}>Resend</Text></TouchableOpacity>
           </View>
         )}
         <View style={styles.header}>
@@ -1537,47 +1547,73 @@ const PermitDetailScreen = ({ route, navigation }) => {
   };
   
   const handleUploadDocument = async () => {
-    // Show options: camera or photo library
+    // Show options: browse files, camera, or photo library
     Alert.alert(
       'Upload Document',
       'Choose a source',
       [
-        { text: 'Camera', onPress: () => pickImage('camera') },
-        { text: 'Photo Library', onPress: () => pickImage('library') },
+        { text: 'Browse Files', onPress: () => pickDocument('file') },
+        { text: 'Camera', onPress: () => pickDocument('camera') },
+        { text: 'Photo Library', onPress: () => pickDocument('library') },
         { text: 'Cancel', style: 'cancel' }
       ]
     );
   };
   
-  const pickImage = async (source) => {
+  const pickDocument = async (source) => {
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Please grant camera roll permissions to upload documents.');
-        return;
-      }
+      let fileData = null;
       
-      let result;
-      if (source === 'camera') {
-        const cameraStatus = await ImagePicker.requestCameraPermissionsAsync();
-        if (cameraStatus.status !== 'granted') {
+      if (source === 'file') {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ['application/pdf', 'image/*'],
+          copyToCacheDirectory: true
+        });
+        
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const file = result.assets[0];
+          fileData = {
+            uri: file.uri,
+            type: file.mimeType || 'application/octet-stream',
+            name: file.name || `permit_${permit._id}.pdf`
+          };
+        }
+      } else if (source === 'camera') {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
           Alert.alert('Permission Required', 'Please grant camera permissions.');
           return;
         }
-        result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+        const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+        if (!result.canceled && result.assets?.[0]) {
+          const asset = result.assets[0];
+          fileData = {
+            uri: asset.uri,
+            type: 'image/jpeg',
+            name: `permit_${permit._id}.jpg`
+          };
+        }
       } else {
-        result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Required', 'Please grant photo library permissions.');
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+        if (!result.canceled && result.assets?.[0]) {
+          const asset = result.assets[0];
+          fileData = {
+            uri: asset.uri,
+            type: asset.mimeType || 'image/jpeg',
+            name: asset.fileName || `permit_${permit._id}.jpg`
+          };
+        }
       }
       
-      if (!result.canceled && result.assets?.[0]) {
+      if (fileData) {
         setUploading(true);
-        const asset = result.assets[0];
         const formData = new FormData();
-        formData.append('file', {
-          uri: asset.uri,
-          type: 'image/jpeg',
-          name: `permit_${permit._id}.jpg`
-        });
+        formData.append('file', fileData);
         formData.append('category', 'permit');
         formData.append('permitId', permit._id);
         
@@ -1592,8 +1628,8 @@ const PermitDetailScreen = ({ route, navigation }) => {
         }
       }
     } catch (err) {
-      console.error('Image picker error:', err);
-      Alert.alert('Error', 'Failed to pick image');
+      console.error('Document picker error:', err);
+      Alert.alert('Error', 'Failed to pick document');
     }
   };
   
@@ -1982,6 +2018,7 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
   const [category, setCategory] = useState('other');
   const [loading, setLoading] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
 
   const DOCUMENT_CATEGORIES = [
     { value: 'permit', label: 'Permit' },
@@ -1993,17 +2030,107 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
     { value: 'other', label: 'Other' },
   ];
 
+  const handleSelectFile = async (type) => {
+    try {
+      if (type === 'document') {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: ['application/pdf', 'image/*'],
+          copyToCacheDirectory: true
+        });
+        
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const file = result.assets[0];
+          setSelectedFile({
+            uri: file.uri,
+            name: file.name,
+            type: file.mimeType || 'application/octet-stream',
+            size: file.size
+          });
+        }
+      } else if (type === 'camera') {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Required', 'Camera access is needed to take photos');
+          return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const asset = result.assets[0];
+          setSelectedFile({
+            uri: asset.uri,
+            name: `photo_${Date.now()}.jpg`,
+            type: 'image/jpeg'
+          });
+        }
+      } else if (type === 'photos') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Required', 'Photo library access is needed');
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.8,
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const asset = result.assets[0];
+          setSelectedFile({
+            uri: asset.uri,
+            name: asset.fileName || `photo_${Date.now()}.jpg`,
+            type: asset.mimeType || 'image/jpeg'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('File selection error:', error);
+      Alert.alert('Error', 'Failed to select file');
+    }
+  };
+
+  const showFileOptions = () => {
+    Alert.alert('Select Source', 'Choose where to upload from', [
+      { text: 'Browse Files', onPress: () => handleSelectFile('document') },
+      { text: 'Take Photo', onPress: () => handleSelectFile('camera') },
+      { text: 'Photo Library', onPress: () => handleSelectFile('photos') },
+      { text: 'Cancel', style: 'cancel' }
+    ]);
+  };
+
   const handleUpload = async () => {
-    // Note: For full file upload, you'd need react-native-document-picker or expo-document-picker
-    // This shows the UI structure - actual implementation requires native file picker
-    Alert.alert(
-      'Upload Document',
-      'To upload documents, you can:\n\n1. Use the web app at permitwise.app\n2. Take a photo and upload from camera roll\n\nFull native file picking coming soon!',
-      [
-        { text: 'Open Web App', onPress: () => Linking.openURL('https://permitwise.app/app') },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
+    if (!selectedFile) {
+      Alert.alert('Select File', 'Please select a file to upload');
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', {
+        uri: selectedFile.uri,
+        name: selectedFile.name,
+        type: selectedFile.type
+      });
+      formData.append('category', category);
+      
+      await api.upload('/documents', formData);
+      Alert.alert('Success', 'Document uploaded successfully');
+      setSelectedFile(null);
+      setCategory('other');
+      onSuccess();
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Failed to upload document');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClose = () => {
+    setSelectedFile(null);
+    setCategory('other');
+    onClose();
   };
 
   return (
@@ -2012,7 +2139,7 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
         <View style={styles.uploadModal}>
           <View style={styles.uploadModalHeader}>
             <Text style={styles.uploadModalTitle}>Upload Document</Text>
-            <TouchableOpacity onPress={onClose}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
+            <TouchableOpacity onPress={handleClose}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
           </View>
           
           <View style={styles.uploadContent}>
@@ -2021,13 +2148,23 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
               <Text style={styles.pickerButtonText}>{DOCUMENT_CATEGORIES.find(c => c.value === category)?.label || 'Select category'}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.uploadArea} onPress={handleUpload}>
-              <Icons.Upload size={40} color={COLORS.gray400} />
-              <Text style={styles.uploadAreaText}>Tap to select file</Text>
-              <Text style={styles.uploadAreaHint}>PDF, JPG, PNG up to 10MB</Text>
+            <TouchableOpacity style={styles.uploadArea} onPress={showFileOptions}>
+              {selectedFile ? (
+                <>
+                  <Icons.Document size={40} color={COLORS.primary} />
+                  <Text style={[styles.uploadAreaText, { color: COLORS.gray800 }]}>{selectedFile.name}</Text>
+                  <Text style={styles.uploadAreaHint}>Tap to change file</Text>
+                </>
+              ) : (
+                <>
+                  <Icons.Upload size={40} color={COLORS.gray400} />
+                  <Text style={styles.uploadAreaText}>Tap to select file</Text>
+                  <Text style={styles.uploadAreaHint}>PDF, JPG, PNG up to 10MB</Text>
+                </>
+              )}
             </TouchableOpacity>
 
-            <Button title="Upload" onPress={handleUpload} loading={loading} style={{ marginTop: 16 }} />
+            <Button title={selectedFile ? "Upload Document" : "Select File"} onPress={selectedFile ? handleUpload : showFileOptions} loading={loading} style={{ marginTop: 16 }} />
           </View>
 
           <PickerModal 
@@ -2670,21 +2807,28 @@ const SettingsScreen = ({ navigation }) => {
           </TouchableOpacity>
         )}
 
-        <Card style={styles.settingsCard}>
-          <Text style={styles.settingsSection}>Legal</Text>
-          <TouchableOpacity style={styles.settingsRow} onPress={() => Linking.openURL('https://permitwise.app/privacy')}>
-            <Text style={styles.settingsLabel}>Privacy Policy</Text>
+        <TouchableOpacity onPress={() => setActiveSection(activeSection === 'legal' ? null : 'legal')}>
+          <Card style={styles.settingsCard}>
+            <Text style={styles.settingsSection}>Legal & Support</Text>
             <Icons.ChevronRight size={18} color={COLORS.gray400} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.settingsRow} onPress={() => Linking.openURL('https://permitwise.app/terms')}>
-            <Text style={styles.settingsLabel}>Terms of Service</Text>
-            <Icons.ChevronRight size={18} color={COLORS.gray400} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.settingsRow} onPress={() => Linking.openURL('mailto:support@permitwise.app')}>
-            <Text style={styles.settingsLabel}>Contact Support</Text>
-            <Icons.ChevronRight size={18} color={COLORS.gray400} />
-          </TouchableOpacity>
-        </Card>
+          </Card>
+        </TouchableOpacity>
+        {activeSection === 'legal' && (
+          <Card style={styles.editCard}>
+            <TouchableOpacity style={styles.legalRow} onPress={() => Linking.openURL('https://permitwise.app/privacy')}>
+              <Text style={styles.legalLabel}>Privacy Policy</Text>
+              <Icons.ChevronRight size={18} color={COLORS.gray400} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.legalRow} onPress={() => Linking.openURL('https://permitwise.app/terms')}>
+              <Text style={styles.legalLabel}>Terms of Service</Text>
+              <Icons.ChevronRight size={18} color={COLORS.gray400} />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.legalRow, { borderBottomWidth: 0 }]} onPress={() => Linking.openURL('mailto:support@permitwise.app')}>
+              <Text style={styles.legalLabel}>Contact Support</Text>
+              <Icons.ChevronRight size={18} color={COLORS.gray400} />
+            </TouchableOpacity>
+          </Card>
+        )}
 
         <Text style={styles.appVersion}>PermitWise v1.0.0</Text>
 
@@ -4504,6 +4648,8 @@ const styles = StyleSheet.create({
   settingsLabel: { fontSize: 15, color: COLORS.gray700 },
   settingsValue: { fontSize: 15, color: COLORS.gray500 },
   editCard: { marginHorizontal: 20, marginBottom: 16, marginTop: -8 },
+  legalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
+  legalLabel: { fontSize: 15, color: COLORS.gray700 },
   cityRow: { marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
   removeBtn: { padding: 8, marginLeft: 8 },
   trialNote: { fontSize: 13, color: COLORS.warning, marginTop: 8 },
