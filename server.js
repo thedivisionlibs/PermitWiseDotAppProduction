@@ -3532,6 +3532,52 @@ app.put('/api/events/organizer/:id/status', authMiddleware, async (req, res) => 
   }
 });
 
+// Edit event (organizer) - full update
+app.put('/api/events/organizer/:id', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.user._id });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    // Check verification for publishing
+    const isVerified = req.user.organizerProfile?.verified;
+    if (!isVerified && req.body.status === 'published') {
+      return res.status(403).json({ error: 'Your organizer account must be verified by PermitWise to publish events.' });
+    }
+    
+    const { eventName, description, startDate, endDate, applicationDeadline, location, eventType, maxVendors, status, feeStructure, requiredPermitTypes, customPermitRequirements } = req.body;
+    
+    // Update all fields
+    if (eventName) event.eventName = eventName;
+    if (description !== undefined) event.description = description;
+    if (startDate) event.startDate = new Date(startDate);
+    if (endDate) event.endDate = new Date(endDate);
+    if (applicationDeadline) event.applicationDeadline = new Date(applicationDeadline);
+    if (location) event.location = location;
+    if (eventType) event.eventType = eventType;
+    if (maxVendors !== undefined) event.maxVendors = maxVendors ? parseInt(maxVendors) : null;
+    if (status) event.status = status;
+    if (feeStructure) event.feeStructure = feeStructure;
+    if (requiredPermitTypes !== undefined) event.requiredPermitTypes = requiredPermitTypes;
+    if (customPermitRequirements !== undefined) event.customPermitRequirements = customPermitRequirements;
+    
+    event.updatedAt = new Date();
+    await event.save();
+    
+    // Populate for response
+    await event.populate('requiredPermitTypes');
+    
+    res.json({ event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get event applications (organizer)
 app.get('/api/events/organizer/:id/applications', authMiddleware, async (req, res) => {
   try {
