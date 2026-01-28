@@ -3652,7 +3652,7 @@ const EventsScreen = () => {
   const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [organizerTab, setOrganizerTab] = useState('my-events');
   const [inviteEmail, setInviteEmail] = useState('');
-  const [newEvent, setNewEvent] = useState({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', eventType: 'food_event', maxVendors: '', status: 'draft' });
+  const [newEvent, setNewEvent] = useState({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', eventType: 'food_event', maxVendors: '', status: 'draft', requiredPermitTypes: [], customPermitRequirements: [] });
   const [showStatePicker, setShowStatePicker] = useState(false);
   const [showTypePicker, setShowTypePicker] = useState(false);
   const [showCityPicker, setShowCityPicker] = useState(false);
@@ -3662,6 +3662,9 @@ const EventsScreen = () => {
   const [showLocationRequestModal, setShowLocationRequestModal] = useState(false);
   const [locationRequest, setLocationRequest] = useState({ city: '', state: '', reason: '' });
   const [locationRequestSubmitting, setLocationRequestSubmitting] = useState(false);
+  
+  // Available permit types for event creation
+  const [availablePermitTypes, setAvailablePermitTypes] = useState([]);
 
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
@@ -3757,10 +3760,67 @@ const EventsScreen = () => {
     } catch (error) { Alert.alert('Error', error.message); }
   };
 
-  // Handle state change in event form - clear city when state changes
+  // Fetch permit types by state
+  const fetchPermitTypesByState = async (state) => {
+    if (!state) {
+      setAvailablePermitTypes([]);
+      return;
+    }
+    try {
+      const ptData = await api.get(`/permit-types/by-state?state=${state}`);
+      setAvailablePermitTypes(ptData.permitTypes || []);
+    } catch (err) {
+      console.error('Error fetching permit types:', err);
+      // Fallback to all permit types
+      try {
+        const ptData = await api.get('/permit-types/all');
+        setAvailablePermitTypes(ptData.permitTypes || []);
+      } catch { setAvailablePermitTypes([]); }
+    }
+  };
+
+  // Handle state change in event form - clear city and fetch permits when state changes
   const handleEventStateChange = (state) => {
-    setNewEvent(f => ({ ...f, state, city: '' }));
+    setNewEvent(f => ({ ...f, state, city: '', requiredPermitTypes: [] }));
     setShowStatePicker(false);
+    fetchPermitTypesByState(state);
+  };
+
+  // Toggle permit type selection
+  const togglePermitType = (permitId) => {
+    setNewEvent(f => {
+      const current = f.requiredPermitTypes || [];
+      if (current.includes(permitId)) {
+        return { ...f, requiredPermitTypes: current.filter(id => id !== permitId) };
+      } else {
+        return { ...f, requiredPermitTypes: [...current, permitId] };
+      }
+    });
+  };
+
+  // Add custom requirement
+  const addCustomRequirement = () => {
+    setNewEvent(f => ({
+      ...f,
+      customPermitRequirements: [...(f.customPermitRequirements || []), { name: '', description: '', required: true }]
+    }));
+  };
+
+  // Update custom requirement
+  const updateCustomRequirement = (index, field, value) => {
+    setNewEvent(f => {
+      const updated = [...(f.customPermitRequirements || [])];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...f, customPermitRequirements: updated };
+    });
+  };
+
+  // Remove custom requirement
+  const removeCustomRequirement = (index) => {
+    setNewEvent(f => ({
+      ...f,
+      customPermitRequirements: (f.customPermitRequirements || []).filter((_, i) => i !== index)
+    }));
   };
 
   // Submit location request
@@ -3799,9 +3859,14 @@ const EventsScreen = () => {
       return;
     }
     try {
-      await api.post('/events/organizer/create', newEvent);
+      const eventData = {
+        ...newEvent,
+        location: { city: newEvent.city, state: newEvent.state }
+      };
+      await api.post('/events/organizer/create', eventData);
       setShowCreateModal(false);
-      setNewEvent({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', eventType: 'food_event', maxVendors: '', status: 'draft' });
+      setNewEvent({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', eventType: 'food_event', maxVendors: '', status: 'draft', requiredPermitTypes: [], customPermitRequirements: [] });
+      setAvailablePermitTypes([]);
       fetchOrganizerEvents();
       Alert.alert('Success', 'Event created');
     } catch (error) { Alert.alert('Error', error.message); }
@@ -4036,6 +4101,63 @@ const EventsScreen = () => {
                   <Icons.ChevronDown size={16} color={COLORS.gray400} />
                 </TouchableOpacity>
                 <Input label="Max Vendors" placeholder="50" value={newEvent.maxVendors} onChangeText={v => setNewEvent(f => ({ ...f, maxVendors: v }))} keyboardType="number-pad" />
+                
+                {/* Required Permits Section */}
+                <View style={{ marginTop: 16 }}>
+                  <Text style={[styles.label, { fontWeight: '600' }]}>Required Permits</Text>
+                  <Text style={{ color: COLORS.gray500, fontSize: 13, marginBottom: 12 }}>Select permits vendors must have</Text>
+                  {!newEvent.state ? (
+                    <Text style={{ color: COLORS.gray400, fontStyle: 'italic' }}>Select a state above to see available permits</Text>
+                  ) : availablePermitTypes.length > 0 ? (
+                    <View style={{ gap: 8 }}>
+                      {availablePermitTypes.map(pt => (
+                        <TouchableOpacity 
+                          key={pt._id} 
+                          style={{ flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: (newEvent.requiredPermitTypes || []).includes(pt._id) ? '#e0f2fe' : COLORS.gray50, borderRadius: 8, borderWidth: 1, borderColor: (newEvent.requiredPermitTypes || []).includes(pt._id) ? COLORS.primary : COLORS.gray200 }}
+                          onPress={() => togglePermitType(pt._id)}
+                        >
+                          <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: (newEvent.requiredPermitTypes || []).includes(pt._id) ? COLORS.primary : COLORS.gray300, backgroundColor: (newEvent.requiredPermitTypes || []).includes(pt._id) ? COLORS.primary : 'transparent', justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
+                            {(newEvent.requiredPermitTypes || []).includes(pt._id) && <Icons.Check size={14} color={COLORS.white} />}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 14, fontWeight: '500', color: COLORS.gray800 }}>{pt.name}</Text>
+                            <Text style={{ fontSize: 12, color: COLORS.gray500 }}>{pt.jurisdictionId?.city || 'State-wide'}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={{ color: COLORS.gray400, fontStyle: 'italic' }}>No permits found for {newEvent.state}</Text>
+                  )}
+                </View>
+
+                {/* Custom Requirements Section */}
+                <View style={{ marginTop: 16 }}>
+                  <Text style={[styles.label, { fontWeight: '600' }]}>Custom Requirements</Text>
+                  <Text style={{ color: COLORS.gray500, fontSize: 13, marginBottom: 12 }}>Add additional requirements (insurance, certifications, etc.)</Text>
+                  {(newEvent.customPermitRequirements || []).map((req, index) => (
+                    <View key={index} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                      <TextInput 
+                        style={[styles.input, { flex: 1 }]} 
+                        placeholder="Requirement name" 
+                        placeholderTextColor={COLORS.gray400}
+                        value={req.name} 
+                        onChangeText={v => updateCustomRequirement(index, 'name', v)} 
+                      />
+                      <TouchableOpacity onPress={() => removeCustomRequirement(index)} style={{ padding: 10 }}>
+                        <Icons.X size={20} color={COLORS.danger} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  <TouchableOpacity 
+                    onPress={addCustomRequirement} 
+                    style={{ flexDirection: 'row', alignItems: 'center', padding: 12, borderWidth: 1, borderColor: COLORS.gray300, borderRadius: 8, borderStyle: 'dashed' }}
+                  >
+                    <Icons.Plus size={18} color={COLORS.primary} />
+                    <Text style={{ marginLeft: 8, color: COLORS.primary, fontWeight: '500' }}>Add Custom Requirement</Text>
+                  </TouchableOpacity>
+                </View>
+                
                 <View style={styles.modalFooter}>
                   <Button title="Cancel" variant="outline" onPress={() => setShowCreateModal(false)} style={{ flex: 1 }} />
                   <Button title="Create Event" onPress={createEvent} disabled={!newEvent.eventName || !newEvent.startDate || !newEvent.city || !newEvent.state} style={{ flex: 1 }} />
@@ -5444,3 +5566,4 @@ const styles = StyleSheet.create({
   settingsCardExpired: { borderWidth: 1, borderColor: '#fca5a5', backgroundColor: '#fef2f2' },
   settingsHint: { fontSize: 12, color: COLORS.gray500 },
 });
+
