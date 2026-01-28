@@ -98,6 +98,9 @@ img { max-width: 100%; display: block; }
 .form-input:disabled { background: var(--gray-100); cursor: not-allowed; }
 .form-error { display: block; margin-top: 0.25rem; font-size: 0.8125rem; color: var(--danger); }
 .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; }
+.text-link { background: none; border: none; color: var(--primary); font-size: 0.875rem; cursor: pointer; text-decoration: underline; padding: 0; }
+.text-link:hover { color: #0e7490; }
+.location-request-link { margin-top: 8px; margin-bottom: 16px; }
 
 /* ===========================================
    CARDS
