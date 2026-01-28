@@ -1998,11 +1998,11 @@ const EventsPage = () => {
   const [showApplyModal, setShowApplyModal] = useState(null);
   const [applicationNotes, setApplicationNotes] = useState('');
 
-  // Plan check: Elite, Promo, or Lifetime required for vendors
-  const hasAccess = subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration;
-  
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+
+  // Plan check: Elite, Promo, or Lifetime required for vendors (organizers always have access)
+  const hasAccess = isOrganizer || subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration;
 
   useEffect(() => {
     const fetchData = async () => {
@@ -2347,7 +2347,6 @@ const EventsPage = () => {
                 <button type="button" className="text-link" onClick={() => setShowLocationRequestModal(true)}>
                   Location not listed? Request a new location
                 </button>
-              </div>
               </div>
               <Input label="Venue Address" placeholder="123 Main Street" value={newOrgEvent.address} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, address: e.target.value }))} />
             </div>
