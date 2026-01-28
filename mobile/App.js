@@ -3665,6 +3665,11 @@ const EventsScreen = () => {
   
   // Available permit types for event creation
   const [availablePermitTypes, setAvailablePermitTypes] = useState([]);
+  
+  // Edit event state
+  const [showEditEventModal, setShowEditEventModal] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [editPermitTypes, setEditPermitTypes] = useState([]);
 
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
@@ -3758,6 +3763,72 @@ const EventsScreen = () => {
       Alert.alert('Success', 'Invitation sent');
       fetchEventApplications(selectedOrgEvent._id);
     } catch (error) { Alert.alert('Error', error.message); }
+  };
+
+  // Edit event functions
+  const openEditEventModal = async (event) => {
+    setEditingEvent({
+      ...event,
+      eventName: event.eventName || '',
+      description: event.description || '',
+      startDate: event.startDate?.split('T')[0] || '',
+      endDate: event.endDate?.split('T')[0] || '',
+      applicationDeadline: event.applicationDeadline?.split('T')[0] || '',
+      city: event.location?.city || '',
+      state: event.location?.state || '',
+      address: event.location?.address || '',
+      eventType: event.eventType || 'food_event',
+      maxVendors: event.maxVendors?.toString() || '',
+      status: event.status || 'draft',
+      feeStructure: event.feeStructure || { applicationFee: 0, boothFee: 0, electricityFee: 0 },
+      requiredPermitTypes: event.requiredPermitTypes?.map(pt => pt._id || pt) || [],
+      customPermitRequirements: event.customPermitRequirements || []
+    });
+    if (event.location?.state) {
+      try {
+        const ptData = await api.get(`/permit-types/by-state?state=${event.location.state}`);
+        setEditPermitTypes(ptData.permitTypes || []);
+      } catch (err) { console.error(err); }
+    }
+    setShowEditEventModal(true);
+  };
+
+  const handleEditEventStateChange = async (newState) => {
+    setEditingEvent(ev => ({ ...ev, state: newState, city: '', requiredPermitTypes: [] }));
+    if (newState) {
+      try {
+        const ptData = await api.get(`/permit-types/by-state?state=${newState}`);
+        setEditPermitTypes(ptData.permitTypes || []);
+      } catch (err) { console.error(err); }
+    } else {
+      setEditPermitTypes([]);
+    }
+  };
+
+  const saveEditedEvent = async () => {
+    if (!editingEvent) return;
+    try {
+      const eventData = {
+        eventName: editingEvent.eventName,
+        description: editingEvent.description,
+        startDate: editingEvent.startDate,
+        endDate: editingEvent.endDate,
+        applicationDeadline: editingEvent.applicationDeadline,
+        location: { city: editingEvent.city, state: editingEvent.state, address: editingEvent.address },
+        eventType: editingEvent.eventType,
+        maxVendors: editingEvent.maxVendors,
+        status: editingEvent.status,
+        feeStructure: editingEvent.feeStructure,
+        requiredPermitTypes: editingEvent.requiredPermitTypes,
+        customPermitRequirements: editingEvent.customPermitRequirements
+      };
+      await api.put(`/events/organizer/${editingEvent._id}`, eventData);
+      const orgData = await api.get('/events/organizer/my-events');
+      setOrganizerEvents(orgData.events || []);
+      setShowEditEventModal(false);
+      setEditingEvent(null);
+      Alert.alert('Success', 'Event updated');
+    } catch (err) { Alert.alert('Error', err.message); }
   };
 
   // Fetch permit types by state
@@ -3937,7 +4008,7 @@ const EventsScreen = () => {
                     <Text style={styles.organizerEventName}>{item.eventName}</Text>
                     <View style={styles.organizerEventMeta}>
                       <Icons.Calendar size={14} color={COLORS.gray500} />
-                      <Text style={styles.organizerEventMetaText}>{formatDate(item.startDate)}</Text>
+                      <Text style={styles.organizerEventMetaText}>{formatDate(item.startDate)}{item.endDate && item.endDate !== item.startDate ? ` - ${formatDate(item.endDate)}` : ''}</Text>
                     </View>
                     <View style={styles.organizerEventMeta}>
                       <Icons.MapPin size={14} color={COLORS.gray500} />
@@ -3948,11 +4019,38 @@ const EventsScreen = () => {
                     <Text style={[styles.statusBadgeText, { color: item.status === 'published' ? '#166534' : item.status === 'closed' ? '#92400e' : '#374151' }]}>{item.status?.toUpperCase()}</Text>
                   </View>
                 </View>
-                <View style={styles.organizerEventStats}>
-                  <Text style={styles.organizerEventStat}>{item.vendorApplications?.length || 0} applications</Text>
-                  <Text style={styles.organizerEventStat}>{item.assignedVendors?.length || 0} vendors</Text>
+                <View style={{ borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.gray100, paddingVertical: 12, marginVertical: 12 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <Text style={{ color: COLORS.gray500, fontSize: 13 }}>Event Type</Text>
+                    <Text style={{ color: COLORS.gray700, fontSize: 13, fontWeight: '500' }}>{item.eventType?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Not set'}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <Text style={{ color: COLORS.gray500, fontSize: 13 }}>Max Vendors</Text>
+                    <Text style={{ color: COLORS.gray700, fontSize: 13, fontWeight: '500' }}>{item.maxVendors || 'Unlimited'}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <Text style={{ color: COLORS.gray500, fontSize: 13 }}>Applications</Text>
+                    <Text style={{ color: COLORS.gray700, fontSize: 13, fontWeight: '500' }}>{item.vendorApplications?.length || 0}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={{ color: COLORS.gray500, fontSize: 13 }}>Approved Vendors</Text>
+                    <Text style={{ color: COLORS.gray700, fontSize: 13, fontWeight: '500' }}>{item.assignedVendors?.length || 0}</Text>
+                  </View>
+                  {item.requiredPermitTypes?.length > 0 && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                      <Text style={{ color: COLORS.gray500, fontSize: 13 }}>Required Permits</Text>
+                      <Text style={{ color: COLORS.gray700, fontSize: 13, fontWeight: '500' }}>{item.requiredPermitTypes.length}</Text>
+                    </View>
+                  )}
+                  {item.feeStructure?.boothFee > 0 && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
+                      <Text style={{ color: COLORS.gray500, fontSize: 13 }}>Booth Fee</Text>
+                      <Text style={{ color: COLORS.gray700, fontSize: 13, fontWeight: '500' }}>${item.feeStructure.boothFee}</Text>
+                    </View>
+                  )}
                 </View>
                 <View style={styles.organizerEventActions}>
+                  <Button title="Edit" variant="outline" size="sm" onPress={() => openEditEventModal(item)} style={{ flex: 1 }} />
                   <Button title="Manage" variant="outline" size="sm" onPress={() => fetchEventApplications(item._id)} style={{ flex: 1 }} />
                   {item.status === 'draft' && <Button title="Publish" size="sm" onPress={() => updateEventStatus(item._id, 'published')} style={{ flex: 1 }} />}
                   {item.status === 'published' && <Button title="Close" variant="outline" size="sm" onPress={() => updateEventStatus(item._id, 'closed')} style={{ flex: 1 }} />}
@@ -4136,16 +4234,24 @@ const EventsScreen = () => {
                   <Text style={[styles.label, { fontWeight: '600' }]}>Custom Requirements</Text>
                   <Text style={{ color: COLORS.gray500, fontSize: 13, marginBottom: 12 }}>Add additional requirements (insurance, certifications, etc.)</Text>
                   {(newEvent.customPermitRequirements || []).map((req, index) => (
-                    <View key={index} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                    <View key={index} style={{ padding: 12, backgroundColor: COLORS.gray50, borderRadius: 8, marginBottom: 12 }}>
                       <TextInput 
-                        style={[styles.input, { flex: 1 }]} 
-                        placeholder="Requirement name" 
+                        style={[styles.input, { marginBottom: 8 }]} 
+                        placeholder="Requirement name (e.g., General Liability Insurance)" 
                         placeholderTextColor={COLORS.gray400}
                         value={req.name} 
                         onChangeText={v => updateCustomRequirement(index, 'name', v)} 
                       />
-                      <TouchableOpacity onPress={() => removeCustomRequirement(index)} style={{ padding: 10 }}>
-                        <Icons.X size={20} color={COLORS.danger} />
+                      <TextInput 
+                        style={[styles.input, { marginBottom: 8 }]} 
+                        placeholder="Description (optional)" 
+                        placeholderTextColor={COLORS.gray400}
+                        value={req.description || ''} 
+                        onChangeText={v => updateCustomRequirement(index, 'description', v)} 
+                      />
+                      <TouchableOpacity onPress={() => removeCustomRequirement(index)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Icons.X size={16} color={COLORS.danger} />
+                        <Text style={{ marginLeft: 4, color: COLORS.danger, fontSize: 14 }}>Remove</Text>
                       </TouchableOpacity>
                     </View>
                   ))}
@@ -4246,6 +4352,123 @@ const EventsScreen = () => {
                   <Button title="Submit Request" onPress={submitLocationRequest} loading={locationRequestSubmitting} disabled={!locationRequest.city || !locationRequest.state || locationRequest.state.length !== 2} style={{ flex: 1 }} />
                 </View>
               </View>
+            </View>
+          </View>
+        </Modal>
+        
+        {/* Edit Event Modal */}
+        <Modal visible={showEditEventModal} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Edit Event</Text>
+                <TouchableOpacity onPress={() => { setShowEditEventModal(false); setEditingEvent(null); }}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+              </View>
+              {editingEvent && (
+                <ScrollView style={styles.modalBody}>
+                  <Input label="Event Name *" value={editingEvent.eventName} onChangeText={v => setEditingEvent(e => ({ ...e, eventName: v }))} />
+                  <Input label="Description" value={editingEvent.description} onChangeText={v => setEditingEvent(e => ({ ...e, description: v }))} multiline />
+                  
+                  <Text style={[styles.label, { fontWeight: '600', marginTop: 16 }]}>Date & Location</Text>
+                  <Input label="Start Date *" placeholder="YYYY-MM-DD" value={editingEvent.startDate} onChangeText={v => setEditingEvent(e => ({ ...e, startDate: v }))} />
+                  <Input label="End Date" placeholder="YYYY-MM-DD" value={editingEvent.endDate} onChangeText={v => setEditingEvent(e => ({ ...e, endDate: v }))} />
+                  
+                  <TouchableOpacity style={styles.pickerButton} onPress={() => Alert.alert('Select State', 'Please enter state abbreviation below')}>
+                    <Text style={styles.label}>State *</Text>
+                    <Text style={styles.pickerButtonText}>{editingEvent.state || 'Select State'}</Text>
+                  </TouchableOpacity>
+                  <Input placeholder="State (e.g., TX, CA)" value={editingEvent.state} onChangeText={v => handleEditEventStateChange(v.toUpperCase().slice(0, 2))} autoCapitalize="characters" maxLength={2} />
+                  
+                  <Input label="City *" value={editingEvent.city} onChangeText={v => setEditingEvent(e => ({ ...e, city: v }))} />
+                  <Input label="Venue Address" value={editingEvent.address || ''} onChangeText={v => setEditingEvent(e => ({ ...e, address: v }))} />
+                  
+                  <Text style={[styles.label, { fontWeight: '600', marginTop: 16 }]}>Event Details</Text>
+                  <Input label="Max Vendors" value={editingEvent.maxVendors} onChangeText={v => setEditingEvent(e => ({ ...e, maxVendors: v }))} keyboardType="numeric" />
+                  
+                  <Text style={[styles.label, { fontWeight: '600', marginTop: 16 }]}>Fees</Text>
+                  <Input label="Application Fee ($)" value={String(editingEvent.feeStructure?.applicationFee || 0)} onChangeText={v => setEditingEvent(e => ({ ...e, feeStructure: { ...e.feeStructure, applicationFee: parseFloat(v) || 0 } }))} keyboardType="numeric" />
+                  <Input label="Booth Fee ($)" value={String(editingEvent.feeStructure?.boothFee || 0)} onChangeText={v => setEditingEvent(e => ({ ...e, feeStructure: { ...e.feeStructure, boothFee: parseFloat(v) || 0 } }))} keyboardType="numeric" />
+                  
+                  {/* Required Permits Section */}
+                  <View style={{ marginTop: 16 }}>
+                    <Text style={[styles.label, { fontWeight: '600' }]}>Required Permits</Text>
+                    {!editingEvent.state ? (
+                      <Text style={{ color: COLORS.gray400, fontStyle: 'italic' }}>Select a state to see available permits</Text>
+                    ) : editPermitTypes.length > 0 ? (
+                      editPermitTypes.map(pt => {
+                        const isSelected = (editingEvent.requiredPermitTypes || []).includes(pt._id);
+                        return (
+                          <TouchableOpacity key={pt._id} style={{ flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: isSelected ? '#eff6ff' : COLORS.white, borderRadius: 8, marginBottom: 8, borderWidth: 1, borderColor: isSelected ? COLORS.primary : COLORS.gray200 }} onPress={() => {
+                            if (isSelected) {
+                              setEditingEvent(e => ({ ...e, requiredPermitTypes: (e.requiredPermitTypes || []).filter(id => id !== pt._id) }));
+                            } else {
+                              setEditingEvent(e => ({ ...e, requiredPermitTypes: [...(e.requiredPermitTypes || []), pt._id] }));
+                            }
+                          }}>
+                            <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: isSelected ? COLORS.primary : COLORS.gray300, backgroundColor: isSelected ? COLORS.primary : COLORS.white, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                              {isSelected && <Icons.Check size={14} color={COLORS.white} />}
+                            </View>
+                            <Text style={{ flex: 1, color: COLORS.gray700 }}>{pt.name}</Text>
+                            <Text style={{ color: COLORS.gray400, fontSize: 12 }}>{pt.jurisdictionId?.city || 'State-wide'}</Text>
+                          </TouchableOpacity>
+                        );
+                      })
+                    ) : (
+                      <Text style={{ color: COLORS.gray400, fontStyle: 'italic' }}>No permits found for {editingEvent.state}</Text>
+                    )}
+                  </View>
+                  
+                  {/* Custom Requirements Section */}
+                  <View style={{ marginTop: 16 }}>
+                    <Text style={[styles.label, { fontWeight: '600' }]}>Custom Requirements</Text>
+                    {(editingEvent.customPermitRequirements || []).map((req, index) => (
+                      <View key={index} style={{ padding: 12, backgroundColor: COLORS.gray50, borderRadius: 8, marginBottom: 12 }}>
+                        <TextInput 
+                          style={[styles.input, { marginBottom: 8 }]} 
+                          placeholder="Requirement name" 
+                          placeholderTextColor={COLORS.gray400}
+                          value={req.name} 
+                          onChangeText={v => {
+                            const updated = [...(editingEvent.customPermitRequirements || [])];
+                            updated[index] = { ...updated[index], name: v };
+                            setEditingEvent(e => ({ ...e, customPermitRequirements: updated }));
+                          }} 
+                        />
+                        <TextInput 
+                          style={[styles.input, { marginBottom: 8 }]} 
+                          placeholder="Description (optional)" 
+                          placeholderTextColor={COLORS.gray400}
+                          value={req.description || ''} 
+                          onChangeText={v => {
+                            const updated = [...(editingEvent.customPermitRequirements || [])];
+                            updated[index] = { ...updated[index], description: v };
+                            setEditingEvent(e => ({ ...e, customPermitRequirements: updated }));
+                          }} 
+                        />
+                        <TouchableOpacity onPress={() => {
+                          const updated = (editingEvent.customPermitRequirements || []).filter((_, i) => i !== index);
+                          setEditingEvent(e => ({ ...e, customPermitRequirements: updated }));
+                        }} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <Icons.X size={16} color={COLORS.danger} />
+                          <Text style={{ marginLeft: 4, color: COLORS.danger, fontSize: 14 }}>Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                    <TouchableOpacity 
+                      onPress={() => setEditingEvent(e => ({ ...e, customPermitRequirements: [...(e.customPermitRequirements || []), { name: '', description: '', required: true }] }))} 
+                      style={{ flexDirection: 'row', alignItems: 'center', padding: 12, borderWidth: 1, borderColor: COLORS.gray300, borderRadius: 8, borderStyle: 'dashed' }}
+                    >
+                      <Icons.Plus size={18} color={COLORS.primary} />
+                      <Text style={{ marginLeft: 8, color: COLORS.primary, fontWeight: '500' }}>Add Custom Requirement</Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <View style={[styles.modalFooter, { marginTop: 20 }]}>
+                    <Button title="Cancel" variant="outline" onPress={() => { setShowEditEventModal(false); setEditingEvent(null); }} style={{ flex: 1 }} />
+                    <Button title="Save Changes" onPress={saveEditedEvent} disabled={!editingEvent.eventName || !editingEvent.startDate || !editingEvent.city || !editingEvent.state} style={{ flex: 1 }} />
+                  </View>
+                </ScrollView>
+              )}
             </View>
           </View>
         </Modal>
