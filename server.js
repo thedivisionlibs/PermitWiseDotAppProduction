@@ -3336,9 +3336,13 @@ app.get('/api/events/my-events', authMiddleware, async (req, res) => {
 // Get published events (for vendors to browse/apply) - MUST be before /api/events/:id
 app.get('/api/events/published', authMiddleware, async (req, res) => {
   try {
+    // Get start of today to include events happening today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
     const events = await Event.find({
       status: 'published',
-      startDate: { $gte: new Date() }
+      startDate: { $gte: today }
     })
       .populate('requiredPermitTypes', 'name')
       .sort({ startDate: 1 })
