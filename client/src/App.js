@@ -1988,6 +1988,11 @@ const EventsPage = () => {
   const [inviteEmail, setInviteEmail] = useState('');
   const [availablePermitTypes, setAvailablePermitTypes] = useState([]);
   
+  // Edit event state
+  const [showEditEventModal, setShowEditEventModal] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [editPermitTypes, setEditPermitTypes] = useState([]);
+  
   // Jurisdictions for location selection
   const [jurisdictions, setJurisdictions] = useState([]);
   const [showLocationRequestModal, setShowLocationRequestModal] = useState(false);
@@ -2160,6 +2165,73 @@ const EventsPage = () => {
     } catch (err) { alert(err.message); }
   };
 
+  // Edit event functions
+  const openEditEventModal = async (event) => {
+    setEditingEvent({
+      ...event,
+      eventName: event.eventName || '',
+      description: event.description || '',
+      startDate: event.startDate?.split('T')[0] || '',
+      endDate: event.endDate?.split('T')[0] || '',
+      applicationDeadline: event.applicationDeadline?.split('T')[0] || '',
+      city: event.location?.city || '',
+      state: event.location?.state || '',
+      address: event.location?.address || '',
+      eventType: event.eventType || 'food_event',
+      maxVendors: event.maxVendors || '',
+      status: event.status || 'draft',
+      feeStructure: event.feeStructure || { applicationFee: 0, boothFee: 0, electricityFee: 0, description: '' },
+      requiredPermitTypes: event.requiredPermitTypes?.map(pt => pt._id || pt) || [],
+      customPermitRequirements: event.customPermitRequirements || []
+    });
+    // Fetch permits for the event's state
+    if (event.location?.state) {
+      try {
+        const ptData = await api.get(`/permit-types/by-state?state=${event.location.state}`);
+        setEditPermitTypes(ptData.permitTypes || []);
+      } catch (err) { console.error(err); }
+    }
+    setShowEditEventModal(true);
+  };
+
+  const handleEditEventStateChange = async (newState) => {
+    setEditingEvent(ev => ({ ...ev, state: newState, city: '', requiredPermitTypes: [] }));
+    if (newState) {
+      try {
+        const ptData = await api.get(`/permit-types/by-state?state=${newState}`);
+        setEditPermitTypes(ptData.permitTypes || []);
+      } catch (err) { console.error(err); }
+    } else {
+      setEditPermitTypes([]);
+    }
+  };
+
+  const saveEditedEvent = async () => {
+    if (!editingEvent) return;
+    try {
+      const eventData = {
+        eventName: editingEvent.eventName,
+        description: editingEvent.description,
+        startDate: editingEvent.startDate,
+        endDate: editingEvent.endDate,
+        applicationDeadline: editingEvent.applicationDeadline,
+        location: { city: editingEvent.city, state: editingEvent.state, address: editingEvent.address },
+        eventType: editingEvent.eventType,
+        maxVendors: editingEvent.maxVendors,
+        status: editingEvent.status,
+        feeStructure: editingEvent.feeStructure,
+        requiredPermitTypes: editingEvent.requiredPermitTypes,
+        customPermitRequirements: editingEvent.customPermitRequirements
+      };
+      await api.put(`/events/organizer/${editingEvent._id}`, eventData);
+      const orgData = await api.get('/events/organizer/my-events');
+      setOrganizerEvents(orgData.events || []);
+      setShowEditEventModal(false);
+      setEditingEvent(null);
+      alert('Event updated successfully!');
+    } catch (err) { alert(err.message); }
+  };
+
   // Vendor functions
   const applyToEvent = async (eventId) => {
     // Check if user can write (subscription is active)
@@ -2235,18 +2307,43 @@ const EventsPage = () => {
                     <p className="event-date"><Icons.Calendar /> {formatDate(event.startDate)} {event.endDate && event.endDate !== event.startDate && `- ${formatDate(event.endDate)}`}</p>
                     <p className="event-location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
                   </div>
-                  <div className="event-status-actions">
-                    <Badge variant={event.status === 'published' ? 'success' : event.status === 'closed' ? 'warning' : 'default'}>{event.status}</Badge>
-                    <div className="event-stats">
-                      <span>{event.vendorApplications?.length || 0} applications</span>
-                      <span>{event.assignedVendors?.length || 0} vendors</span>
-                    </div>
+                  <Badge variant={event.status === 'published' ? 'success' : event.status === 'closed' ? 'warning' : 'default'}>{event.status}</Badge>
+                </div>
+                <div className="event-details">
+                  <div className="event-detail-row">
+                    <span className="event-detail-label">Event Type</span>
+                    <span className="event-detail-value">{event.eventType?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Not set'}</span>
                   </div>
+                  <div className="event-detail-row">
+                    <span className="event-detail-label">Max Vendors</span>
+                    <span className="event-detail-value">{event.maxVendors || 'Unlimited'}</span>
+                  </div>
+                  <div className="event-detail-row">
+                    <span className="event-detail-label">Applications</span>
+                    <span className="event-detail-value">{event.vendorApplications?.length || 0}</span>
+                  </div>
+                  <div className="event-detail-row">
+                    <span className="event-detail-label">Approved Vendors</span>
+                    <span className="event-detail-value">{event.assignedVendors?.length || 0}</span>
+                  </div>
+                  {event.requiredPermitTypes?.length > 0 && (
+                    <div className="event-detail-row">
+                      <span className="event-detail-label">Required Permits</span>
+                      <span className="event-detail-value">{event.requiredPermitTypes.length}</span>
+                    </div>
+                  )}
+                  {event.feeStructure?.boothFee > 0 && (
+                    <div className="event-detail-row">
+                      <span className="event-detail-label">Booth Fee</span>
+                      <span className="event-detail-value">${event.feeStructure.boothFee}</span>
+                    </div>
+                  )}
                 </div>
                 <div className="event-actions">
+                  <Button size="sm" variant="outline" onClick={() => openEditEventModal(event)}><Icons.Edit /> Edit</Button>
                   <Button size="sm" variant="outline" onClick={() => fetchEventApplications(event._id)}>Manage Vendors</Button>
                   {event.status === 'draft' && <Button size="sm" onClick={() => updateEventStatus(event._id, 'published')}>Publish</Button>}
-                  {event.status === 'published' && <Button size="sm" variant="outline" onClick={() => updateEventStatus(event._id, 'closed')}>Close Applications</Button>}
+                  {event.status === 'published' && <Button size="sm" variant="outline" onClick={() => updateEventStatus(event._id, 'closed')}>Close</Button>}
                 </div>
               </Card>
             )) : (
@@ -2508,6 +2605,146 @@ const EventsPage = () => {
               {locationRequestSubmitting ? 'Submitting...' : 'Submit Request'}
             </Button>
           </div>
+        </Modal>
+        
+        {/* Edit Event Modal */}
+        <Modal isOpen={showEditEventModal} onClose={() => { setShowEditEventModal(false); setEditingEvent(null); }} title="Edit Event" size="lg">
+          {editingEvent && (
+            <div className="edit-event-form">
+              <div className="form-section">
+                <Input label="Event Name *" value={editingEvent.eventName} onChange={(e) => setEditingEvent(ev => ({ ...ev, eventName: e.target.value }))} />
+                <Input label="Description" value={editingEvent.description} onChange={(e) => setEditingEvent(ev => ({ ...ev, description: e.target.value }))} />
+              </div>
+              <div className="form-section">
+                <div className="form-section-title">Date & Location</div>
+                <div className="form-row">
+                  <DateInput label="Start Date *" required value={editingEvent.startDate} onChange={(e) => setEditingEvent(ev => ({ ...ev, startDate: e.target.value }))} />
+                  <DateInput label="End Date" value={editingEvent.endDate} onChange={(e) => setEditingEvent(ev => ({ ...ev, endDate: e.target.value }))} />
+                  <DateInput label="Application Deadline" value={editingEvent.applicationDeadline} onChange={(e) => setEditingEvent(ev => ({ ...ev, applicationDeadline: e.target.value }))} />
+                </div>
+                <div className="form-row">
+                  <Select label="State *" value={editingEvent.state} onChange={(e) => handleEditEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...[...new Set(jurisdictions.map(j => j.state))].sort().map(s => ({ value: s, label: s }))]} />
+                  <Select label="City *" value={editingEvent.city} onChange={(e) => setEditingEvent(ev => ({ ...ev, city: e.target.value }))} options={[{ value: '', label: editingEvent.state ? 'Select City' : 'Select state first' }, ...getAvailableCities(editingEvent.state).map(c => ({ value: c, label: c }))]} disabled={!editingEvent.state} />
+                </div>
+                <Input label="Venue Address" value={editingEvent.address || ''} onChange={(e) => setEditingEvent(ev => ({ ...ev, address: e.target.value }))} />
+              </div>
+              <div className="form-section">
+                <div className="form-section-title">Event Details</div>
+                <div className="form-row">
+                  <Select label="Event Type" value={editingEvent.eventType} onChange={(e) => setEditingEvent(ev => ({ ...ev, eventType: e.target.value }))} options={[
+                    { value: 'food_event', label: 'Food Event' },
+                    { value: 'farmers_market', label: 'Farmers Market' },
+                    { value: 'festival', label: 'Festival' },
+                    { value: 'fair', label: 'Fair' },
+                    { value: 'craft_show', label: 'Craft Show' },
+                    { value: 'night_market', label: 'Night Market' },
+                    { value: 'other', label: 'Other' }
+                  ]} />
+                  <Input label="Max Vendors" type="number" value={editingEvent.maxVendors} onChange={(e) => setEditingEvent(ev => ({ ...ev, maxVendors: e.target.value }))} />
+                  <Select label="Status" value={editingEvent.status} onChange={(e) => setEditingEvent(ev => ({ ...ev, status: e.target.value }))} options={[
+                    { value: 'draft', label: 'Draft (not visible)' },
+                    { value: 'published', label: 'Published (accepting applications)' },
+                    { value: 'closed', label: 'Closed (no new applications)' }
+                  ]} />
+                </div>
+              </div>
+              <div className="form-section">
+                <div className="form-section-title">Fees</div>
+                <div className="form-row">
+                  <Input label="Application Fee ($)" type="number" value={editingEvent.feeStructure?.applicationFee || 0} onChange={(e) => setEditingEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, applicationFee: parseFloat(e.target.value) || 0 } }))} />
+                  <Input label="Booth Fee ($)" type="number" value={editingEvent.feeStructure?.boothFee || 0} onChange={(e) => setEditingEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, boothFee: parseFloat(e.target.value) || 0 } }))} />
+                  <Input label="Electricity Fee ($)" type="number" value={editingEvent.feeStructure?.electricityFee || 0} onChange={(e) => setEditingEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, electricityFee: parseFloat(e.target.value) || 0 } }))} />
+                </div>
+              </div>
+              <div className="form-section">
+                <div className="form-section-title">Required Permits</div>
+                <p className="form-hint">Select permits vendors must have to participate</p>
+                {!editingEvent.state ? (
+                  <p className="empty-text">Please select a state above to see available permits.</p>
+                ) : editPermitTypes.length > 0 ? (
+                  <div className="permit-type-checkboxes">
+                    {editPermitTypes.map(pt => {
+                      const isChecked = (editingEvent.requiredPermitTypes || []).includes(pt._id);
+                      return (
+                        <label key={pt._id} className="checkbox-label">
+                          <input 
+                            type="checkbox" 
+                            checked={isChecked} 
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setEditingEvent(ev => ({ ...ev, requiredPermitTypes: [...(ev.requiredPermitTypes || []), pt._id] }));
+                              } else {
+                                setEditingEvent(ev => ({ ...ev, requiredPermitTypes: (ev.requiredPermitTypes || []).filter(id => id !== pt._id) }));
+                              }
+                            }} 
+                          />
+                          <span>{pt.name} <small>({pt.jurisdictionId?.city || 'State-wide'})</small></span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="empty-text">No permits found for {editingEvent.state}.</p>
+                )}
+              </div>
+              <div className="form-section">
+                <div className="form-section-title">Custom Requirements</div>
+                <p className="form-hint">Additional requirements vendors must complete</p>
+                {(editingEvent.customPermitRequirements || []).map((req, index) => (
+                  <div key={index} className="custom-requirement-row">
+                    <Input 
+                      label="Requirement Name"
+                      placeholder="e.g., General Liability Insurance" 
+                      value={req.name || ''} 
+                      onChange={(e) => {
+                        const updated = [...(editingEvent.customPermitRequirements || [])];
+                        updated[index] = { ...updated[index], name: e.target.value };
+                        setEditingEvent(ev => ({ ...ev, customPermitRequirements: updated }));
+                      }} 
+                    />
+                    <Input 
+                      label="Description (optional)"
+                      placeholder="Additional details..." 
+                      value={req.description || ''} 
+                      onChange={(e) => {
+                        const updated = [...(editingEvent.customPermitRequirements || [])];
+                        updated[index] = { ...updated[index], description: e.target.value };
+                        setEditingEvent(ev => ({ ...ev, customPermitRequirements: updated }));
+                      }} 
+                    />
+                    <button 
+                      type="button" 
+                      className="btn btn-outline btn-sm remove-req-btn"
+                      onClick={() => {
+                        const updated = (editingEvent.customPermitRequirements || []).filter((_, i) => i !== index);
+                        setEditingEvent(ev => ({ ...ev, customPermitRequirements: updated }));
+                      }}
+                    >
+                      <Icons.X /> Remove
+                    </button>
+                  </div>
+                ))}
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => {
+                    setEditingEvent(ev => ({ 
+                      ...ev, 
+                      customPermitRequirements: [...(ev.customPermitRequirements || []), { name: '', description: '', required: true }] 
+                    }));
+                  }}
+                >
+                  <Icons.Plus /> Add Custom Requirement
+                </Button>
+              </div>
+              <div className="form-actions">
+                <Button variant="outline" onClick={() => { setShowEditEventModal(false); setEditingEvent(null); }}>Cancel</Button>
+                <Button onClick={saveEditedEvent} disabled={!editingEvent.eventName || !editingEvent.startDate || !editingEvent.city || !editingEvent.state}>
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          )}
         </Modal>
       </div>
     );
