@@ -46,7 +46,7 @@ const api = {
   get: (endpoint) => api.request(endpoint),
   post: (endpoint, body) => api.request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
   put: (endpoint, body) => api.request(endpoint, { method: 'PUT', body: JSON.stringify(body) }),
-  delete: (endpoint) => api.request(endpoint, { method: 'DELETE' }),
+  delete: (endpoint, body) => api.request(endpoint, { method: 'DELETE', body: body ? JSON.stringify(body) : undefined }),
   async upload(endpoint, formData) {
     const token = localStorage.getItem('permitwise_token');
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
@@ -2277,6 +2277,33 @@ const EventsPage = () => {
     }
   };
 
+  // Withdraw from event state
+  const [showWithdrawModal, setShowWithdrawModal] = useState(null);
+  const [withdrawReason, setWithdrawReason] = useState('');
+  const [withdrawing, setWithdrawing] = useState(false);
+
+  const withdrawFromEvent = async () => {
+    if (!showWithdrawModal) return;
+    setWithdrawing(true);
+    try {
+      await api.delete(`/events/${showWithdrawModal._id}/withdraw`, { reason: withdrawReason });
+      setShowWithdrawModal(null);
+      setWithdrawReason('');
+      // Refresh events
+      const [myData, pubData] = await Promise.all([
+        api.get('/events/my-events'),
+        api.get('/events/published')
+      ]);
+      setEvents(myData.events || []);
+      setPublishedEvents(pubData.events || []);
+      alert('Successfully withdrawn from event. The organizer has been notified.');
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
   // ORGANIZER PORTAL VIEW
   if (isOrganizer) {
     return (
@@ -2848,11 +2875,15 @@ const EventsPage = () => {
   const marketplaceEvents = events.filter(e => e.eventSource === 'admin_added' || e.eventSource === 'vendor_application');
 
   // Check for events vendor can still apply to (not already applied or invited)
+  // Use both local events list AND vendorHasApplied flag from server
   const appliedEventIds = new Set([
-    ...events.map(e => e._id),
-    ...publishedEvents.filter(e => e.vendorApplications?.some(a => a.vendorBusinessId === business?._id)).map(e => e._id)
+    ...events.map(e => e._id?.toString?.() || e._id)
   ]);
-  const availableEvents = publishedEvents.filter(e => !appliedEventIds.has(e._id) && e.status === 'published');
+  const availableEvents = publishedEvents.filter(e => {
+    const eventIdStr = e._id?.toString?.() || e._id;
+    // Filter out if: in my events list, already applied (server flag), or not published
+    return !appliedEventIds.has(eventIdStr) && !e.vendorHasApplied && e.status === 'published';
+  });
 
   const renderEventCard = (event) => (
     <Card key={event._id} className={`event-readiness-card ${event.readinessStatus}`}>
@@ -2899,6 +2930,11 @@ const EventsPage = () => {
             <Icons.Check /> All permits and documents are in order
           </div>
         )}
+      </div>
+      
+      <div className="event-card-actions">
+        <Button variant="outline" size="sm" onClick={() => setSelectedEvent(event)}>View Details</Button>
+        <Button variant="outline" size="sm" className="withdraw-btn" onClick={() => setShowWithdrawModal(event)}>Withdraw</Button>
       </div>
     </Card>
   );
@@ -3147,6 +3183,33 @@ const EventsPage = () => {
             <div className="modal-actions">
               <Button variant="outline" onClick={() => setShowApplyModal(null)}>Cancel</Button>
               <Button onClick={() => applyToEvent(showApplyModal._id)}>Submit Application</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Withdraw from Event Modal */}
+      <Modal isOpen={!!showWithdrawModal} onClose={() => { setShowWithdrawModal(null); setWithdrawReason(''); }} title="Withdraw from Event">
+        {showWithdrawModal && (
+          <div className="withdraw-modal">
+            <div className="withdraw-warning">
+              <Icons.Alert />
+              <p>You are about to withdraw from <strong>{showWithdrawModal.eventName}</strong>. The event organizer will be notified of your withdrawal.</p>
+            </div>
+            <div className="event-summary">
+              <p><strong>Date:</strong> {formatDate(showWithdrawModal.startDate)}</p>
+              <p><strong>Location:</strong> {showWithdrawModal.location?.city}, {showWithdrawModal.location?.state}</p>
+            </div>
+            <Input 
+              label="Reason for withdrawal (optional)" 
+              placeholder="e.g., Schedule conflict, unable to attend..." 
+              value={withdrawReason} 
+              onChange={(e) => setWithdrawReason(e.target.value)} 
+            />
+            <p className="withdraw-note">This note will be sent to the event organizer.</p>
+            <div className="modal-actions">
+              <Button variant="outline" onClick={() => { setShowWithdrawModal(null); setWithdrawReason(''); }}>Cancel</Button>
+              <Button variant="danger" onClick={withdrawFromEvent} loading={withdrawing}>Withdraw from Event</Button>
             </div>
           </div>
         )}
