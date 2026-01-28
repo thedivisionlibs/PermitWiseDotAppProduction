@@ -3336,13 +3336,21 @@ app.get('/api/events/my-events', authMiddleware, async (req, res) => {
 // Get published events (for vendors to browse/apply) - MUST be before /api/events/:id
 app.get('/api/events/published', authMiddleware, async (req, res) => {
   try {
-    // Get start of today to include events happening today
+    // Get start of today
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
+    // Show events that:
+    // 1. Haven't started yet (startDate >= today), OR
+    // 2. Are currently ongoing (endDate >= today), OR
+    // 3. Single-day events happening today (startDate = today and no endDate)
     const events = await Event.find({
       status: 'published',
-      startDate: { $gte: today }
+      $or: [
+        { startDate: { $gte: today } },           // Future events
+        { endDate: { $gte: today } },             // Ongoing events with endDate
+        { startDate: { $gte: today }, endDate: null }  // Single-day future events
+      ]
     })
       .populate('requiredPermitTypes', 'name')
       .sort({ startDate: 1 })
