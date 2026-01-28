@@ -3355,8 +3355,28 @@ app.get('/api/events/published', authMiddleware, async (req, res) => {
       .populate('requiredPermitTypes', 'name')
       .sort({ startDate: 1 })
       .limit(50);
+    
+    // Include vendor's application status for each event
+    const vendorBusinessId = req.user.vendorBusinessId;
+    const eventsWithApplicationStatus = events.map(e => {
+      const eventObj = e.toObject();
+      // Check if this vendor has already applied
+      const hasApplied = e.vendorApplications?.some(
+        app => app.vendorBusinessId?.toString() === vendorBusinessId?.toString() && 
+               ['pending', 'approved', 'waitlist'].includes(app.status)
+      );
+      // Check if vendor is assigned
+      const isAssigned = e.assignedVendors?.some(
+        av => av.vendorBusinessId?.toString() === vendorBusinessId?.toString()
+      );
+      eventObj.vendorHasApplied = hasApplied || isAssigned;
+      // Don't expose full application data
+      delete eventObj.vendorApplications;
+      delete eventObj.assignedVendors;
+      return eventObj;
+    });
       
-    res.json({ events });
+    res.json({ events: eventsWithApplicationStatus });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3813,6 +3833,85 @@ app.put('/api/events/:id/respond-invitation', authMiddleware, requireWriteAccess
     
     await event.save();
     res.json({ success: true, status: invitation.status });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Withdraw from event (vendor)
+app.delete('/api/events/:id/withdraw', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.vendorBusinessId) {
+      return res.status(400).json({ error: 'Business profile required' });
+    }
+    
+    const event = await Event.findById(req.params.id).populate('organizerId', 'email name');
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    const business = await VendorBusiness.findById(req.user.vendorBusinessId);
+    const vendorName = business?.businessName || 'A vendor';
+    const reason = req.body?.reason || 'No reason provided';
+    
+    // Check if vendor is in assignedVendors
+    const assignedIndex = event.assignedVendors.findIndex(
+      av => av.vendorBusinessId.toString() === req.user.vendorBusinessId.toString()
+    );
+    
+    // Check if vendor has an application
+    const applicationIndex = event.vendorApplications.findIndex(
+      va => va.vendorBusinessId.toString() === req.user.vendorBusinessId.toString()
+    );
+    
+    if (assignedIndex === -1 && applicationIndex === -1) {
+      return res.status(404).json({ error: 'You are not part of this event' });
+    }
+    
+    // Remove from both arrays if present
+    if (assignedIndex !== -1) {
+      event.assignedVendors.splice(assignedIndex, 1);
+    }
+    if (applicationIndex !== -1) {
+      // Mark application as withdrawn instead of removing completely
+      event.vendorApplications[applicationIndex].status = 'withdrawn';
+      event.vendorApplications[applicationIndex].withdrawnAt = new Date();
+      event.vendorApplications[applicationIndex].withdrawalReason = reason;
+    }
+    
+    await event.save();
+    
+    // Send email notification to organizer
+    if (event.organizerId?.email) {
+      const sgMail = require('@sendgrid/mail');
+      if (process.env.SENDGRID_API_KEY) {
+        sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+        try {
+          await sgMail.send({
+            to: event.organizerId.email,
+            from: process.env.FROM_EMAIL || 'noreply@permitwise.app',
+            subject: `Vendor Withdrawal: ${event.eventName}`,
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #dc2626;">Vendor Withdrawal Notice</h2>
+                <p><strong>${vendorName}</strong> has withdrawn from your event <strong>${event.eventName}</strong>.</p>
+                ${reason && reason !== 'No reason provided' ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+                <p style="margin-top: 20px; color: #666;">
+                  <small>Date of Event: ${new Date(event.startDate).toLocaleDateString()}</small><br>
+                  <small>Location: ${event.location?.city}, ${event.location?.state}</small>
+                </p>
+                <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
+                <p style="color: #999; font-size: 12px;">This is an automated notification from PermitWise.</p>
+              </div>
+            `
+          });
+        } catch (emailErr) {
+          console.error('Failed to send withdrawal notification email:', emailErr);
+        }
+      }
+    }
+    
+    res.json({ success: true, message: 'Successfully withdrawn from event' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
