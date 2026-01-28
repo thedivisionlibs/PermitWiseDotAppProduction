@@ -2004,6 +2004,11 @@ const EventsPage = () => {
   const [showApplyModal, setShowApplyModal] = useState(null);
   const [applicationNotes, setApplicationNotes] = useState('');
 
+  // Withdraw from event state
+  const [showWithdrawModal, setShowWithdrawModal] = useState(null);
+  const [withdrawReason, setWithdrawReason] = useState('');
+  const [withdrawing, setWithdrawing] = useState(false);
+
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
 
@@ -2276,11 +2281,6 @@ const EventsPage = () => {
       }
     }
   };
-
-  // Withdraw from event state
-  const [showWithdrawModal, setShowWithdrawModal] = useState(null);
-  const [withdrawReason, setWithdrawReason] = useState('');
-  const [withdrawing, setWithdrawing] = useState(false);
 
   const withdrawFromEvent = async () => {
     if (!showWithdrawModal) return;
