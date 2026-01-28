@@ -115,7 +115,74 @@ const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','
 // ===========================================
 const formatDate = (date) => {
   if (!date) return 'N/A';
-  return new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  const d = new Date(date);
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${month}/${day}/${year}`;
+};
+
+// Format date input as user types - MM/DD/YYYY
+const formatDateInput = (value) => {
+  if (!value) return '';
+  // Remove all non-digits
+  const digits = value.replace(/\D/g, '');
+  // Format based on length
+  if (digits.length === 0) return '';
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+};
+
+// Convert formatted date (MM/DD/YYYY) to ISO string for API
+const getDateISO = (formatted) => {
+  if (!formatted) return '';
+  const digits = formatted.replace(/\D/g, '');
+  if (digits.length !== 8) return '';
+  const month = parseInt(digits.slice(0, 2), 10);
+  const day = parseInt(digits.slice(2, 4), 10);
+  const year = parseInt(digits.slice(4, 8), 10);
+  // Create date and return ISO string (YYYY-MM-DD)
+  const date = new Date(year, month - 1, day);
+  if (isNaN(date.getTime())) return '';
+  return date.toISOString().split('T')[0];
+};
+
+// Convert ISO date (YYYY-MM-DD) to formatted (MM/DD/YYYY) for display in inputs
+const isoToFormatted = (isoDate) => {
+  if (!isoDate) return '';
+  const parts = isoDate.split('T')[0].split('-');
+  if (parts.length !== 3) return '';
+  return `${parts[1]}/${parts[2]}/${parts[0]}`;
+};
+
+// Validate date input
+const validateDate = (value, options = {}) => {
+  const { required = false, minDate = null, maxDate = null } = options;
+  if (!value) {
+    if (required) return { valid: false, error: 'Date is required' };
+    return { valid: true, error: null };
+  }
+  const digits = value.replace(/\D/g, '');
+  if (digits.length < 8) return { valid: false, error: 'Date is incomplete (MM/DD/YYYY)' };
+  if (digits.length > 8) return { valid: false, error: 'Date is too long' };
+  
+  const month = parseInt(digits.slice(0, 2), 10);
+  const day = parseInt(digits.slice(2, 4), 10);
+  const year = parseInt(digits.slice(4, 8), 10);
+  
+  if (month < 1 || month > 12) return { valid: false, error: 'Invalid month (01-12)' };
+  if (day < 1 || day > 31) return { valid: false, error: 'Invalid day (01-31)' };
+  if (year < 1900 || year > 2100) return { valid: false, error: 'Invalid year' };
+  
+  // Check if date is valid (e.g., Feb 30 is invalid)
+  const date = new Date(year, month - 1, day);
+  if (date.getMonth() !== month - 1) return { valid: false, error: 'Invalid date for this month' };
+  
+  if (minDate && date < new Date(minDate)) return { valid: false, error: 'Date is too early' };
+  if (maxDate && date > new Date(maxDate)) return { valid: false, error: 'Date is too far in the future' };
+  
+  return { valid: true, error: null };
 };
 
 const daysUntil = (date) => {
@@ -259,6 +326,47 @@ const EmailInput = ({ label, value, onChange, error: externalError, required, on
         onChange={handleChange}
         onBlur={handleBlur}
         placeholder="email@example.com"
+        {...props} 
+      />
+      {error && <span className="form-error">{error}</span>}
+    </div>
+  );
+};
+
+// Date Input with auto-formatting and validation (MM/DD/YYYY)
+const DateInput = ({ label, value, onChange, error: externalError, required, minDate, maxDate, ...props }) => {
+  // value comes in as ISO format (YYYY-MM-DD), display as MM/DD/YYYY
+  const [displayValue, setDisplayValue] = useState(isoToFormatted(value || ''));
+  const [internalError, setInternalError] = useState(null);
+  
+  useEffect(() => {
+    setDisplayValue(isoToFormatted(value || ''));
+  }, [value]);
+  
+  const handleChange = (e) => {
+    const formatted = formatDateInput(e.target.value);
+    setDisplayValue(formatted);
+    
+    // Validate
+    const validation = validateDate(formatted, { required, minDate, maxDate });
+    setInternalError(validation.error);
+    
+    // Pass ISO format to parent for API
+    const isoDate = getDateISO(formatted);
+    onChange({ target: { value: isoDate, name: e.target.name } });
+  };
+  
+  const error = externalError || internalError;
+  
+  return (
+    <div className="form-group">
+      {label && <label className="form-label">{label}{required && ' *'}</label>}
+      <input 
+        className={`form-input ${error ? 'error' : ''}`} 
+        value={displayValue}
+        onChange={handleChange}
+        placeholder="MM/DD/YYYY"
+        maxLength={10}
         {...props} 
       />
       {error && <span className="form-error">{error}</span>}
@@ -1454,8 +1562,8 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
             <Select label="Status" value={formData.status} onChange={(e) => setFormData(f => ({ ...f, status: e.target.value }))} options={[{ value: 'missing', label: 'Missing' }, { value: 'in_progress', label: 'In Progress' }, { value: 'active', label: 'Active' }, { value: 'expired', label: 'Expired' }]} />
             <Input label="Permit Number" value={formData.permitNumber} onChange={(e) => setFormData(f => ({ ...f, permitNumber: e.target.value }))} />
             <div className="form-row">
-              <Input label="Issue Date" type="date" value={formData.issueDate} onChange={(e) => setFormData(f => ({ ...f, issueDate: e.target.value }))} />
-              <Input label="Expiry Date" type="date" value={formData.expiryDate} onChange={(e) => setFormData(f => ({ ...f, expiryDate: e.target.value }))} />
+              <DateInput label="Issue Date" value={formData.issueDate} onChange={(e) => setFormData(f => ({ ...f, issueDate: e.target.value }))} />
+              <DateInput label="Expiry Date" value={formData.expiryDate} onChange={(e) => setFormData(f => ({ ...f, expiryDate: e.target.value }))} />
             </div>
           </div>
         ) : (
@@ -1879,6 +1987,12 @@ const EventsPage = () => {
   const [inviteEmail, setInviteEmail] = useState('');
   const [availablePermitTypes, setAvailablePermitTypes] = useState([]);
   
+  // Jurisdictions for location selection
+  const [jurisdictions, setJurisdictions] = useState([]);
+  const [showLocationRequestModal, setShowLocationRequestModal] = useState(false);
+  const [locationRequest, setLocationRequest] = useState({ city: '', state: '', reason: '' });
+  const [locationRequestSubmitting, setLocationRequestSubmitting] = useState(false);
+  
   // Vendor events discovery
   const [publishedEvents, setPublishedEvents] = useState([]);
   const [showApplyModal, setShowApplyModal] = useState(null);
@@ -1893,6 +2007,11 @@ const EventsPage = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // Fetch jurisdictions for organizers
+        if (isOrganizer) {
+          const jurData = await api.get('/jurisdictions');
+          setJurisdictions(jurData.jurisdictions || []);
+        }
         if (isOrganizer) {
           // Fetch organizer's events
           const orgData = await api.get('/events/organizer/my-events');
@@ -1933,8 +2052,35 @@ const EventsPage = () => {
 
   // Handle state change in event creation form
   const handleEventStateChange = (newState) => {
-    setNewOrgEvent(ev => ({ ...ev, state: newState }));
+    setNewOrgEvent(ev => ({ ...ev, state: newState, city: '' })); // Clear city when state changes
     fetchPermitTypesByState(newState);
+  };
+
+  // Get unique cities for selected state from jurisdictions
+  const getAvailableCities = (state) => {
+    if (!state) return [];
+    const cities = [...new Set(jurisdictions.filter(j => j.state === state).map(j => j.city))].sort();
+    return cities;
+  };
+
+  // Submit location request
+  const submitLocationRequest = async () => {
+    if (!locationRequest.city || !locationRequest.state) return;
+    setLocationRequestSubmitting(true);
+    try {
+      await api.post('/suggestions', {
+        type: 'city_request',
+        details: `New location request for event: ${locationRequest.city}, ${locationRequest.state}`,
+        additionalInfo: locationRequest.reason
+      });
+      alert('Location request submitted! Our team will review and add it soon.');
+      setShowLocationRequestModal(false);
+      setLocationRequest({ city: '', state: '', reason: '' });
+    } catch (error) {
+      alert(error.message || 'Failed to submit request');
+    } finally {
+      setLocationRequestSubmitting(false);
+    }
   };
 
   const submitEventRequest = async () => {
@@ -2189,13 +2335,19 @@ const EventsPage = () => {
             <div className="form-section">
               <div className="form-section-title">Date & Location</div>
               <div className="form-row">
-                <Input label="Start Date *" type="date" value={newOrgEvent.startDate} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, startDate: e.target.value }))} />
-                <Input label="End Date" type="date" value={newOrgEvent.endDate} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, endDate: e.target.value }))} />
-                <Input label="Application Deadline" type="date" value={newOrgEvent.applicationDeadline} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, applicationDeadline: e.target.value }))} />
+                <DateInput label="Start Date *" required value={newOrgEvent.startDate} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, startDate: e.target.value }))} />
+                <DateInput label="End Date" value={newOrgEvent.endDate} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, endDate: e.target.value }))} />
+                <DateInput label="Application Deadline" value={newOrgEvent.applicationDeadline} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, applicationDeadline: e.target.value }))} />
               </div>
               <div className="form-row">
-                <Input label="City *" placeholder="Austin" value={newOrgEvent.city} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, city: e.target.value }))} />
-                <Select label="State *" value={newOrgEvent.state} onChange={(e) => handleEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+                <Select label="State *" value={newOrgEvent.state} onChange={(e) => handleEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...[...new Set(jurisdictions.map(j => j.state))].sort().map(s => ({ value: s, label: s }))]} />
+                <Select label="City *" value={newOrgEvent.city} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, city: e.target.value }))} options={[{ value: '', label: newOrgEvent.state ? 'Select City' : 'Select state first' }, ...getAvailableCities(newOrgEvent.state).map(c => ({ value: c, label: c }))]} disabled={!newOrgEvent.state} />
+              </div>
+              <div className="location-request-link">
+                <button type="button" className="text-link" onClick={() => setShowLocationRequestModal(true)}>
+                  Location not listed? Request a new location
+                </button>
+              </div>
               </div>
               <Input label="Venue Address" placeholder="123 Main Street" value={newOrgEvent.address} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, address: e.target.value }))} />
             </div>
@@ -2378,8 +2530,8 @@ const EventsPage = () => {
                 <Select label="State *" value={requestForm.state} onChange={(e) => setRequestForm(f => ({ ...f, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
               </div>
               <div className="form-row">
-                <Input label="Start Date" type="date" value={requestForm.startDate} onChange={(e) => setRequestForm(f => ({ ...f, startDate: e.target.value }))} />
-                <Input label="End Date" type="date" value={requestForm.endDate} onChange={(e) => setRequestForm(f => ({ ...f, endDate: e.target.value }))} />
+                <DateInput label="Start Date" value={requestForm.startDate} onChange={(e) => setRequestForm(f => ({ ...f, startDate: e.target.value }))} />
+                <DateInput label="End Date" value={requestForm.endDate} onChange={(e) => setRequestForm(f => ({ ...f, endDate: e.target.value }))} />
               </div>
               <Input label="Event Website" placeholder="https://example.com" value={requestForm.website} onChange={(e) => setRequestForm(f => ({ ...f, website: e.target.value }))} />
               <Input label="Additional Info" placeholder="Any other details about the event..." value={requestForm.additionalInfo} onChange={(e) => setRequestForm(f => ({ ...f, additionalInfo: e.target.value }))} />
@@ -2740,6 +2892,18 @@ const EventsPage = () => {
             </div>
           </>
         )}
+      </Modal>
+      
+      {/* Location Request Modal */}
+      <Modal isOpen={showLocationRequestModal} onClose={() => setShowLocationRequestModal(false)} title="Request New Location">
+        <p style={{ marginBottom: '16px', color: '#6b7280' }}>Can't find your event location? Request it to be added by our team.</p>
+        <Input label="City *" placeholder="Enter city name" value={locationRequest.city} onChange={(e) => setLocationRequest(l => ({ ...l, city: e.target.value }))} />
+        <Select label="State *" value={locationRequest.state} onChange={(e) => setLocationRequest(l => ({ ...l, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+        <Input label="Why do you need this location?" placeholder="Brief explanation..." value={locationRequest.reason} onChange={(e) => setLocationRequest(l => ({ ...l, reason: e.target.value }))} />
+        <div className="modal-actions">
+          <Button variant="outline" onClick={() => setShowLocationRequestModal(false)}>Cancel</Button>
+          <Button onClick={submitLocationRequest} loading={locationRequestSubmitting} disabled={!locationRequest.city || !locationRequest.state}>Submit Request</Button>
+        </div>
       </Modal>
       
       {/* Upgrade Modal for expired subscriptions */}
