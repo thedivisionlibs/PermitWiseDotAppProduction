@@ -2001,35 +2001,37 @@ const EventsPage = () => {
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
 
-  // Plan check: Elite, Promo, or Lifetime required for vendors (organizers always have access)
-  const hasAccess = isOrganizer || subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration;
+  // Plan check: Elite, Promo, or Lifetime required for vendors (NOT organizers - they have separate access)
+  const hasVendorAccess = !isOrganizer && (subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch jurisdictions for organizers
         if (isOrganizer) {
-          const jurData = await api.get('/jurisdictions');
+          // Fetch organizer-specific data
+          const [jurData, orgData] = await Promise.all([
+            api.get('/jurisdictions'),
+            api.get('/events/organizer/my-events')
+          ]);
           setJurisdictions(jurData.jurisdictions || []);
-        }
-        if (isOrganizer) {
-          // Fetch organizer's events
-          const orgData = await api.get('/events/organizer/my-events');
           setOrganizerEvents(orgData.events || []);
-        }
-        if (hasAccess) {
-          // Fetch vendor's assigned events
-          const data = await api.get('/events/my-events');
-          setEvents(data.events || []);
-          // Fetch published events vendor can apply to
-          const pubData = await api.get('/events/published');
+        } else if (hasVendorAccess) {
+          // Fetch vendor-specific data (only for non-organizers with access)
+          const [myData, pubData] = await Promise.all([
+            api.get('/events/my-events'),
+            api.get('/events/published')
+          ]);
+          setEvents(myData.events || []);
           setPublishedEvents(pubData.events || []);
         }
       } catch (error) { console.error(error); }
       finally { setLoading(false); }
     };
     fetchData();
-  }, [hasAccess, isOrganizer]);
+  }, [hasVendorAccess, isOrganizer]);
+
+  // Show loading spinner for everyone while data loads
+  if (loading) return <LoadingSpinner />;
 
   // Fetch permit types by state for event creation
   const fetchPermitTypesByState = async (state) => {
@@ -2454,13 +2456,50 @@ const EventsPage = () => {
             </div>
           </Card>
         )}
+        
+        {/* Location Request Modal */}
+        <Modal isOpen={showLocationRequestModal} onClose={() => setShowLocationRequestModal(false)} title="Request New Location">
+          <p style={{ marginBottom: '16px', color: '#6b7280' }}>
+            Can't find your event location? Request it below and we'll add it to our system.
+          </p>
+          <Input 
+            label="City *" 
+            placeholder="City name" 
+            value={locationRequest.city} 
+            onChange={(e) => setLocationRequest(r => ({ ...r, city: e.target.value }))} 
+          />
+          <Select 
+            label="State *" 
+            value={locationRequest.state}
+            onChange={(e) => setLocationRequest(r => ({ ...r, state: e.target.value }))}
+            options={[
+              { value: '', label: 'Select State' },
+              ...US_STATES.map(s => ({ value: s, label: s }))
+            ]}
+          />
+          <Input 
+            label="Reason (optional)" 
+            placeholder="Why do you need this location?" 
+            value={locationRequest.reason} 
+            onChange={(e) => setLocationRequest(r => ({ ...r, reason: e.target.value }))} 
+          />
+          <div className="form-actions">
+            <Button variant="outline" onClick={() => setShowLocationRequestModal(false)}>Cancel</Button>
+            <Button 
+              onClick={submitLocationRequest} 
+              disabled={!locationRequest.city || !locationRequest.state || locationRequestSubmitting}
+            >
+              {locationRequestSubmitting ? 'Submitting...' : 'Submit Request'}
+            </Button>
+          </div>
+        </Modal>
       </div>
     );
   }
 
   // VENDOR VIEW - requires Elite plan
   // Show different messaging for expired vs no plan
-  if (!hasAccess) {
+  if (!hasVendorAccess) {
     return (
       <div className="upgrade-feature-page">
         <div className="upgrade-feature-content">
@@ -2544,8 +2583,6 @@ const EventsPage = () => {
       </div>
     );
   }
-
-  if (loading) return <LoadingSpinner />;
 
   const getReadinessIcon = (status) => {
     if (status === 'ready') return <Icons.Check />;
