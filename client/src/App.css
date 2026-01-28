@@ -1743,6 +1743,11 @@ img { max-width: 100%; display: block; }
   border-radius: var(--radius);
   font-weight: 500;
 }
+.readiness-badge svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
 .readiness-badge.success {
   background: var(--success-light);
   color: var(--success);
@@ -1800,6 +1805,95 @@ img { max-width: 100%; display: block; }
   gap: 0.5rem;
   color: var(--success);
   font-size: 0.875rem;
+}
+.readiness-success svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.status-ready {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--success);
+  font-size: 0.875rem;
+}
+.status-ready svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.status-issues {
+  color: var(--danger);
+  font-size: 0.875rem;
+}
+.status-issues .view-link {
+  color: var(--primary);
+  margin-left: 0.5rem;
+}
+.readiness-footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--gray-100);
+  cursor: pointer;
+}
+.readiness-footer:hover {
+  background: var(--gray-50);
+}
+.readiness-progress {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1rem 0.75rem;
+}
+.event-card-actions {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--gray-100);
+  background: var(--gray-50);
+}
+.event-card-actions .withdraw-btn {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.event-card-actions .withdraw-btn:hover {
+  background: var(--danger);
+  color: white;
+}
+/* Withdraw Modal */
+.withdraw-modal .withdraw-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius);
+  margin-bottom: 1rem;
+}
+.withdraw-modal .withdraw-warning svg {
+  width: 24px;
+  height: 24px;
+  color: var(--danger);
+  flex-shrink: 0;
+}
+.withdraw-modal .withdraw-warning p {
+  margin: 0;
+  color: #991b1b;
+}
+.withdraw-modal .event-summary {
+  background: var(--gray-50);
+  padding: 1rem;
+  border-radius: var(--radius);
+  margin-bottom: 1rem;
+}
+.withdraw-modal .event-summary p {
+  margin: 0.25rem 0;
+}
+.withdraw-modal .withdraw-note {
+  font-size: 0.875rem;
+  color: var(--gray-500);
+  margin-top: 0.5rem;
 }
 .readiness-detail-modal .event-summary {
   background: var(--gray-50);
