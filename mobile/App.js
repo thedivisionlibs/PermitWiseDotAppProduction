@@ -225,7 +225,71 @@ const api = {
 // ===========================================
 // UTILITIES
 // ===========================================
-const formatDate = (date) => date ? new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Not entered';
+const formatDate = (date) => {
+  if (!date) return 'Not entered';
+  const d = new Date(date);
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${month}/${day}/${year}`;
+};
+
+// Format date input as user types - MM/DD/YYYY
+const formatDateInput = (value) => {
+  if (!value) return '';
+  const digits = value.replace(/\D/g, '');
+  if (digits.length === 0) return '';
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+};
+
+// Convert formatted date (MM/DD/YYYY) to ISO string for API
+const getDateISO = (formatted) => {
+  if (!formatted) return '';
+  const digits = formatted.replace(/\D/g, '');
+  if (digits.length !== 8) return '';
+  const month = parseInt(digits.slice(0, 2), 10);
+  const day = parseInt(digits.slice(2, 4), 10);
+  const year = parseInt(digits.slice(4, 8), 10);
+  const date = new Date(year, month - 1, day);
+  if (isNaN(date.getTime())) return '';
+  return date.toISOString().split('T')[0];
+};
+
+// Convert ISO date (YYYY-MM-DD) to formatted (MM/DD/YYYY) for display in inputs
+const isoToFormatted = (isoDate) => {
+  if (!isoDate) return '';
+  const parts = isoDate.split('T')[0].split('-');
+  if (parts.length !== 3) return '';
+  return `${parts[1]}/${parts[2]}/${parts[0]}`;
+};
+
+// Validate date input
+const validateDate = (value, options = {}) => {
+  const { required = false } = options;
+  if (!value) {
+    if (required) return { valid: false, error: 'Date is required' };
+    return { valid: true, error: null };
+  }
+  const digits = value.replace(/\D/g, '');
+  if (digits.length < 8) return { valid: false, error: 'Date is incomplete (MM/DD/YYYY)' };
+  if (digits.length > 8) return { valid: false, error: 'Date is too long' };
+  
+  const month = parseInt(digits.slice(0, 2), 10);
+  const day = parseInt(digits.slice(2, 4), 10);
+  const year = parseInt(digits.slice(4, 8), 10);
+  
+  if (month < 1 || month > 12) return { valid: false, error: 'Invalid month (01-12)' };
+  if (day < 1 || day > 31) return { valid: false, error: 'Invalid day (01-31)' };
+  if (year < 1900 || year > 2100) return { valid: false, error: 'Invalid year' };
+  
+  const date = new Date(year, month - 1, day);
+  if (date.getMonth() !== month - 1) return { valid: false, error: 'Invalid date for this month' };
+  
+  return { valid: true, error: null };
+};
+
 const daysUntil = (date) => date ? Math.ceil((new Date(date) - new Date()) / (1000 * 60 * 60 * 24)) : null;
 const getStatusLabel = (status) => ({ active: 'Active', expired: 'Expired', pending_renewal: 'Expiring Soon', missing: 'Missing', in_progress: 'In Progress' }[status] || status);
 const getStatusColor = (status) => ({ active: COLORS.success, expired: COLORS.danger, pending_renewal: COLORS.warning, missing: COLORS.gray400 }[status] || COLORS.gray500);
@@ -524,6 +588,46 @@ const EmailInput = ({ label, value, onChangeText, error: externalError, required
         placeholderTextColor={COLORS.gray400}
         keyboardType="email-address"
         autoCapitalize="none"
+        {...props} 
+      />
+      {error && <Text style={styles.errorText}>{error}</Text>}
+    </View>
+  );
+};
+
+// Date Input with auto-formatting (MM/DD/YYYY)
+const DateInput = ({ label, value, onChangeText, error: externalError, required, ...props }) => {
+  // value comes in as ISO format (YYYY-MM-DD), display as MM/DD/YYYY
+  const [displayValue, setDisplayValue] = useState(isoToFormatted(value || ''));
+  const [internalError, setInternalError] = useState(null);
+  
+  useEffect(() => {
+    setDisplayValue(isoToFormatted(value || ''));
+  }, [value]);
+  
+  const handleChange = (text) => {
+    const formatted = formatDateInput(text);
+    setDisplayValue(formatted);
+    const validation = validateDate(formatted, { required });
+    setInternalError(validation.error);
+    // Pass ISO format to parent for API
+    const isoDate = getDateISO(formatted);
+    onChangeText(isoDate);
+  };
+  
+  const error = externalError || internalError;
+  
+  return (
+    <View style={styles.formGroup}>
+      {label && <Text style={styles.label}>{label}{required && ' *'}</Text>}
+      <TextInput 
+        style={[styles.input, error && styles.inputError]} 
+        value={displayValue}
+        onChangeText={handleChange}
+        placeholder="MM/DD/YYYY"
+        placeholderTextColor={COLORS.gray400}
+        keyboardType="number-pad"
+        maxLength={10}
         {...props} 
       />
       {error && <Text style={styles.errorText}>{error}</Text>}
@@ -1909,8 +2013,8 @@ const AddPermitScreen = ({ navigation }) => {
         </TouchableOpacity>
 
         <Input label="Permit Number (optional)" value={form.permitNumber} onChangeText={v => setForm(f => ({ ...f, permitNumber: v }))} placeholder="e.g., HP-2024-12345" />
-        <Input label="Issue Date (optional)" value={form.issueDate} onChangeText={v => setForm(f => ({ ...f, issueDate: v }))} placeholder="YYYY-MM-DD" />
-        <Input label="Expiry Date (optional)" value={form.expiryDate} onChangeText={v => setForm(f => ({ ...f, expiryDate: v }))} placeholder="YYYY-MM-DD" />
+        <DateInput label="Issue Date (optional)" value={form.issueDate} onChangeText={v => setForm(f => ({ ...f, issueDate: v }))} />
+        <DateInput label="Expiry Date (optional)" value={form.expiryDate} onChangeText={v => setForm(f => ({ ...f, expiryDate: v }))} />
 
         <Button title="Add Permit" onPress={handleSubmit} loading={loading} style={{ marginTop: 24 }} />
 
@@ -1983,8 +2087,8 @@ const EditPermitScreen = ({ route, navigation }) => {
         </Card>
 
         <Input label="Permit Number" value={form.permitNumber} onChangeText={v => setForm(f => ({ ...f, permitNumber: v }))} placeholder="e.g., HP-2024-12345" />
-        <Input label="Issue Date" value={form.issueDate} onChangeText={v => setForm(f => ({ ...f, issueDate: v }))} placeholder="YYYY-MM-DD" />
-        <Input label="Expiry Date" value={form.expiryDate} onChangeText={v => setForm(f => ({ ...f, expiryDate: v }))} placeholder="YYYY-MM-DD" />
+        <DateInput label="Issue Date" value={form.issueDate} onChangeText={v => setForm(f => ({ ...f, issueDate: v }))} />
+        <DateInput label="Expiry Date" value={form.expiryDate} onChangeText={v => setForm(f => ({ ...f, expiryDate: v }))} />
 
         <Text style={[styles.label, { marginTop: 16 }]}>Status</Text>
         <View style={styles.statusOptions}>
@@ -2809,7 +2913,7 @@ const SettingsScreen = ({ navigation }) => {
           <Card style={styles.editCard}>
             <Input label="Insurance Provider" value={businessData.insurance.provider} onChangeText={v => setBusinessData(d => ({ ...d, insurance: { ...d.insurance, provider: v } }))} placeholder="e.g., State Farm, GEICO" />
             <Input label="Policy Number" value={businessData.insurance.policyNumber} onChangeText={v => setBusinessData(d => ({ ...d, insurance: { ...d.insurance, policyNumber: v } }))} />
-            <Input label="Expiry Date" value={businessData.insurance.expiryDate ? businessData.insurance.expiryDate.split('T')[0] : ''} onChangeText={v => setBusinessData(d => ({ ...d, insurance: { ...d.insurance, expiryDate: v } }))} placeholder="YYYY-MM-DD" />
+            <DateInput label="Expiry Date" value={businessData.insurance.expiryDate ? businessData.insurance.expiryDate.split('T')[0] : ''} onChangeText={v => setBusinessData(d => ({ ...d, insurance: { ...d.insurance, expiryDate: v } }))} />
             <Button title="Save Insurance Info" onPress={handleBusinessSave} loading={loading} style={{ marginTop: 12 }} />
           </Card>
         )}
@@ -3551,6 +3655,13 @@ const EventsScreen = () => {
   const [newEvent, setNewEvent] = useState({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', eventType: 'food_event', maxVendors: '', status: 'draft' });
   const [showStatePicker, setShowStatePicker] = useState(false);
   const [showTypePicker, setShowTypePicker] = useState(false);
+  const [showCityPicker, setShowCityPicker] = useState(false);
+  
+  // Jurisdictions for location selection
+  const [jurisdictions, setJurisdictions] = useState([]);
+  const [showLocationRequestModal, setShowLocationRequestModal] = useState(false);
+  const [locationRequest, setLocationRequest] = useState({ city: '', state: '', reason: '' });
+  const [locationRequestSubmitting, setLocationRequestSubmitting] = useState(false);
 
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
@@ -3558,11 +3669,24 @@ const EventsScreen = () => {
   // Plan check for vendors: Elite, Promo, or Lifetime required
   const hasAccess = isOrganizer || subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration;
 
+  // Get unique states from jurisdictions
+  const getAvailableStates = () => [...new Set(jurisdictions.map(j => j.state))].sort();
+  
+  // Get unique cities for selected state
+  const getAvailableCities = (state) => {
+    if (!state) return [];
+    return [...new Set(jurisdictions.filter(j => j.state === state).map(j => j.city))].sort();
+  };
+
   // Fetch organizer's events
   const fetchOrganizerEvents = async () => {
     try {
-      const data = await api.get('/events/organizer/my-events');
-      setOrganizerEvents(data.events || []);
+      const [eventsData, jurData] = await Promise.all([
+        api.get('/events/organizer/my-events'),
+        api.get('/jurisdictions')
+      ]);
+      setOrganizerEvents(eventsData.events || []);
+      setJurisdictions(jurData.jurisdictions || []);
     } catch (error) { console.error(error); }
     finally { setLoading(false); setRefreshing(false); }
   };
@@ -3631,6 +3755,32 @@ const EventsScreen = () => {
       Alert.alert('Success', 'Invitation sent');
       fetchEventApplications(selectedOrgEvent._id);
     } catch (error) { Alert.alert('Error', error.message); }
+  };
+
+  // Handle state change in event form - clear city when state changes
+  const handleEventStateChange = (state) => {
+    setNewEvent(f => ({ ...f, state, city: '' }));
+    setShowStatePicker(false);
+  };
+
+  // Submit location request
+  const submitLocationRequest = async () => {
+    if (!locationRequest.city || !locationRequest.state) return;
+    setLocationRequestSubmitting(true);
+    try {
+      await api.post('/suggestions', {
+        type: 'city_request',
+        details: `New location request for event: ${locationRequest.city}, ${locationRequest.state}`,
+        additionalInfo: locationRequest.reason
+      });
+      Alert.alert('Success', 'Location request submitted! Our team will review and add it soon.');
+      setShowLocationRequestModal(false);
+      setLocationRequest({ city: '', state: '', reason: '' });
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Failed to submit request');
+    } finally {
+      setLocationRequestSubmitting(false);
+    }
   };
 
   // Update event status
@@ -3855,16 +4005,13 @@ const EventsScreen = () => {
                 <Input label="Description" placeholder="Annual food truck festival..." value={newEvent.description} onChangeText={v => setNewEvent(f => ({ ...f, description: v }))} multiline />
                 <View style={styles.row}>
                   <View style={styles.halfInput}>
-                    <Text style={styles.label}>Start Date *</Text>
-                    <TextInput style={styles.input} placeholder="YYYY-MM-DD" value={newEvent.startDate} onChangeText={v => setNewEvent(f => ({ ...f, startDate: v }))} />
+                    <DateInput label="Start Date *" required value={newEvent.startDate} onChangeText={v => setNewEvent(f => ({ ...f, startDate: v }))} />
                   </View>
                   <View style={styles.halfInput}>
-                    <Text style={styles.label}>End Date</Text>
-                    <TextInput style={styles.input} placeholder="YYYY-MM-DD" value={newEvent.endDate} onChangeText={v => setNewEvent(f => ({ ...f, endDate: v }))} />
+                    <DateInput label="End Date" value={newEvent.endDate} onChangeText={v => setNewEvent(f => ({ ...f, endDate: v }))} />
                   </View>
                 </View>
                 <View style={styles.row}>
-                  <View style={styles.halfInput}><Input label="City *" placeholder="Austin" value={newEvent.city} onChangeText={v => setNewEvent(f => ({ ...f, city: v }))} /></View>
                   <View style={styles.halfInput}>
                     <Text style={styles.label}>State *</Text>
                     <TouchableOpacity style={styles.pickerButton} onPress={() => setShowStatePicker(true)}>
@@ -3872,7 +4019,17 @@ const EventsScreen = () => {
                       <Icons.ChevronDown size={16} color={COLORS.gray400} />
                     </TouchableOpacity>
                   </View>
+                  <View style={styles.halfInput}>
+                    <Text style={styles.label}>City *</Text>
+                    <TouchableOpacity style={[styles.pickerButton, !newEvent.state && styles.pickerButtonDisabled]} onPress={() => newEvent.state && setShowCityPicker(true)} disabled={!newEvent.state}>
+                      <Text style={newEvent.city ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{newEvent.city || (newEvent.state ? 'Select' : 'Select state first')}</Text>
+                      <Icons.ChevronDown size={16} color={COLORS.gray400} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
+                <TouchableOpacity onPress={() => setShowLocationRequestModal(true)} style={{ marginBottom: 16 }}>
+                  <Text style={{ color: COLORS.primary, fontSize: 14, textDecorationLine: 'underline' }}>Location not listed? Request a new location</Text>
+                </TouchableOpacity>
                 <Text style={styles.label}>Event Type</Text>
                 <TouchableOpacity style={styles.pickerButton} onPress={() => setShowTypePicker(true)}>
                   <Text style={styles.pickerButtonText}>{newEvent.eventType.replace('_', ' ')}</Text>
@@ -3888,7 +4045,7 @@ const EventsScreen = () => {
           </View>
         </Modal>
 
-        {/* State Picker Modal */}
+        {/* State Picker Modal - uses jurisdictions */}
         <Modal visible={showStatePicker} animationType="slide" transparent>
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, { maxHeight: '70%' }]}>
@@ -3896,8 +4053,8 @@ const EventsScreen = () => {
                 <Text style={styles.modalTitle}>Select State</Text>
                 <TouchableOpacity onPress={() => setShowStatePicker(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
               </View>
-              <FlatList data={US_STATES} keyExtractor={item => item} renderItem={({ item }) => (
-                <TouchableOpacity style={styles.pickerItem} onPress={() => { setNewEvent(f => ({ ...f, state: item })); setShowStatePicker(false); }}>
+              <FlatList data={getAvailableStates()} keyExtractor={item => item} renderItem={({ item }) => (
+                <TouchableOpacity style={styles.pickerItem} onPress={() => handleEventStateChange(item)}>
                   <Text style={styles.pickerItemText}>{item}</Text>
                   {newEvent.state === item && <Icons.Check size={20} color={COLORS.primary} />}
                 </TouchableOpacity>
@@ -3920,6 +4077,53 @@ const EventsScreen = () => {
                   {newEvent.eventType === item.value && <Icons.Check size={20} color={COLORS.primary} />}
                 </TouchableOpacity>
               )} />
+            </View>
+          </View>
+        </Modal>
+
+        {/* City Picker Modal */}
+        <Modal visible={showCityPicker} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: '70%' }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select City</Text>
+                <TouchableOpacity onPress={() => setShowCityPicker(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+              </View>
+              <FlatList data={getAvailableCities(newEvent.state)} keyExtractor={item => item} renderItem={({ item }) => (
+                <TouchableOpacity style={styles.pickerItem} onPress={() => { setNewEvent(f => ({ ...f, city: item })); setShowCityPicker(false); }}>
+                  <Text style={styles.pickerItemText}>{item}</Text>
+                  {newEvent.city === item && <Icons.Check size={20} color={COLORS.primary} />}
+                </TouchableOpacity>
+              )} ListEmptyComponent={
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: COLORS.gray500, textAlign: 'center' }}>No cities available for this state.</Text>
+                  <TouchableOpacity onPress={() => { setShowCityPicker(false); setShowLocationRequestModal(true); }} style={{ marginTop: 12 }}>
+                    <Text style={{ color: COLORS.primary, textDecorationLine: 'underline' }}>Request a new location</Text>
+                  </TouchableOpacity>
+                </View>
+              } />
+            </View>
+          </View>
+        </Modal>
+
+        {/* Location Request Modal */}
+        <Modal visible={showLocationRequestModal} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Request New Location</Text>
+                <TouchableOpacity onPress={() => setShowLocationRequestModal(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+              </View>
+              <View style={styles.modalBody}>
+                <Text style={{ color: COLORS.gray600, marginBottom: 16 }}>Can't find your event location? Request it to be added by our team.</Text>
+                <Input label="City *" placeholder="Enter city name" value={locationRequest.city} onChangeText={v => setLocationRequest(l => ({ ...l, city: v }))} />
+                <Input label="State *" placeholder="e.g., TX, CA, NY" value={locationRequest.state} onChangeText={v => setLocationRequest(l => ({ ...l, state: v.toUpperCase().slice(0, 2) }))} autoCapitalize="characters" maxLength={2} />
+                <Input label="Reason (optional)" placeholder="Why do you need this location?" value={locationRequest.reason} onChangeText={v => setLocationRequest(l => ({ ...l, reason: v }))} multiline />
+                <View style={styles.modalFooter}>
+                  <Button title="Cancel" variant="outline" onPress={() => setShowLocationRequestModal(false)} style={{ flex: 1 }} />
+                  <Button title="Submit Request" onPress={submitLocationRequest} loading={locationRequestSubmitting} disabled={!locationRequest.city || !locationRequest.state || locationRequest.state.length !== 2} style={{ flex: 1 }} />
+                </View>
+              </View>
             </View>
           </View>
         </Modal>
@@ -5240,4 +5444,3 @@ const styles = StyleSheet.create({
   settingsCardExpired: { borderWidth: 1, borderColor: '#fca5a5', backgroundColor: '#fef2f2' },
   settingsHint: { fontSize: 12, color: COLORS.gray500 },
 });
-
