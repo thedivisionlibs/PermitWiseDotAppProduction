@@ -199,7 +199,7 @@ const api = {
   get: (endpoint) => api.request(endpoint),
   post: (endpoint, body) => api.request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
   put: (endpoint, body) => api.request(endpoint, { method: 'PUT', body: JSON.stringify(body) }),
-  delete: (endpoint) => api.request(endpoint, { method: 'DELETE' }),
+  delete: (endpoint, body) => api.request(endpoint, { method: 'DELETE', body: body ? JSON.stringify(body) : undefined }),
   // Upload method for FormData (file uploads) - doesn't set Content-Type, lets fetch handle it
   async upload(endpoint, formData) {
     const token = await AsyncStorage.getItem('permitwise_token');
@@ -3735,6 +3735,28 @@ const EventsScreen = () => {
     } catch (error) { Alert.alert('Error', error.message); }
   };
 
+  // Withdraw from event state
+  const [showWithdrawModal, setShowWithdrawModal] = useState(null);
+  const [withdrawReason, setWithdrawReason] = useState('');
+  const [withdrawing, setWithdrawing] = useState(false);
+
+  const withdrawFromEvent = async () => {
+    if (!showWithdrawModal) return;
+    setWithdrawing(true);
+    try {
+      await api.delete(`/events/${showWithdrawModal._id}/withdraw`, { reason: withdrawReason });
+      setShowWithdrawModal(null);
+      setWithdrawReason('');
+      fetchMyEvents();
+      fetchPublishedEvents();
+      Alert.alert('Success', 'Withdrawn from event. The organizer has been notified.');
+    } catch (error) {
+      Alert.alert('Error', error.message);
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
   // Fetch applications for an event
   const fetchEventApplications = async (eventId) => {
     try {
@@ -4597,12 +4619,15 @@ const EventsScreen = () => {
   const organizerInvitations = events.filter(e => e.eventSource === 'organizer_invitation');
   const participatingEvents = events.filter(e => e.eventSource === 'admin_added' || e.eventSource === 'vendor_application');
   
-  // Available events to apply to (not already applied)
+  // Available events to apply to (not already applied) - use both local and server flags
   const appliedEventIds = new Set([
-    ...events.map(e => e._id),
-    ...publishedEvents.filter(e => e.vendorApplications?.some(a => a.vendorBusinessId === business?._id)).map(e => e._id)
+    ...events.map(e => e._id?.toString?.() || e._id)
   ]);
-  const availableEvents = publishedEvents.filter(e => !appliedEventIds.has(e._id) && e.status === 'published');
+  const availableEvents = publishedEvents.filter(e => {
+    const eventIdStr = e._id?.toString?.() || e._id;
+    // Filter out if: in my events list, already applied (server flag), or not published
+    return !appliedEventIds.has(eventIdStr) && !e.vendorHasApplied && e.status === 'published';
+  });
 
   const renderEventCard = (item) => (
     <Card key={item._id} style={styles.eventReadinessCard}>
@@ -4652,6 +4677,15 @@ const EventsScreen = () => {
           <Text style={styles.readinessViewDetails}>View Details →</Text>
         </TouchableOpacity>
       )}
+      
+      <View style={styles.eventCardActions}>
+        <TouchableOpacity style={styles.eventCardActionBtn} onPress={() => setSelectedEvent(item)}>
+          <Text style={styles.eventCardActionText}>View Details</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.eventCardActionBtn, styles.withdrawBtn]} onPress={() => setShowWithdrawModal(item)}>
+          <Text style={styles.withdrawBtnText}>Withdraw</Text>
+        </TouchableOpacity>
+      </View>
     </Card>
   );
 
@@ -4824,6 +4858,40 @@ const EventsScreen = () => {
               <View style={styles.modalFooter}>
                 <Button title="Cancel" variant="outline" onPress={() => { setShowApplyModal(null); setApplicationNotes(''); }} style={{ flex: 1 }} />
                 <Button title={applyingToEvent ? "Applying..." : "Submit Application"} onPress={applyToEvent} disabled={applyingToEvent} style={{ flex: 1 }} />
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Withdraw from Event Modal */}
+      <Modal visible={!!showWithdrawModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Withdraw from Event</Text>
+              <TouchableOpacity onPress={() => { setShowWithdrawModal(null); setWithdrawReason(''); }}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              <View style={{ padding: 12, backgroundColor: '#fef2f2', borderRadius: 8, marginBottom: 16, flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                <Icons.Alert size={24} color={COLORS.danger} />
+                <Text style={{ flex: 1, color: '#991b1b' }}>You are about to withdraw from <Text style={{ fontWeight: '600' }}>{showWithdrawModal?.eventName}</Text>. The organizer will be notified.</Text>
+              </View>
+              <View style={{ backgroundColor: COLORS.gray50, padding: 12, borderRadius: 8, marginBottom: 16 }}>
+                <Text style={{ color: COLORS.gray600 }}>📅 {showWithdrawModal && formatDate(showWithdrawModal.startDate)}</Text>
+                <Text style={{ color: COLORS.gray600 }}>📍 {showWithdrawModal?.location?.city}, {showWithdrawModal?.location?.state}</Text>
+              </View>
+              <Input 
+                label="Reason for withdrawal (optional)" 
+                placeholder="e.g., Schedule conflict, unable to attend..." 
+                value={withdrawReason} 
+                onChangeText={setWithdrawReason} 
+                multiline 
+              />
+              <Text style={{ fontSize: 13, color: COLORS.gray500, marginTop: 4 }}>This note will be sent to the event organizer.</Text>
+              <View style={[styles.modalFooter, { marginTop: 20 }]}>
+                <Button title="Cancel" variant="outline" onPress={() => { setShowWithdrawModal(null); setWithdrawReason(''); }} style={{ flex: 1 }} />
+                <Button title={withdrawing ? "Withdrawing..." : "Withdraw"} onPress={withdrawFromEvent} disabled={withdrawing} style={{ flex: 1, backgroundColor: COLORS.danger }} />
               </View>
             </ScrollView>
           </View>
@@ -5606,6 +5674,11 @@ const styles = StyleSheet.create({
   readinessIssues: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: COLORS.gray50, padding: 12, marginHorizontal: 16, marginBottom: 16, borderRadius: 8 },
   readinessIssueText: { flex: 1, fontSize: 13, color: COLORS.danger },
   readinessViewDetails: { fontSize: 13, color: COLORS.primary, fontWeight: '500' },
+  eventCardActions: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingBottom: 16 },
+  eventCardActionBtn: { flex: 1, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: COLORS.gray300, alignItems: 'center' },
+  eventCardActionText: { fontSize: 14, color: COLORS.gray700, fontWeight: '500' },
+  withdrawBtn: { borderColor: COLORS.danger },
+  withdrawBtnText: { fontSize: 14, color: COLORS.danger, fontWeight: '500' },
   eventDetailSummary: { backgroundColor: COLORS.gray50, padding: 16, borderRadius: 12, marginBottom: 16 },
   eventDetailLabel: { fontWeight: '600' },
   issuesList: { marginTop: 8 },
