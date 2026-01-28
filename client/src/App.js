@@ -2055,7 +2055,7 @@ const EventsPage = () => {
   // Handle state change in event creation form
   const handleEventStateChange = (newState) => {
     setNewOrgEvent(ev => ({ ...ev, state: newState, city: '' })); // Clear city when state changes
-    // fetchPermitTypesByState(newState); // Temporarily disabled for debugging
+    fetchPermitTypesByState(newState);
   };
 
   // Get unique cities for selected state from jurisdictions
@@ -2379,7 +2379,76 @@ const EventsPage = () => {
                 <Input label="Electricity Fee ($)" type="number" value={newOrgEvent.feeStructure.electricityFee} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, electricityFee: parseFloat(e.target.value) || 0 } }))} />
               </div>
             </div>
-            {/* Permit selection and custom requirements temporarily removed for debugging */}
+            <div className="form-section">
+              <div className="form-section-title">Required Permits</div>
+              <p className="form-hint">Select permits vendors must have to participate in your event</p>
+              {!newOrgEvent.state ? (
+                <p className="empty-text">Please select a state above to see available permits for that location.</p>
+              ) : availablePermitTypes.length > 0 ? (
+                <div className="permit-type-checkboxes">
+                  {availablePermitTypes.map(pt => (
+                    <label key={pt._id} className="checkbox-label">
+                      <input type="checkbox" checked={newOrgEvent.requiredPermitTypes?.includes(pt._id)} onChange={(e) => {
+                        if (e.target.checked) {
+                          setNewOrgEvent(ev => ({ ...ev, requiredPermitTypes: [...(ev.requiredPermitTypes || []), pt._id] }));
+                        } else {
+                          setNewOrgEvent(ev => ({ ...ev, requiredPermitTypes: (ev.requiredPermitTypes || []).filter(id => id !== pt._id) }));
+                        }
+                      }} />
+                      <span>{pt.name} <small>({pt.jurisdictionId?.city || 'State-wide'})</small></span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-text">No permits found for {newOrgEvent.state}. You can add custom requirements below.</p>
+              )}
+            </div>
+            <div className="form-section">
+              <div className="form-section-title">Custom Requirements</div>
+              <p className="form-hint">Add any additional requirements vendors must complete (insurance certificates, health inspections, etc.)</p>
+              {(newOrgEvent.customPermitRequirements || []).map((req, index) => (
+                <div key={index} className="custom-requirement-row">
+                  <Input 
+                    placeholder="Requirement name (e.g., General Liability Insurance)" 
+                    value={req.name || ''} 
+                    onChange={(e) => {
+                      const updated = [...(newOrgEvent.customPermitRequirements || [])];
+                      updated[index] = { ...updated[index], name: e.target.value };
+                      setNewOrgEvent(ev => ({ ...ev, customPermitRequirements: updated }));
+                    }} 
+                  />
+                  <Input 
+                    placeholder="Description (optional)" 
+                    value={req.description || ''} 
+                    onChange={(e) => {
+                      const updated = [...(newOrgEvent.customPermitRequirements || [])];
+                      updated[index] = { ...updated[index], description: e.target.value };
+                      setNewOrgEvent(ev => ({ ...ev, customPermitRequirements: updated }));
+                    }} 
+                  />
+                  <button 
+                    type="button" 
+                    className="btn btn-outline btn-sm remove-req-btn"
+                    onClick={() => {
+                      const updated = (newOrgEvent.customPermitRequirements || []).filter((_, i) => i !== index);
+                      setNewOrgEvent(ev => ({ ...ev, customPermitRequirements: updated }));
+                    }}
+                  >
+                    <Icons.X /> Remove
+                  </button>
+                </div>
+              ))}
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => {
+                  const updated = [...(newOrgEvent.customPermitRequirements || []), { name: '', description: '', required: true }];
+                  setNewOrgEvent(ev => ({ ...ev, customPermitRequirements: updated }));
+                }}
+              >
+                <Icons.Plus /> Add Custom Requirement
+              </Button>
+            </div>
             <div className="form-actions">
               <Button onClick={createOrganizerEvent} disabled={!newOrgEvent.eventName || !newOrgEvent.startDate || !newOrgEvent.city || !newOrgEvent.state}>
                 Create Event
