@@ -1970,7 +1970,7 @@ const InspectionsPage = () => {
 };
 
 const EventsPage = () => {
-  const { user, subscription, business: _business, isExpired, canWrite } = useAuth();
+  const { user, subscription, isExpired, canWrite } = useAuth();
   const [events, setEvents] = useState([]); const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
