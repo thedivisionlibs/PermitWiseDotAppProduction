@@ -2135,6 +2135,13 @@ const DocumentsScreen = ({ navigation }) => {
       await Linking.openURL(secureUrl);
     }
   };
+  
+  const getCategoryLabel = (doc) => {
+    const labels = { permit: 'Permit', insurance: 'Insurance', inspection: 'Inspection', food_handler: 'Food Handler', vehicle: 'Vehicle', commissary: 'Commissary', license: 'License', other: 'Other' };
+    let label = labels[doc.category] || doc.category;
+    if (doc.permitName) label += ` - ${doc.permitName}`;
+    return label;
+  };
 
   if (loading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
 
@@ -2155,7 +2162,7 @@ const DocumentsScreen = ({ navigation }) => {
             <View style={styles.documentIcon}><Icons.Document size={24} color={COLORS.gray500} /></View>
             <View style={styles.documentInfo}>
               <Text style={styles.documentName} numberOfLines={1}>{item.originalName}</Text>
-              <Text style={styles.documentMeta}>{item.category} • {formatDate(item.createdAt)}</Text>
+              <Text style={styles.documentMeta}>{getCategoryLabel(item)} • {formatDate(item.createdAt)}</Text>
             </View>
             <TouchableOpacity onPress={() => handleDelete(item._id)} style={styles.deleteButton}>
               <Icons.Trash size={18} color={COLORS.danger} />
@@ -3652,6 +3659,9 @@ const EventsScreen = () => {
   const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [organizerTab, setOrganizerTab] = useState('my-events');
   const [inviteEmail, setInviteEmail] = useState('');
+  const [registeredVendors, setRegisteredVendors] = useState([]);
+  const [selectedVendorId, setSelectedVendorId] = useState('');
+  const [showVendorPicker, setShowVendorPicker] = useState(false);
   const [newEvent, setNewEvent] = useState({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', eventType: 'food_event', maxVendors: '', status: 'draft', requiredPermitTypes: [], customPermitRequirements: [] });
   const [showStatePicker, setShowStatePicker] = useState(false);
   const [showTypePicker, setShowTypePicker] = useState(false);
@@ -3689,12 +3699,14 @@ const EventsScreen = () => {
   // Fetch organizer's events
   const fetchOrganizerEvents = async () => {
     try {
-      const [eventsData, jurData] = await Promise.all([
+      const [eventsData, jurData, vendorsData] = await Promise.all([
         api.get('/events/organizer/my-events'),
-        api.get('/jurisdictions')
+        api.get('/jurisdictions'),
+        api.get('/events/organizer/registered-vendors')
       ]);
       setOrganizerEvents(eventsData.events || []);
       setJurisdictions(jurData.jurisdictions || []);
+      setRegisteredVendors(vendorsData.vendors || []);
     } catch (error) { console.error(error); }
     finally { setLoading(false); setRefreshing(false); }
   };
@@ -4105,12 +4117,72 @@ const EventsScreen = () => {
               
               <View style={styles.inviteSection}>
                 <Text style={styles.inviteSectionTitle}>Invite Vendor</Text>
+                
+                {/* Registered vendors picker */}
+                <Text style={styles.inviteLabel}>Select from registered vendors:</Text>
+                <TouchableOpacity style={styles.pickerButton} onPress={() => setShowVendorPicker(true)}>
+                  <Text style={selectedVendorId ? styles.pickerValue : styles.pickerPlaceholder}>
+                    {selectedVendorId ? registeredVendors.find(v => v._id === selectedVendorId)?.businessName : 'Select a vendor...'}
+                  </Text>
+                  <Icons.ChevronDown size={20} color={COLORS.gray400} />
+                </TouchableOpacity>
+                
+                <Text style={styles.inviteDividerText}>— OR —</Text>
+                
+                <Text style={styles.inviteLabel}>Enter email directly:</Text>
                 <View style={styles.inviteForm}>
-                  <TextInput style={[styles.input, { flex: 1 }]} placeholder="Vendor email" value={inviteEmail} onChangeText={setInviteEmail} keyboardType="email-address" autoCapitalize="none" />
-                  <Button title="Invite" onPress={inviteVendor} disabled={!inviteEmail} />
+                  <TextInput 
+                    style={[styles.input, { flex: 1 }]} 
+                    placeholder="vendor@example.com" 
+                    value={inviteEmail} 
+                    onChangeText={(text) => { setInviteEmail(text); setSelectedVendorId(''); }} 
+                    keyboardType="email-address" 
+                    autoCapitalize="none" 
+                  />
                 </View>
+                
+                <Button title="Invite Vendor" onPress={inviteVendor} disabled={!inviteEmail} style={{ marginTop: 12 }} />
               </View>
             </Card>
+            
+            {/* Vendor Picker Modal */}
+            <Modal visible={showVendorPicker} animationType="slide" transparent>
+              <View style={styles.modalOverlay}>
+                <View style={styles.pickerModalContent}>
+                  <View style={styles.pickerModalHeader}>
+                    <Text style={styles.pickerModalTitle}>Select Vendor</Text>
+                    <TouchableOpacity onPress={() => setShowVendorPicker(false)}>
+                      <Icons.X size={24} color={COLORS.gray500} />
+                    </TouchableOpacity>
+                  </View>
+                  <FlatList
+                    data={registeredVendors}
+                    keyExtractor={item => item._id}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity 
+                        style={[styles.pickerOption, selectedVendorId === item._id && styles.pickerOptionSelected]}
+                        onPress={() => {
+                          setSelectedVendorId(item._id);
+                          setInviteEmail(item.email);
+                          setShowVendorPicker(false);
+                        }}
+                      >
+                        <View>
+                          <Text style={styles.pickerOptionText}>{item.businessName}</Text>
+                          <Text style={styles.pickerOptionSubtext}>{item.vendorType || 'Vendor'} • {item.email}</Text>
+                        </View>
+                        {selectedVendorId === item._id && <Icons.Check size={20} color={COLORS.primary} />}
+                      </TouchableOpacity>
+                    )}
+                    ListEmptyComponent={
+                      <View style={styles.emptyContainer}>
+                        <Text style={styles.emptyText}>No registered vendors found</Text>
+                      </View>
+                    }
+                  />
+                </View>
+              </View>
+            </Modal>
 
             <Text style={styles.sectionTitle}>Applications & Invitations</Text>
             {vendorApplications.length > 0 ? vendorApplications.map(app => (
@@ -5745,8 +5817,17 @@ const styles = StyleSheet.create({
   eventManagementTitle: { fontSize: 18, fontWeight: '600', color: COLORS.gray800, marginBottom: 4 },
   eventManagementMeta: { fontSize: 14, color: COLORS.gray500, marginBottom: 16 },
   inviteSection: { paddingTop: 16, borderTopWidth: 1, borderTopColor: COLORS.gray100 },
-  inviteSectionTitle: { fontSize: 14, fontWeight: '600', color: COLORS.gray700, marginBottom: 8 },
+  inviteSectionTitle: { fontSize: 14, fontWeight: '600', color: COLORS.gray700, marginBottom: 12 },
+  inviteLabel: { fontSize: 13, color: COLORS.gray500, marginBottom: 6, marginTop: 8 },
+  inviteDividerText: { textAlign: 'center', color: COLORS.gray400, fontSize: 12, marginVertical: 12 },
   inviteForm: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  pickerModalContent: { backgroundColor: COLORS.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '70%', marginTop: 'auto' },
+  pickerModalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
+  pickerModalTitle: { fontSize: 18, fontWeight: '600', color: COLORS.gray800 },
+  pickerOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 },
+  pickerOptionSelected: { backgroundColor: '#f0f9ff' },
+  pickerOptionText: { fontSize: 15, fontWeight: '500', color: COLORS.gray800 },
+  pickerOptionSubtext: { fontSize: 13, color: COLORS.gray500, marginTop: 2 },
   sectionTitle: { fontSize: 16, fontWeight: '600', color: COLORS.gray800, marginBottom: 12, paddingHorizontal: 16 },
   applicationCard: { marginBottom: 12, marginHorizontal: 16 },
   applicationEventName: { fontSize: 12, color: COLORS.primary, fontWeight: '500', marginBottom: 4 },
