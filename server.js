@@ -175,8 +175,22 @@ const userSchema = new mongoose.Schema({
     phone: String,
     logo: String,
     verified: { type: Boolean, default: false },
+    verificationStatus: { type: String, enum: ['pending', 'approved', 'rejected', 'info_needed'], default: 'pending' },
+    verificationNotes: String, // Admin notes to organizer (visible to organizer)
+    adminNotes: String, // Internal admin notes (not visible to organizer)
     disabled: { type: Boolean, default: false },
-    disabledReason: String
+    disabledReason: String,
+    // Organizer documents (proof of business, event ownership, etc.)
+    documents: [{
+      name: String,
+      fileName: String,
+      fileUrl: String,
+      fileType: String,
+      category: { type: String, enum: ['business_license', 'event_permit', 'venue_contract', 'insurance', 'identity', 'other'] },
+      uploadedAt: { type: Date, default: Date.now },
+      status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+      reviewNotes: String
+    }]
   },
   emailVerified: { type: Boolean, default: false },
   verificationToken: { type: String },
@@ -537,13 +551,15 @@ const eventSchema = new mongoose.Schema({
   vendorApplications: [{
     vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness' },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    status: { type: String, enum: ['pending', 'approved', 'rejected', 'waitlist'], default: 'pending' },
+    status: { type: String, enum: ['pending', 'approved', 'rejected', 'waitlist', 'withdrawn'], default: 'pending' },
     appliedAt: { type: Date, default: Date.now },
     reviewedAt: Date,
     reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     applicationNotes: String, // Vendor's application notes
     organizerNotes: String, // Organizer's private notes
     boothAssignment: String,
+    withdrawnAt: Date,
+    withdrawalReason: String,
     // Custom requirement completions - tracks vendor completion of organizer's custom requirements
     customRequirementCompletions: [{
       requirementIndex: Number, // Index in event's customPermitRequirements array
@@ -574,6 +590,22 @@ const eventSchema = new mongoose.Schema({
     approvedAt: Date,
     paymentId: String
   }],
+  // Event verification/proof documents (proof of ownership/rights to host)
+  proofDocuments: [{
+    name: String,
+    fileName: String,
+    fileUrl: String,
+    fileType: String,
+    category: { type: String, enum: ['venue_contract', 'event_permit', 'city_approval', 'insurance', 'other'] },
+    uploadedAt: { type: Date, default: Date.now },
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    reviewNotes: String
+  }],
+  // Event verification status
+  verificationStatus: { type: String, enum: ['not_required', 'pending', 'approved', 'rejected', 'info_needed'], default: 'pending' },
+  verificationNotes: String, // Notes from admin to organizer
+  adminNotes: String, // Internal admin notes
+  requiresProof: { type: Boolean, default: true }, // Whether this event requires proof documents
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
@@ -2504,8 +2536,22 @@ app.get('/api/documents', authMiddleware, async (req, res) => {
     const documents = await Document.find(query)
       .populate('uploadedBy', 'firstName lastName email')
       .sort({ createdAt: -1 });
+    
+    // Enrich documents with permit information
+    const enrichedDocuments = await Promise.all(documents.map(async (doc) => {
+      const docObj = doc.toObject();
+      if (doc.relatedEntityType === 'permit' && doc.relatedEntityId) {
+        const permit = await VendorPermit.findById(doc.relatedEntityId)
+          .populate('permitTypeId', 'name');
+        if (permit) {
+          docObj.permitName = permit.permitTypeId?.name || 'Unknown Permit';
+          docObj.permitStatus = permit.status;
+        }
+      }
+      return docObj;
+    }));
       
-    res.json({ documents });
+    res.json({ documents: enrichedDocuments });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -3476,6 +3522,172 @@ app.get('/api/events/organizer/my-events', authMiddleware, async (req, res) => {
       .sort({ startDate: -1 });
       
     res.json({ events });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get registered vendors for organizer invites
+app.get('/api/events/organizer/registered-vendors', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    // Get all vendor businesses with their users
+    const vendors = await VendorBusiness.find({})
+      .populate('userId', 'email firstName lastName')
+      .select('businessName primaryVendorType userId')
+      .sort({ businessName: 1 })
+      .limit(100);
+    
+    // Format for dropdown
+    const formattedVendors = vendors.map(v => ({
+      _id: v._id,
+      businessName: v.businessName,
+      vendorType: v.primaryVendorType,
+      email: v.userId?.email,
+      ownerName: v.userId ? `${v.userId.firstName} ${v.userId.lastName}` : null
+    })).filter(v => v.email); // Only include vendors with email
+    
+    res.json({ vendors: formattedVendors });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get organizer documents
+app.get('/api/organizer/documents', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    res.json({ documents: req.user.organizerProfile?.documents || [] });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload organizer document
+app.post('/api/organizer/documents', authMiddleware, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    const { name, category } = req.body;
+    
+    const doc = {
+      name: name || req.file.originalname,
+      fileName: req.file.filename,
+      fileUrl: `${BASE_URL}/uploads/${req.file.filename}`,
+      fileType: req.file.mimetype,
+      category: category || 'other',
+      uploadedAt: new Date(),
+      status: 'pending'
+    };
+    
+    const user = await User.findById(req.userId);
+    if (!user.organizerProfile.documents) {
+      user.organizerProfile.documents = [];
+    }
+    user.organizerProfile.documents.push(doc);
+    await user.save();
+    
+    res.status(201).json({ document: doc });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete organizer document
+app.delete('/api/organizer/documents/:index', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const index = parseInt(req.params.index);
+    const user = await User.findById(req.userId);
+    
+    if (!user.organizerProfile?.documents || index >= user.organizerProfile.documents.length) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    user.organizerProfile.documents.splice(index, 1);
+    await user.save();
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get organizer verification status
+app.get('/api/organizer/verification-status', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const profile = req.user.organizerProfile || {};
+    res.json({
+      verified: profile.verified || false,
+      verificationStatus: profile.verificationStatus || 'pending',
+      verificationNotes: profile.verificationNotes || null,
+      documentsCount: (profile.documents || []).length,
+      documentsApproved: (profile.documents || []).filter(d => d.status === 'approved').length,
+      documentsPending: (profile.documents || []).filter(d => d.status === 'pending').length
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload event proof document
+app.post('/api/events/organizer/:id/proof', authMiddleware, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.user._id });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    const { name, category } = req.body;
+    
+    const doc = {
+      name: name || req.file.originalname,
+      fileName: req.file.filename,
+      fileUrl: `${BASE_URL}/uploads/${req.file.filename}`,
+      fileType: req.file.mimetype,
+      category: category || 'other',
+      uploadedAt: new Date(),
+      status: 'pending'
+    };
+    
+    if (!event.proofDocuments) {
+      event.proofDocuments = [];
+    }
+    event.proofDocuments.push(doc);
+    
+    // Update verification status if documents uploaded
+    if (event.verificationStatus === 'info_needed') {
+      event.verificationStatus = 'pending';
+    }
+    
+    await event.save();
+    
+    res.status(201).json({ document: doc, event });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
