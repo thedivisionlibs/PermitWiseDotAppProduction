@@ -1624,8 +1624,14 @@ const DocumentsPage = () => {
   const fetchDocuments = async () => { try { const data = await api.get('/documents'); setDocuments(data.documents); } catch (error) { console.error(error); } finally { setLoading(false); } };
   useEffect(() => { fetchDocuments(); }, []);
   const handleDelete = async (id) => { if (!window.confirm('Delete this document?')) return; try { await api.delete(`/documents/${id}`); fetchDocuments(); } catch (error) { console.error(error); } };
+  const getCategoryLabel = (doc) => {
+    const labels = { permit: 'Permit', insurance: 'Insurance', inspection: 'Inspection', food_handler: 'Food Handler', vehicle: 'Vehicle', commissary: 'Commissary', license: 'License', other: 'Other' };
+    let label = labels[doc.category] || doc.category;
+    if (doc.permitName) label += ` - ${doc.permitName}`;
+    return label;
+  };
   if (loading) return <LoadingSpinner />;
-  return (<div className="documents-page"><div className="page-header"><div><h1>Document Vault</h1><p>Store all your documents</p></div><Button onClick={() => setShowUploadModal(true)}><Icons.Upload /> Upload</Button></div>{documents.length > 0 ? (<div className="documents-grid">{documents.map(doc => (<Card key={doc._id} className="document-card"><div className="document-icon"><Icons.Document /></div><div className="document-info"><h3>{doc.originalName}</h3><span>{doc.category}</span><span>{formatDate(doc.createdAt)}</span></div><div className="document-actions"><a href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer"><Icons.Download /></a><button onClick={() => handleDelete(doc._id)}><Icons.Trash /></button></div></Card>))}</div>) : (<EmptyState icon={Icons.Document} title="No documents yet" action={<Button onClick={() => setShowUploadModal(true)}><Icons.Upload /> Upload</Button>} />)}<UploadDocumentModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} onSuccess={fetchDocuments} /></div>);
+  return (<div className="documents-page"><div className="page-header"><div><h1>Document Vault</h1><p>Store all your documents</p></div><Button onClick={() => setShowUploadModal(true)}><Icons.Upload /> Upload</Button></div>{documents.length > 0 ? (<div className="documents-grid">{documents.map(doc => (<Card key={doc._id} className="document-card"><div className="document-icon"><Icons.Document /></div><div className="document-info"><h3>{doc.originalName}</h3><span className="doc-category">{getCategoryLabel(doc)}</span><span className="doc-date">{formatDate(doc.createdAt)}</span></div><div className="document-actions"><a href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer"><Icons.Download /></a><button onClick={() => handleDelete(doc._id)}><Icons.Trash /></button></div></Card>))}</div>) : (<EmptyState icon={Icons.Document} title="No documents yet" action={<Button onClick={() => setShowUploadModal(true)}><Icons.Upload /> Upload</Button>} />)}<UploadDocumentModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} onSuccess={fetchDocuments} /></div>);
 };
 
 const UploadDocumentModal = ({ isOpen, onClose, onSuccess }) => {
@@ -2003,14 +2009,23 @@ const EventsPage = () => {
   const [publishedEvents, setPublishedEvents] = useState([]);
   const [showApplyModal, setShowApplyModal] = useState(null);
   const [applicationNotes, setApplicationNotes] = useState('');
-
+  
   // Withdraw from event state
   const [showWithdrawModal, setShowWithdrawModal] = useState(null);
   const [withdrawReason, setWithdrawReason] = useState('');
   const [withdrawing, setWithdrawing] = useState(false);
+  
+  // Registered vendors list (for organizer invites)
+  const [registeredVendors, setRegisteredVendors] = useState([]);
+  const [selectedVendorId, setSelectedVendorId] = useState('');
+  
+  // Verification modal state
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
 
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  const organizerVerified = user?.organizerProfile?.verified;
+  const verificationStatus = user?.organizerProfile?.verificationStatus || 'pending';
 
   // Plan check: Elite, Promo, or Lifetime required for vendors (NOT organizers - they have separate access)
   const hasVendorAccess = !isOrganizer && (subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration);
@@ -2020,12 +2035,14 @@ const EventsPage = () => {
       try {
         if (isOrganizer) {
           // Fetch organizer-specific data
-          const [jurData, orgData] = await Promise.all([
+          const [jurData, orgData, vendorsData] = await Promise.all([
             api.get('/jurisdictions'),
-            api.get('/events/organizer/my-events')
+            api.get('/events/organizer/my-events'),
+            api.get('/events/organizer/registered-vendors')
           ]);
           setJurisdictions(jurData.jurisdictions || []);
           setOrganizerEvents(orgData.events || []);
+          setRegisteredVendors(vendorsData.vendors || []);
         } else if (hasVendorAccess) {
           // Fetch vendor-specific data (only for non-organizers with access)
           const [myData, pubData] = await Promise.all([
@@ -2313,12 +2330,49 @@ const EventsPage = () => {
             <h1>Event Organizer Portal</h1>
             <p>Manage your events, vendors, and compliance</p>
           </div>
-          <Badge variant="primary">Organizer Account</Badge>
+          <div className="header-badges">
+            <Badge variant="primary">Organizer Account</Badge>
+            {organizerVerified ? (
+              <Badge variant="success">✓ Verified</Badge>
+            ) : (
+              <Badge variant="warning">Pending Verification</Badge>
+            )}
+          </div>
         </div>
+        
+        {/* Verification Status Banner */}
+        {!organizerVerified && verificationStatus === 'pending' && (
+          <Alert type="info">
+            <strong>⏳ Verification Pending</strong>
+            <p style={{ margin: '8px 0 0' }}>Your organizer account is awaiting verification by PermitWise. You can create events as drafts, but publishing requires verification. This usually takes 1-2 business days.</p>
+          </Alert>
+        )}
+        
+        {verificationStatus === 'info_needed' && (
+          <Alert type="warning">
+            <strong>⚠️ Information Needed</strong>
+            <p style={{ margin: '8px 0 0' }}>{user?.organizerProfile?.verificationNotes || 'Please upload required verification documents in Settings → Documents.'}</p>
+            <Button size="sm" variant="outline" style={{ marginTop: '8px' }} onClick={() => window.location.hash = 'settings'}>Go to Settings</Button>
+          </Alert>
+        )}
+        
+        {verificationStatus === 'rejected' && (
+          <Alert type="error">
+            <strong>❌ Verification Rejected</strong>
+            <p style={{ margin: '8px 0 0' }}>{user?.organizerProfile?.verificationNotes || 'Your organizer application was not approved. Please contact support for more information.'}</p>
+          </Alert>
+        )}
         
         <div className="organizer-tabs">
           {['my-events', 'applications', 'create'].map(tab => (
-            <button key={tab} className={organizerTab === tab ? 'active' : ''} onClick={() => { setOrganizerTab(tab); setSelectedOrgEvent(null); }}>
+            <button key={tab} className={organizerTab === tab ? 'active' : ''} onClick={() => { 
+              if (tab === 'create' && !organizerVerified && verificationStatus !== 'pending') {
+                setShowVerificationModal(true);
+              } else {
+                setOrganizerTab(tab); 
+                setSelectedOrgEvent(null); 
+              }
+            }}>
               {tab === 'my-events' ? '🎪 My Events' : tab === 'applications' ? '📋 Applications' : '➕ Create Event'}
             </button>
           ))}
@@ -2334,7 +2388,17 @@ const EventsPage = () => {
                     <p className="event-date"><Icons.Calendar /> {formatDate(event.startDate)} {event.endDate && event.endDate !== event.startDate && `- ${formatDate(event.endDate)}`}</p>
                     <p className="event-location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
                   </div>
-                  <Badge variant={event.status === 'published' ? 'success' : event.status === 'closed' ? 'warning' : 'default'}>{event.status}</Badge>
+                  <div className="event-badges">
+                    <Badge variant={event.status === 'published' ? 'success' : event.status === 'closed' ? 'warning' : 'default'}>{event.status}</Badge>
+                    {event.requiresProof && (
+                      <Badge variant={event.verificationStatus === 'approved' ? 'success' : event.verificationStatus === 'rejected' ? 'danger' : 'warning'}>
+                        {event.verificationStatus === 'approved' ? '✓ Verified' : 
+                         event.verificationStatus === 'rejected' ? '✗ Rejected' :
+                         event.verificationStatus === 'info_needed' ? '⚠️ Info Needed' :
+                         (event.proofDocuments?.length || 0) > 0 ? '⏳ Proof Pending' : '📄 Proof Required'}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <div className="event-details">
                   <div className="event-detail-row">
@@ -2385,8 +2449,35 @@ const EventsPage = () => {
             <Card className="event-management-header">
               <h2>{selectedOrgEvent.eventName}</h2>
               <p>{formatDate(selectedOrgEvent.startDate)} • {selectedOrgEvent.location?.city}, {selectedOrgEvent.location?.state}</p>
-              <div className="invite-vendor-form">
-                <Input placeholder="Vendor email to invite" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
+              <div className="invite-vendor-section">
+                <h4>Invite Vendor</h4>
+                <div className="invite-vendor-options">
+                  <div className="invite-option">
+                    <label>Select from registered vendors:</label>
+                    <div className="invite-select-row">
+                      <Select 
+                        value={selectedVendorId} 
+                        onChange={(e) => {
+                          setSelectedVendorId(e.target.value);
+                          const vendor = registeredVendors.find(v => v._id === e.target.value);
+                          if (vendor) setInviteEmail(vendor.email);
+                        }}
+                        options={[
+                          { value: '', label: 'Select a vendor...' },
+                          ...registeredVendors.map(v => ({
+                            value: v._id,
+                            label: `${v.businessName} (${v.vendorType || 'Vendor'})`
+                          }))
+                        ]}
+                      />
+                    </div>
+                  </div>
+                  <div className="invite-divider"><span>OR</span></div>
+                  <div className="invite-option">
+                    <label>Enter email directly:</label>
+                    <Input placeholder="vendor@example.com" value={inviteEmail} onChange={(e) => { setInviteEmail(e.target.value); setSelectedVendorId(''); }} />
+                  </div>
+                </div>
                 <Button onClick={() => inviteVendor(selectedOrgEvent._id)} disabled={!inviteEmail}>Invite Vendor</Button>
               </div>
             </Card>
@@ -2631,6 +2722,43 @@ const EventsPage = () => {
             >
               {locationRequestSubmitting ? 'Submitting...' : 'Submit Request'}
             </Button>
+          </div>
+        </Modal>
+        
+        {/* Verification Status Modal */}
+        <Modal isOpen={showVerificationModal} onClose={() => setShowVerificationModal(false)} title="Account Verification Required">
+          <div className="verification-modal-content">
+            {verificationStatus === 'info_needed' && (
+              <>
+                <div className="verification-icon warning"><Icons.Alert /></div>
+                <h3>Additional Information Needed</h3>
+                <p className="verification-message">{user?.organizerProfile?.verificationNotes || 'Please upload the required verification documents to continue.'}</p>
+                <p>Go to Settings → Documents to upload the requested information.</p>
+              </>
+            )}
+            
+            {verificationStatus === 'rejected' && (
+              <>
+                <div className="verification-icon danger"><Icons.X /></div>
+                <h3>Account Not Approved</h3>
+                <p className="verification-message">{user?.organizerProfile?.verificationNotes || 'Your organizer application was not approved.'}</p>
+                <p>Please contact support for more information about the decision.</p>
+              </>
+            )}
+            
+            {verificationStatus === 'pending' && !organizerVerified && (
+              <>
+                <div className="verification-icon info"><Icons.Clock /></div>
+                <h3>Verification In Progress</h3>
+                <p>Your account is being reviewed by our team. You can create events as drafts while you wait.</p>
+                <p>Verification usually takes 1-2 business days.</p>
+              </>
+            )}
+            
+            <div className="modal-actions">
+              <Button variant="outline" onClick={() => setShowVerificationModal(false)}>Close</Button>
+              <Button onClick={() => { setShowVerificationModal(false); window.location.hash = 'settings'; }}>Go to Settings</Button>
+            </div>
           </div>
         </Modal>
         
@@ -3302,10 +3430,46 @@ const OrganizerSettingsPage = () => {
   
   const [subscription, setSubscription] = useState(null);
   
+  // Documents state
+  const [documents, setDocuments] = useState([]);
+  const [showUploadDocModal, setShowUploadDocModal] = useState(false);
+  const [docUploadData, setDocUploadData] = useState({ file: null, name: '', category: 'business_license' });
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  
   useEffect(() => {
     // Fetch organizer subscription
     api.get('/organizer/subscription').then(data => setSubscription(data.subscription)).catch(console.error);
+    // Fetch organizer documents
+    api.get('/organizer/documents').then(data => setDocuments(data.documents || [])).catch(console.error);
   }, []);
+  
+  const handleDocUpload = async () => {
+    if (!docUploadData.file) return;
+    setUploadingDoc(true);
+    const fd = new FormData();
+    fd.append('file', docUploadData.file);
+    fd.append('name', docUploadData.name || docUploadData.file.name);
+    fd.append('category', docUploadData.category);
+    try {
+      await api.upload('/organizer/documents', fd);
+      const data = await api.get('/organizer/documents');
+      setDocuments(data.documents || []);
+      setShowUploadDocModal(false);
+      setDocUploadData({ file: null, name: '', category: 'business_license' });
+      setMessage('Document uploaded successfully');
+    } catch (err) { setMessage(err.message); }
+    finally { setUploadingDoc(false); }
+  };
+  
+  const handleDocDelete = async (index) => {
+    if (!window.confirm('Delete this document?')) return;
+    try {
+      await api.delete(`/organizer/documents/${index}`);
+      const data = await api.get('/organizer/documents');
+      setDocuments(data.documents || []);
+      setMessage('Document deleted');
+    } catch (err) { setMessage(err.message); }
+  };
   
   const handleProfileSave = async () => {
     setLoading(true);
@@ -3352,7 +3516,7 @@ const OrganizerSettingsPage = () => {
   };
   
   const isVerified = user?.organizerProfile?.verified;
-  const tabs = ['profile', 'organization', 'notifications', 'billing'];
+  const tabs = ['profile', 'organization', 'documents', 'notifications', 'billing'];
   
   return (
     <div className="settings-page organizer-settings">
@@ -3491,6 +3655,96 @@ const OrganizerSettingsPage = () => {
               <div className="form-actions">
                 <Button onClick={handleOrganizationSave} loading={loading}>Save Organization</Button>
               </div>
+            </div>
+          )}
+          
+          {activeTab === 'documents' && (
+            <div className="settings-section">
+              <div className="section-header-row">
+                <div>
+                  <h2>Verification Documents</h2>
+                  <p className="section-description">Upload documents to verify your organization and event hosting authority</p>
+                </div>
+                <Button onClick={() => setShowUploadDocModal(true)}>
+                  <Icons.Upload /> Upload Document
+                </Button>
+              </div>
+              
+              {!isVerified && (
+                <Alert type="info" style={{ marginBottom: '1rem' }}>
+                  <strong>Required for Verification</strong>
+                  <p style={{ margin: '8px 0 0' }}>Please upload at least one of the following: business license, venue contract, or event permit.</p>
+                </Alert>
+              )}
+              
+              {documents.length > 0 ? (
+                <div className="documents-list">
+                  {documents.map((doc, index) => (
+                    <Card key={index} className="document-item">
+                      <div className="document-icon"><Icons.Document /></div>
+                      <div className="document-info">
+                        <h4>{doc.name}</h4>
+                        <span className="doc-category">{doc.category?.replace(/_/g, ' ')}</span>
+                        <span className="doc-date">{formatDate(doc.uploadedAt)}</span>
+                      </div>
+                      <div className="document-status">
+                        <Badge variant={doc.status === 'approved' ? 'success' : doc.status === 'rejected' ? 'danger' : 'warning'}>
+                          {doc.status === 'approved' ? '✓ Approved' : doc.status === 'rejected' ? '✗ Rejected' : '⏳ Pending'}
+                        </Badge>
+                        {doc.reviewNotes && <small className="review-notes">{doc.reviewNotes}</small>}
+                      </div>
+                      <div className="document-actions">
+                        <a href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer"><Icons.Download /></a>
+                        <button onClick={() => handleDocDelete(index)}><Icons.Trash /></button>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState 
+                  icon={Icons.Document} 
+                  title="No documents uploaded" 
+                  description="Upload verification documents to get your organizer account verified"
+                  action={<Button onClick={() => setShowUploadDocModal(true)}><Icons.Upload /> Upload Document</Button>}
+                />
+              )}
+              
+              {/* Upload Document Modal */}
+              <Modal isOpen={showUploadDocModal} onClose={() => setShowUploadDocModal(false)} title="Upload Document">
+                <div className="upload-form">
+                  <Input 
+                    label="Document Name" 
+                    value={docUploadData.name}
+                    onChange={(e) => setDocUploadData(d => ({ ...d, name: e.target.value }))}
+                    placeholder="e.g., Business License 2024"
+                  />
+                  
+                  <Select 
+                    label="Document Type"
+                    value={docUploadData.category}
+                    onChange={(e) => setDocUploadData(d => ({ ...d, category: e.target.value }))}
+                    options={[
+                      { value: 'business_license', label: 'Business License' },
+                      { value: 'event_permit', label: 'Event Permit' },
+                      { value: 'venue_contract', label: 'Venue Contract' },
+                      { value: 'insurance', label: 'Insurance Certificate' },
+                      { value: 'identity', label: 'ID / Identity Verification' },
+                      { value: 'other', label: 'Other' }
+                    ]}
+                  />
+                  
+                  <input 
+                    type="file" 
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    onChange={(e) => setDocUploadData(d => ({ ...d, file: e.target.files[0] }))}
+                  />
+                  <p className="upload-hint">Accepted: PDF, JPG, PNG (max 10MB)</p>
+                </div>
+                <div className="modal-actions">
+                  <Button variant="outline" onClick={() => setShowUploadDocModal(false)}>Cancel</Button>
+                  <Button onClick={handleDocUpload} loading={uploadingDoc} disabled={!docUploadData.file}>Upload</Button>
+                </div>
+              </Modal>
             </div>
           )}
           
@@ -4686,14 +4940,47 @@ const SuperAdminPage = ({ onBack }) => {
                    title={organizerModal.action === 'approve' ? 'Approve Organizer' : 
                           organizerModal.action === 'reject' ? 'Reject Organizer' : 
                           organizerModal.action === 'request-info' ? 'Request More Information' : 
-                          organizerModal.action === 'disable' ? 'Disable Organizer' : 'Organizer Action'}>
+                          organizerModal.action === 'disable' ? 'Disable Organizer' : 'Organizer Action'}
+                   size="lg">
               {organizerModal.organizer && (
                 <div className="organizer-action-modal">
                   <div className="organizer-info-preview">
                     <p><strong>Name:</strong> {organizerModal.organizer.firstName} {organizerModal.organizer.lastName}</p>
                     <p><strong>Email:</strong> {organizerModal.organizer.email}</p>
                     <p><strong>Company:</strong> {organizerModal.organizer.organizerProfile?.companyName || 'Not provided'}</p>
+                    <p><strong>Website:</strong> {organizerModal.organizer.organizerProfile?.website || 'Not provided'}</p>
+                    <p><strong>Phone:</strong> {organizerModal.organizer.organizerProfile?.phone || 'Not provided'}</p>
                   </div>
+                  
+                  {/* Show organizer documents for review */}
+                  {organizerModal.organizer.organizerProfile?.documents?.length > 0 && (
+                    <div className="organizer-documents-section">
+                      <h4>📄 Verification Documents ({organizerModal.organizer.organizerProfile.documents.length})</h4>
+                      <div className="documents-review-list">
+                        {organizerModal.organizer.organizerProfile.documents.map((doc, idx) => (
+                          <div key={idx} className="document-review-item">
+                            <div className="doc-info">
+                              <span className="doc-name">{doc.name}</span>
+                              <Badge variant={doc.status === 'approved' ? 'success' : doc.status === 'rejected' ? 'danger' : 'warning'}>
+                                {doc.status || 'pending'}
+                              </Badge>
+                              <span className="doc-type">{doc.category?.replace(/_/g, ' ')}</span>
+                            </div>
+                            <a href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer" className="doc-link">
+                              <Icons.Download /> View
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {(!organizerModal.organizer.organizerProfile?.documents || organizerModal.organizer.organizerProfile.documents.length === 0) && (
+                    <Alert type="warning" style={{ margin: '16px 0' }}>
+                      <strong>No documents uploaded</strong>
+                      <p style={{ margin: '4px 0 0' }}>This organizer hasn't uploaded any verification documents yet.</p>
+                    </Alert>
+                  )}
                   
                   {organizerModal.action === 'approve' ? (
                     <div className="action-confirm">
