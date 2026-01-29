@@ -2877,6 +2877,11 @@ img { max-width: 100%; display: block; }
   color: var(--warning);
   font-weight: 500;
 }
+.trial-warning svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
 
 /* SuperAdmin Organizer Management */
 .organizer-actions .action-btn-group {
@@ -3005,4 +3010,236 @@ img { max-width: 100%; display: block; }
 .edit-event-form .form-section:last-child {
   border-bottom: none;
   margin-bottom: 0;
+}
+
+/* Invite Vendor Section */
+.invite-vendor-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--gray-200);
+}
+.invite-vendor-section h4 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+.invite-vendor-options {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.invite-option label {
+  font-size: 0.875rem;
+  color: var(--gray-600);
+  margin-bottom: 0.5rem;
+  display: block;
+}
+.invite-select-row {
+  display: flex;
+  gap: 0.5rem;
+}
+.invite-divider {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: var(--gray-400);
+  font-size: 0.875rem;
+}
+.invite-divider::before,
+.invite-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--gray-200);
+}
+
+/* Verification Modal */
+.verification-modal-content {
+  text-align: center;
+  padding: 1rem 0;
+}
+.verification-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1rem;
+}
+.verification-icon svg {
+  width: 30px;
+  height: 30px;
+}
+.verification-icon.warning {
+  background: #fef3c7;
+  color: #d97706;
+}
+.verification-icon.danger {
+  background: #fee2e2;
+  color: var(--danger);
+}
+.verification-icon.info {
+  background: #dbeafe;
+  color: var(--primary);
+}
+.verification-modal-content h3 {
+  margin: 0 0 0.75rem;
+}
+.verification-message {
+  background: var(--gray-50);
+  padding: 1rem;
+  border-radius: var(--radius);
+  margin: 1rem 0;
+  color: var(--gray-700);
+}
+
+/* Section Header Row */
+.section-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+.section-header-row h2 {
+  margin: 0;
+}
+.section-header-row .section-description {
+  margin: 0.25rem 0 0;
+  color: var(--gray-500);
+}
+
+/* Documents List for Organizer */
+.documents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.document-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+}
+.document-item .document-icon {
+  width: 40px;
+  height: 40px;
+  background: var(--gray-100);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.document-item .document-icon svg {
+  width: 20px;
+  height: 20px;
+  color: var(--gray-500);
+}
+.document-item .document-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.document-item .document-info h4 {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+.document-item .doc-category {
+  font-size: 0.8125rem;
+  color: var(--gray-500);
+  text-transform: capitalize;
+}
+.document-item .doc-date {
+  font-size: 0.75rem;
+  color: var(--gray-400);
+}
+.document-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+.document-status .review-notes {
+  font-size: 0.75rem;
+  color: var(--gray-500);
+  max-width: 150px;
+  text-align: right;
+}
+.document-item .document-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.document-item .document-actions a,
+.document-item .document-actions button {
+  padding: 0.5rem;
+  border-radius: var(--radius);
+  background: none;
+  border: 1px solid var(--gray-200);
+  cursor: pointer;
+}
+.document-item .document-actions a:hover,
+.document-item .document-actions button:hover {
+  background: var(--gray-50);
+}
+.document-item .document-actions svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Event Badges */
+.event-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+/* SuperAdmin Documents Review */
+.organizer-documents-section {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: var(--gray-50);
+  border-radius: var(--radius);
+}
+.organizer-documents-section h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.9375rem;
+}
+.documents-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.document-review-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: white;
+  border-radius: var(--radius);
+  border: 1px solid var(--gray-200);
+}
+.document-review-item .doc-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.document-review-item .doc-name {
+  font-weight: 500;
+}
+.document-review-item .doc-type {
+  font-size: 0.75rem;
+  color: var(--gray-500);
+  text-transform: capitalize;
+}
+.document-review-item .doc-link {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  color: var(--primary);
+}
+.document-review-item .doc-link svg {
+  width: 14px;
+  height: 14px;
 }
