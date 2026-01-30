@@ -1987,12 +1987,17 @@ const EventsPage = () => {
   
   // Organizer portal state
   const [organizerEvents, setOrganizerEvents] = useState([]);
-  const [organizerTab, setOrganizerTab] = useState('my-events'); // 'my-events', 'applications', 'create'
+  const [organizerTab, setOrganizerTab] = useState('my-events'); // 'my-events', 'past-events', 'applications', 'create'
   const [newOrgEvent, setNewOrgEvent] = useState({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', eventType: 'food_event', maxVendors: '', applicationDeadline: '', feeStructure: { applicationFee: 0, boothFee: 0, electricityFee: 0, description: '' }, requiredPermitTypes: [], customPermitRequirements: [], status: 'draft' });
   const [selectedOrgEvent, setSelectedOrgEvent] = useState(null);
   const [vendorApplications, setVendorApplications] = useState([]);
   const [inviteEmail, setInviteEmail] = useState('');
   const [availablePermitTypes, setAvailablePermitTypes] = useState([]);
+  
+  // Event proof documents state
+  const [eventProofFiles, setEventProofFiles] = useState([]); // Files to upload with new event
+  const [previousEventProofs, setPreviousEventProofs] = useState([]); // Proofs from previous events to reuse
+  const [selectedPreviousProofs, setSelectedPreviousProofs] = useState([]); // Selected previous proofs to use
   
   // Edit event state
   const [showEditEventModal, setShowEditEventModal] = useState(false);
@@ -2145,13 +2150,41 @@ const EventsPage = () => {
         ...newOrgEvent,
         location: { city: newOrgEvent.city, state: newOrgEvent.state, address: newOrgEvent.address }
       };
-      await api.post('/events/organizer/create', eventData);
+      const response = await api.post('/events/organizer/create', eventData);
+      const createdEvent = response.event;
+      
+      // Upload new proof documents if any
+      if (eventProofFiles.length > 0) {
+        for (const fileData of eventProofFiles) {
+          const fd = new FormData();
+          fd.append('file', fileData.file);
+          fd.append('name', fileData.name || fileData.file.name);
+          fd.append('category', fileData.category || 'venue_contract');
+          await api.upload(`/events/organizer/${createdEvent._id}/proof`, fd);
+        }
+      }
+      
+      // Copy selected previous proofs if any
+      if (selectedPreviousProofs.length > 0) {
+        await api.post(`/events/organizer/${createdEvent._id}/copy-proofs`, { proofIds: selectedPreviousProofs });
+      }
+      
       const orgData = await api.get('/events/organizer/my-events');
       setOrganizerEvents(orgData.events || []);
       setNewOrgEvent({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', eventType: 'food_event', maxVendors: '', applicationDeadline: '', feeStructure: { applicationFee: 0, boothFee: 0, electricityFee: 0, description: '' }, requiredPermitTypes: [], customPermitRequirements: [], status: 'draft' });
+      setEventProofFiles([]);
+      setSelectedPreviousProofs([]);
       setOrganizerTab('my-events');
       alert('Event created successfully!');
     } catch (err) { alert(err.message); }
+  };
+  
+  // Fetch previous event proofs when switching to create tab
+  const fetchPreviousEventProofs = async () => {
+    try {
+      const data = await api.get('/events/organizer/previous-proofs');
+      setPreviousEventProofs(data.proofs || []);
+    } catch (err) { console.error(err); }
   };
 
   const updateEventStatus = async (eventId, status) => {
@@ -2364,23 +2397,30 @@ const EventsPage = () => {
         )}
         
         <div className="organizer-tabs">
-          {['my-events', 'applications', 'create'].map(tab => (
+          {['my-events', 'past-events', 'applications', 'create'].map(tab => (
             <button key={tab} className={organizerTab === tab ? 'active' : ''} onClick={() => { 
-              if (tab === 'create' && !organizerVerified && verificationStatus !== 'pending') {
+              if (tab === 'create' && !organizerVerified) {
                 setShowVerificationModal(true);
               } else {
+                if (tab === 'create') fetchPreviousEventProofs();
                 setOrganizerTab(tab); 
                 setSelectedOrgEvent(null); 
               }
             }}>
-              {tab === 'my-events' ? '🎪 My Events' : tab === 'applications' ? '📋 Applications' : '➕ Create Event'}
+              {tab === 'my-events' ? '🎪 Upcoming Events' : 
+               tab === 'past-events' ? '📜 Past Events' :
+               tab === 'applications' ? '📋 Applications' : '➕ Create Event'}
             </button>
           ))}
         </div>
 
         {organizerTab === 'my-events' && !selectedOrgEvent && (
           <div className="organizer-events-list">
-            {organizerEvents.length > 0 ? organizerEvents.map(event => (
+            {(() => {
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const upcomingEvents = organizerEvents.filter(e => new Date(e.endDate || e.startDate) >= today);
+              return upcomingEvents.length > 0 ? upcomingEvents.map(event => (
               <Card key={event._id} className="organizer-event-card">
                 <div className="event-header">
                   <div>
@@ -2390,7 +2430,7 @@ const EventsPage = () => {
                   </div>
                   <div className="event-badges">
                     <Badge variant={event.status === 'published' ? 'success' : event.status === 'closed' ? 'warning' : 'default'}>{event.status}</Badge>
-                    {event.requiresProof && (
+                    {event.requiresProof !== false && (
                       <Badge variant={event.verificationStatus === 'approved' ? 'success' : event.verificationStatus === 'rejected' ? 'danger' : 'warning'}>
                         {event.verificationStatus === 'approved' ? '✓ Verified' : 
                          event.verificationStatus === 'rejected' ? '✗ Rejected' :
@@ -2438,8 +2478,89 @@ const EventsPage = () => {
                 </div>
               </Card>
             )) : (
-              <EmptyState icon={Icons.Event} title="No events yet" description="Create your first event to start accepting vendor applications." />
-            )}
+              <EmptyState icon={Icons.Event} title="No upcoming events" description="Create a new event to start accepting vendor applications." />
+            );
+            })()}
+          </div>
+        )}
+        
+        {/* Past Events Tab */}
+        {organizerTab === 'past-events' && !selectedOrgEvent && (
+          <div className="organizer-events-list past-events">
+            <div className="section-description">
+              <p>Review your completed events, vendor attendance, and uploaded documentation.</p>
+            </div>
+            {(() => {
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const pastEvents = organizerEvents.filter(e => new Date(e.endDate || e.startDate) < today);
+              return pastEvents.length > 0 ? pastEvents.map(event => {
+                const approvedVendors = event.vendorApplications?.filter(v => v.status === 'approved') || [];
+                const totalAttended = event.assignedVendors?.length || approvedVendors.length;
+                return (
+                  <Card key={event._id} className="organizer-event-card past-event-card">
+                    <div className="event-header">
+                      <div>
+                        <h3>{event.eventName}</h3>
+                        <p className="event-date"><Icons.Calendar /> {formatDate(event.startDate)} {event.endDate && event.endDate !== event.startDate && `- ${formatDate(event.endDate)}`}</p>
+                        <p className="event-location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
+                      </div>
+                      <Badge variant="default">Completed</Badge>
+                    </div>
+                    
+                    <div className="past-event-summary">
+                      <div className="summary-stat">
+                        <span className="stat-value">{totalAttended}</span>
+                        <span className="stat-label">Vendors Attended</span>
+                      </div>
+                      <div className="summary-stat">
+                        <span className="stat-value">{event.vendorApplications?.length || 0}</span>
+                        <span className="stat-label">Total Applications</span>
+                      </div>
+                      <div className="summary-stat">
+                        <span className="stat-value">{event.proofDocuments?.length || 0}</span>
+                        <span className="stat-label">Documents</span>
+                      </div>
+                    </div>
+                    
+                    {/* Vendors who attended */}
+                    {totalAttended > 0 && (
+                      <div className="past-event-vendors">
+                        <h4>Vendors ({totalAttended})</h4>
+                        <div className="vendor-list-compact">
+                          {(event.assignedVendors || approvedVendors).slice(0, 5).map((v, idx) => (
+                            <span key={idx} className="vendor-chip">
+                              {v.vendorBusinessId?.businessName || 'Vendor'}
+                            </span>
+                          ))}
+                          {totalAttended > 5 && <span className="vendor-chip more">+{totalAttended - 5} more</span>}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Event documents/proof */}
+                    {event.proofDocuments?.length > 0 && (
+                      <div className="past-event-documents">
+                        <h4>Event Documents</h4>
+                        <div className="document-list-compact">
+                          {event.proofDocuments.map((doc, idx) => (
+                            <a key={idx} href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer" className="doc-link-chip">
+                              <Icons.Document /> {doc.name || doc.category}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="event-actions">
+                      <Button size="sm" variant="outline" onClick={() => fetchEventApplications(event._id)}>View Details</Button>
+                    </div>
+                  </Card>
+                );
+              }) : (
+                <EmptyState icon={Icons.Clock} title="No past events" description="Your completed events will appear here." />
+              );
+            })()}
           </div>
         )}
 
@@ -2680,6 +2801,92 @@ const EventsPage = () => {
                 <Icons.Plus /> Add Custom Requirement
               </Button>
             </div>
+            
+            {/* Event Proof Documents */}
+            <div className="form-section">
+              <div className="form-section-title">Venue/Event Proof Documents</div>
+              <p className="form-hint">Upload documents proving your ownership or rights to host events at this venue (venue contract, city permit, insurance, etc.)</p>
+              
+              {/* Previous proofs from other events */}
+              {previousEventProofs.length > 0 && (
+                <div className="previous-proofs-section">
+                  <label className="form-label">Use proof from previous events:</label>
+                  <div className="previous-proofs-list">
+                    {previousEventProofs.map((proof, idx) => (
+                      <label key={idx} className="proof-checkbox">
+                        <input 
+                          type="checkbox" 
+                          checked={selectedPreviousProofs.includes(proof._id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedPreviousProofs([...selectedPreviousProofs, proof._id]);
+                            } else {
+                              setSelectedPreviousProofs(selectedPreviousProofs.filter(id => id !== proof._id));
+                            }
+                          }}
+                        />
+                        <span className="proof-info">
+                          <strong>{proof.name}</strong>
+                          <small>{proof.category?.replace(/_/g, ' ')} • from {proof.eventName}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Upload new proofs */}
+              <div className="upload-new-proofs">
+                <label className="form-label">Or upload new documents:</label>
+                <input 
+                  type="file" 
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  multiple
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    const newProofs = files.map(file => ({ file, name: file.name, category: 'venue_contract' }));
+                    setEventProofFiles([...eventProofFiles, ...newProofs]);
+                    e.target.value = '';
+                  }}
+                />
+                <p className="upload-hint">Accepted: PDF, JPG, PNG (max 10MB each)</p>
+              </div>
+              
+              {/* List of files to upload */}
+              {eventProofFiles.length > 0 && (
+                <div className="proof-files-list">
+                  {eventProofFiles.map((fileData, idx) => (
+                    <div key={idx} className="proof-file-item">
+                      <Icons.Document />
+                      <span className="file-name">{fileData.file.name}</span>
+                      <Select 
+                        value={fileData.category}
+                        onChange={(e) => {
+                          const updated = [...eventProofFiles];
+                          updated[idx].category = e.target.value;
+                          setEventProofFiles(updated);
+                        }}
+                        options={[
+                          { value: 'venue_contract', label: 'Venue Contract' },
+                          { value: 'event_permit', label: 'Event Permit' },
+                          { value: 'city_approval', label: 'City Approval' },
+                          { value: 'insurance', label: 'Insurance' },
+                          { value: 'other', label: 'Other' }
+                        ]}
+                      />
+                      <button 
+                        type="button" 
+                        className="remove-file-btn"
+                        onClick={() => setEventProofFiles(eventProofFiles.filter((_, i) => i !== idx))}
+                      >
+                        <Icons.X />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
             <div className="form-actions">
               <Button onClick={createOrganizerEvent} disabled={!newOrgEvent.eventName || !newOrgEvent.startDate || !newOrgEvent.city || !newOrgEvent.state}>
                 Create Event
@@ -2749,15 +2956,25 @@ const EventsPage = () => {
             {verificationStatus === 'pending' && !organizerVerified && (
               <>
                 <div className="verification-icon info"><Icons.Clock /></div>
-                <h3>Verification In Progress</h3>
-                <p>Your account is being reviewed by our team. You can create events as drafts while you wait.</p>
-                <p>Verification usually takes 1-2 business days.</p>
+                <h3>Verification Required to Create Events</h3>
+                <p>To create events, you must first verify your organizer account by uploading required documentation.</p>
+                <div className="verification-requirements">
+                  <h4>Required Documents:</h4>
+                  <ul>
+                    <li>Business License or Registration</li>
+                    <li>Government-issued ID</li>
+                    <li>Proof of event organizing experience (optional but recommended)</li>
+                  </ul>
+                </div>
+                <p>Once uploaded, our team will review your documents within 1-2 business days.</p>
               </>
             )}
             
             <div className="modal-actions">
               <Button variant="outline" onClick={() => setShowVerificationModal(false)}>Close</Button>
-              <Button onClick={() => { setShowVerificationModal(false); window.location.hash = 'settings'; }}>Go to Settings</Button>
+              <Button onClick={() => { setShowVerificationModal(false); window.location.hash = 'settings'; }}>
+                {verificationStatus === 'pending' ? 'Upload Documents' : 'Go to Settings'}
+              </Button>
             </div>
           </div>
         </Modal>
@@ -4278,7 +4495,7 @@ const SuperAdminPage = ({ onBack }) => {
   // Admin panel state
   const [activeTab, setActiveTab] = useState('stats');
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState({ users: [], businesses: [], permits: [], jurisdictions: [], permitTypes: [], checklists: [], events: [], organizers: [], stats: null });
+  const [data, setData] = useState({ users: [], businesses: [], permits: [], jurisdictions: [], permitTypes: [], checklists: [], events: [], organizers: [], verifications: { organizers: [], events: [] }, stats: null });
   const [message, setMessage] = useState('');
   const [newJurisdiction, setNewJurisdiction] = useState({ name: '', city: '', state: '', county: '', type: 'city' });
   const [newPermitType, setNewPermitType] = useState({ name: '', description: '', jurisdictionId: '', vendorTypes: [], requiresFoodHandling: false, renewalPeriodMonths: 12, importanceLevel: 'critical', issuingAuthorityName: '', estimatedCost: '', requiredDocuments: '', fees: { application: 0, renewal: 0 } });
@@ -4378,6 +4595,7 @@ const SuperAdminPage = ({ onBack }) => {
       if (type === 'users') { const result = await adminApi('/admin/users'); setData(d => ({ ...d, users: result.users || [] })); }
       else if (type === 'businesses') { const result = await adminApi('/admin/businesses'); setData(d => ({ ...d, businesses: result.businesses || [] })); }
       else if (type === 'organizers') { const result = await adminApi('/admin/organizers'); setData(d => ({ ...d, organizers: result.organizers || [] })); }
+      else if (type === 'verifications') { const result = await adminApi('/admin/verifications'); setData(d => ({ ...d, verifications: result.verifications || { organizers: [], events: [] } })); }
       else if (type === 'jurisdictions') { const result = await adminApi('/admin/jurisdictions'); setData(d => ({ ...d, jurisdictions: result.jurisdictions || [] })); }
       else if (type === 'permitTypes') { const result = await adminApi('/admin/permit-types'); setData(d => ({ ...d, permitTypes: result.permitTypes || [] })); }
       else if (type === 'checklists') { const result = await adminApi('/admin/checklists'); setData(d => ({ ...d, checklists: result.checklists || [] })); }
@@ -4453,6 +4671,33 @@ const SuperAdminPage = ({ onBack }) => {
       fetchData('organizers');
       setMessage('Organizer account created');
       document.getElementById('newOrganizerEmail').value = '';
+    } catch (err) { setMessage(err.message); }
+  };
+  
+  // Document verification functions
+  const reviewOrganizerDocument = async (organizerId, docIndex, status, reviewNotes = '') => {
+    try {
+      await adminApi(`/admin/organizers/${organizerId}/documents/${docIndex}/review`, 'PUT', { status, reviewNotes });
+      fetchData('verifications');
+      fetchData('organizers');
+      setMessage(`Document ${status}`);
+    } catch (err) { setMessage(err.message); }
+  };
+  
+  const reviewEventDocument = async (eventId, docIndex, status, reviewNotes = '') => {
+    try {
+      await adminApi(`/admin/events/${eventId}/documents/${docIndex}/review`, 'PUT', { status, reviewNotes });
+      fetchData('verifications');
+      setMessage(`Document ${status}`);
+    } catch (err) { setMessage(err.message); }
+  };
+  
+  const updateEventVerification = async (eventId, verificationStatus, verificationNotes = '') => {
+    try {
+      await adminApi(`/admin/events/${eventId}/verification`, 'PUT', { verificationStatus, verificationNotes });
+      fetchData('verifications');
+      fetchData('events');
+      setMessage(`Event verification updated to ${verificationStatus}`);
     } catch (err) { setMessage(err.message); }
   };
 
@@ -4756,7 +5001,7 @@ const SuperAdminPage = ({ onBack }) => {
       {message && <Alert type="info" onClose={() => setMessage('')}>{message}</Alert>}
       
       <div className="admin-tabs">
-        {['stats', 'users', 'businesses', 'organizers', 'jurisdictions', 'permitTypes', 'checklists', 'events', 'suggestions'].map(tab => (
+        {['stats', 'users', 'businesses', 'organizers', 'verifications', 'jurisdictions', 'permitTypes', 'checklists', 'events', 'suggestions'].map(tab => (
           <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>
             {tab === 'permitTypes' ? 'Permit Types' : tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
@@ -5029,6 +5274,141 @@ const SuperAdminPage = ({ onBack }) => {
                 </div>
               )}
             </Modal>
+          </div>
+        )}
+        
+        {/* Verifications Tab - Document verification for organizers and events */}
+        {activeTab === 'verifications' && (
+          <div>
+            <div className="admin-section-header">
+              <h3>📋 Pending Document Verifications</h3>
+              <p className="section-description">Review and approve documents uploaded by organizers and for events</p>
+            </div>
+            
+            {/* Organizer Documents Pending Verification */}
+            <Card className="verification-section">
+              <h4>👤 Organizer Account Documents</h4>
+              <p className="form-hint">Documents uploaded by organizers to verify their accounts</p>
+              
+              {data.verifications?.organizers?.length > 0 ? (
+                <div className="verification-list">
+                  {data.verifications.organizers.map((org, orgIdx) => (
+                    <div key={org._id} className="verification-item">
+                      <div className="verification-header">
+                        <div className="verification-info">
+                          <strong>{org.organizerProfile?.companyName || `${org.firstName} ${org.lastName}`}</strong>
+                          <span className="verification-meta">{org.email}</span>
+                        </div>
+                        <Badge variant={org.organizerProfile?.verified ? 'success' : 'warning'}>
+                          {org.organizerProfile?.verified ? 'Verified' : 'Pending'}
+                        </Badge>
+                      </div>
+                      
+                      <div className="documents-to-review">
+                        {(org.organizerProfile?.documents || []).filter(d => d.status === 'pending').map((doc, docIdx) => (
+                          <div key={docIdx} className="doc-review-row">
+                            <div className="doc-review-info">
+                              <Icons.Document />
+                              <span className="doc-name">{doc.name}</span>
+                              <Badge>{doc.category?.replace(/_/g, ' ')}</Badge>
+                            </div>
+                            <div className="doc-review-actions">
+                              <a href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
+                                <Icons.Download /> View
+                              </a>
+                              <Button size="sm" variant="success" onClick={() => reviewOrganizerDocument(org._id, docIdx, 'approved')}>
+                                ✓ Approve
+                              </Button>
+                              <Button size="sm" variant="danger" onClick={() => {
+                                const reason = prompt('Rejection reason:');
+                                if (reason) reviewOrganizerDocument(org._id, docIdx, 'rejected', reason);
+                              }}>
+                                ✗ Reject
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-text">No organizer documents pending review</p>
+              )}
+            </Card>
+            
+            {/* Event Proof Documents Pending Verification */}
+            <Card className="verification-section" style={{ marginTop: '24px' }}>
+              <h4>🎪 Event Proof Documents</h4>
+              <p className="form-hint">Documents uploaded by organizers to prove venue/event ownership</p>
+              
+              {data.verifications?.events?.length > 0 ? (
+                <div className="verification-list">
+                  {data.verifications.events.map((event, eventIdx) => (
+                    <div key={event._id} className="verification-item">
+                      <div className="verification-header">
+                        <div className="verification-info">
+                          <strong>{event.eventName}</strong>
+                          <span className="verification-meta">
+                            {event.organizerName} • {event.location?.city}, {event.location?.state} • {formatDate(event.startDate)}
+                          </span>
+                        </div>
+                        <Badge variant={event.verificationStatus === 'approved' ? 'success' : event.verificationStatus === 'rejected' ? 'danger' : 'warning'}>
+                          {event.verificationStatus || 'pending'}
+                        </Badge>
+                      </div>
+                      
+                      <div className="documents-to-review">
+                        {(event.proofDocuments || []).filter(d => d.status === 'pending').map((doc, docIdx) => (
+                          <div key={docIdx} className="doc-review-row">
+                            <div className="doc-review-info">
+                              <Icons.Document />
+                              <span className="doc-name">{doc.name}</span>
+                              <Badge>{doc.category?.replace(/_/g, ' ')}</Badge>
+                            </div>
+                            <div className="doc-review-actions">
+                              <a href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
+                                <Icons.Download /> View
+                              </a>
+                              <Button size="sm" variant="success" onClick={() => reviewEventDocument(event._id, docIdx, 'approved')}>
+                                ✓ Approve
+                              </Button>
+                              <Button size="sm" variant="danger" onClick={() => {
+                                const reason = prompt('Rejection reason:');
+                                if (reason) reviewEventDocument(event._id, docIdx, 'rejected', reason);
+                              }}>
+                                ✗ Reject
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {/* Quick actions for entire event */}
+                      <div className="event-verification-actions">
+                        <Button size="sm" variant="success" onClick={() => updateEventVerification(event._id, 'approved')}>
+                          Approve All & Verify Event
+                        </Button>
+                        <Button size="sm" variant="warning" onClick={() => {
+                          const note = prompt('What information is needed?');
+                          if (note) updateEventVerification(event._id, 'info_needed', note);
+                        }}>
+                          Request More Info
+                        </Button>
+                        <Button size="sm" variant="danger" onClick={() => {
+                          const reason = prompt('Rejection reason:');
+                          if (reason) updateEventVerification(event._id, 'rejected', reason);
+                        }}>
+                          Reject Event
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="empty-text">No event documents pending review</p>
+              )}
+            </Card>
           </div>
         )}
 
