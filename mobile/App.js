@@ -3710,16 +3710,23 @@ const EventsScreen = () => {
   // Fetch organizer's events
   const fetchOrganizerEvents = async () => {
     try {
+      console.log('Mobile fetchOrganizerEvents called');
       const [eventsData, jurData, vendorsData] = await Promise.all([
         api.get('/events/organizer/my-events'),
         api.get('/jurisdictions'),
         api.get('/events/organizer/registered-vendors')
       ]);
-      console.log('Mobile jurisdictions fetched:', jurData.jurisdictions?.length);
+      console.log('Mobile API responses:');
+      console.log('- Jurisdictions:', jurData.jurisdictions?.length || 0);
+      console.log('- Events:', eventsData.events?.length || 0);
+      console.log('- Vendors:', vendorsData.vendors?.length || 0);
       setOrganizerEvents(eventsData.events || []);
       setJurisdictions(jurData.jurisdictions || []);
       setRegisteredVendors(vendorsData.vendors || []);
-    } catch (error) { console.error('Error fetching organizer data:', error); }
+    } catch (error) { 
+      console.error('Error fetching organizer data:', error); 
+      Alert.alert('Debug', 'Error: ' + error.message);
+    }
     finally { setLoading(false); setRefreshing(false); }
   };
 
@@ -4046,10 +4053,26 @@ const EventsScreen = () => {
   };
 
   useEffect(() => {
-    if (isOrganizer) fetchOrganizerEvents();
-    else if (hasAccess) fetchMyEvents();
-    else setLoading(false);
-  }, [isOrganizer, hasAccess]);
+    // Only fetch when user is loaded
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    
+    // Check organizer status directly from user object
+    const userIsOrganizer = user.isOrganizer && !user.organizerProfile?.disabled;
+    
+    console.log('Mobile EventsScreen init - isOrganizer:', userIsOrganizer, 'user.isOrganizer:', user.isOrganizer);
+    
+    if (userIsOrganizer) {
+      console.log('Mobile: Fetching organizer events for user:', user._id);
+      fetchOrganizerEvents();
+    } else if (hasAccess) {
+      fetchMyEvents();
+    } else {
+      setLoading(false);
+    }
+  }, [user, subscription]);
 
   const submitEventRequest = async () => {
     setRequestSubmitting(true);
@@ -4085,13 +4108,31 @@ const EventsScreen = () => {
           <View style={styles.organizerBadge}><Text style={styles.organizerBadgeText}>ORGANIZER</Text></View>
         </View>
 
+        {/* Debug Info */}
+        <View style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#0ea5e9', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+          <Text style={{ fontSize: 12, fontWeight: '600' }}>Debug Info:</Text>
+          <Text style={{ fontSize: 11, color: '#666' }}>User: {user?.email}</Text>
+          <Text style={{ fontSize: 11, color: '#666' }}>isOrganizer: {String(isOrganizer)} | user.isOrganizer: {String(user?.isOrganizer)}</Text>
+          <Text style={{ fontSize: 11, color: '#666' }}>Jurisdictions: {jurisdictions.length} | Events: {organizerEvents.length}</Text>
+        </View>
+
         {/* Organizer Tabs */}
         <View style={styles.organizerTabs}>
-          {[{ key: 'my-events', label: '🎪 Upcoming' }, { key: 'past-events', label: '📜 Past' }, { key: 'applications', label: '📋 Apps' }].map(tab => (
-            <TouchableOpacity key={tab.key} style={[styles.organizerTab, organizerTab === tab.key && styles.organizerTabActive]} onPress={() => { setOrganizerTab(tab.key); setSelectedOrgEvent(null); }}>
-              <Text style={[styles.organizerTabText, organizerTab === tab.key && styles.organizerTabTextActive]}>{tab.label}</Text>
-            </TouchableOpacity>
-          ))}
+          {(() => {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const upcomingCount = organizerEvents.filter(e => new Date(e.endDate || e.startDate) >= today).length;
+            const pastCount = organizerEvents.filter(e => new Date(e.endDate || e.startDate) < today).length;
+            return [
+              { key: 'my-events', label: `🎪 Upcoming (${upcomingCount})` }, 
+              { key: 'past-events', label: `📜 Past (${pastCount})` }, 
+              { key: 'applications', label: '📋 Apps' }
+            ].map(tab => (
+              <TouchableOpacity key={tab.key} style={[styles.organizerTab, organizerTab === tab.key && styles.organizerTabActive]} onPress={() => { setOrganizerTab(tab.key); setSelectedOrgEvent(null); }}>
+                <Text style={[styles.organizerTabText, organizerTab === tab.key && styles.organizerTabTextActive]}>{tab.label}</Text>
+              </TouchableOpacity>
+            ));
+          })()}
           <TouchableOpacity style={styles.createEventButton} onPress={() => {
             if (!organizerVerified) {
               setShowVerificationModal(true);
