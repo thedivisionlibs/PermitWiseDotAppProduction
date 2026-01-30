@@ -3857,6 +3857,81 @@ app.put('/api/events/organizer/:id/status', authMiddleware, async (req, res) => 
   }
 });
 
+// Cancel event with vendor notifications
+app.put('/api/events/organizer/:id/cancel', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.user._id })
+      .populate('vendorApplications.vendorBusinessId')
+      .populate('assignedVendors.vendorBusinessId');
+      
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    if (event.status === 'cancelled') {
+      return res.status(400).json({ error: 'Event is already cancelled' });
+    }
+    
+    // Get all vendors to notify (approved vendors and pending applicants)
+    const vendorsToNotify = new Set();
+    
+    // Add approved/assigned vendors
+    for (const vendor of (event.assignedVendors || [])) {
+      if (vendor.vendorBusinessId?.ownerId) {
+        const owner = await User.findById(vendor.vendorBusinessId.ownerId);
+        if (owner?.email) vendorsToNotify.add(owner.email);
+      }
+    }
+    
+    // Add applicants
+    for (const app of (event.vendorApplications || [])) {
+      if (app.vendorBusinessId?.ownerId) {
+        const owner = await User.findById(app.vendorBusinessId.ownerId);
+        if (owner?.email) vendorsToNotify.add(owner.email);
+      }
+    }
+    
+    // Update event status
+    event.status = 'cancelled';
+    event.cancelledAt = new Date();
+    event.cancelledBy = req.user._id;
+    event.updatedAt = new Date();
+    await event.save();
+    
+    // Send cancellation emails
+    const emailPromises = Array.from(vendorsToNotify).map(email => {
+      return transporter.sendMail({
+        from: process.env.EMAIL_FROM || 'noreply@permitwise.app',
+        to: email,
+        subject: `Event Cancelled: ${event.eventName}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #dc2626;">Event Cancellation Notice</h2>
+            <p>We regret to inform you that the following event has been cancelled by the organizer:</p>
+            <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; margin: 16px 0;">
+              <h3 style="margin: 0 0 8px 0;">${event.eventName}</h3>
+              <p style="margin: 4px 0; color: #666;">📅 Originally scheduled: ${new Date(event.startDate).toLocaleDateString()}</p>
+              <p style="margin: 4px 0; color: #666;">📍 Location: ${event.location?.city}, ${event.location?.state}</p>
+            </div>
+            <p>If you have any questions, please contact the event organizer directly.</p>
+            <p style="color: #666; margin-top: 24px;">— The PermitWise Team</p>
+          </div>
+        `
+      }).catch(err => console.error('Failed to send cancellation email to', email, err));
+    });
+    
+    await Promise.all(emailPromises);
+    
+    res.json({ event, notifiedCount: vendorsToNotify.size });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Edit event (organizer) - full update
 app.put('/api/events/organizer/:id', authMiddleware, async (req, res) => {
   try {
