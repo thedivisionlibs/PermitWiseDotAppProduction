@@ -3680,6 +3680,12 @@ const EventsScreen = () => {
   const [showEditEventModal, setShowEditEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [editPermitTypes, setEditPermitTypes] = useState([]);
+  
+  // Event proof documents state
+  const [eventProofFiles, setEventProofFiles] = useState([]);
+  const [previousEventProofs, setPreviousEventProofs] = useState([]);
+  const [selectedPreviousProofs, setSelectedPreviousProofs] = useState([]);
+  const [showProofCategoryPicker, setShowProofCategoryPicker] = useState(null);
 
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
@@ -3709,10 +3715,11 @@ const EventsScreen = () => {
         api.get('/jurisdictions'),
         api.get('/events/organizer/registered-vendors')
       ]);
+      console.log('Mobile jurisdictions fetched:', jurData.jurisdictions?.length);
       setOrganizerEvents(eventsData.events || []);
       setJurisdictions(jurData.jurisdictions || []);
       setRegisteredVendors(vendorsData.vendors || []);
-    } catch (error) { console.error(error); }
+    } catch (error) { console.error('Error fetching organizer data:', error); }
     finally { setLoading(false); setRefreshing(false); }
   };
 
@@ -3973,13 +3980,69 @@ const EventsScreen = () => {
         ...newEvent,
         location: { city: newEvent.city, state: newEvent.state }
       };
-      await api.post('/events/organizer/create', eventData);
+      const response = await api.post('/events/organizer/create', eventData);
+      const createdEvent = response.event;
+      
+      // Upload new proof documents if any
+      if (eventProofFiles.length > 0) {
+        for (const fileData of eventProofFiles) {
+          const fd = new FormData();
+          fd.append('file', {
+            uri: fileData.uri,
+            name: fileData.name,
+            type: fileData.type || 'application/octet-stream'
+          });
+          fd.append('name', fileData.name);
+          fd.append('category', fileData.category || 'venue_contract');
+          await api.upload(`/events/organizer/${createdEvent._id}/proof`, fd);
+        }
+      }
+      
+      // Copy selected previous proofs if any
+      if (selectedPreviousProofs.length > 0) {
+        await api.post(`/events/organizer/${createdEvent._id}/copy-proofs`, { proofIds: selectedPreviousProofs });
+      }
+      
       setShowCreateModal(false);
       setNewEvent({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', eventType: 'food_event', maxVendors: '', status: 'draft', requiredPermitTypes: [], customPermitRequirements: [] });
+      setEventProofFiles([]);
+      setSelectedPreviousProofs([]);
       setAvailablePermitTypes([]);
       fetchOrganizerEvents();
       Alert.alert('Success', 'Event created');
     } catch (error) { Alert.alert('Error', error.message); }
+  };
+  
+  // Fetch previous event proofs for reuse
+  const fetchPreviousEventProofs = async () => {
+    try {
+      const data = await api.get('/events/organizer/previous-proofs');
+      setPreviousEventProofs(data.proofs || []);
+    } catch (err) { console.error(err); }
+  };
+  
+  // Handle document picker for proof files
+  const pickProofDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/jpeg', 'image/png'],
+        copyToCacheDirectory: true,
+        multiple: true
+      });
+      
+      if (result.canceled) return;
+      
+      const newFiles = result.assets.map(asset => ({
+        uri: asset.uri,
+        name: asset.name,
+        type: asset.mimeType,
+        category: 'venue_contract'
+      }));
+      
+      setEventProofFiles([...eventProofFiles, ...newFiles]);
+    } catch (err) {
+      Alert.alert('Error', 'Could not pick document');
+    }
   };
 
   useEffect(() => {
@@ -4033,6 +4096,7 @@ const EventsScreen = () => {
             if (!organizerVerified) {
               setShowVerificationModal(true);
             } else {
+              fetchPreviousEventProofs();
               setShowCreateModal(true);
             }
           }}>
@@ -4107,7 +4171,7 @@ const EventsScreen = () => {
                 <Icons.Event size={48} color={COLORS.gray300} />
                 <Text style={styles.emptyTitle}>No upcoming events</Text>
                 <Text style={styles.emptyText}>Create a new event to start accepting vendor applications.</Text>
-                <Button title="Create Event" onPress={() => organizerVerified ? setShowCreateModal(true) : setShowVerificationModal(true)} style={{ marginTop: 16 }} />
+                <Button title="Create Event" onPress={() => { if (organizerVerified) { fetchPreviousEventProofs(); setShowCreateModal(true); } else { setShowVerificationModal(true); } }} style={{ marginTop: 16 }} />
               </View>
             }
             contentContainerStyle={styles.listContent}
@@ -4428,6 +4492,87 @@ const EventsScreen = () => {
                   </TouchableOpacity>
                 </View>
                 
+                {/* Event Proof Documents Section */}
+                <View style={{ marginTop: 20 }}>
+                  <Text style={[styles.label, { fontWeight: '600', marginBottom: 4 }]}>Venue/Event Proof Documents</Text>
+                  <Text style={{ color: COLORS.gray500, fontSize: 13, marginBottom: 12 }}>Upload documents proving your ownership or rights to host events at this venue</Text>
+                  
+                  {/* Previous proofs from other events */}
+                  {previousEventProofs.length > 0 && (
+                    <View style={{ marginBottom: 16, backgroundColor: COLORS.gray50, borderRadius: 8, padding: 12 }}>
+                      <Text style={{ fontWeight: '500', marginBottom: 8 }}>Use proof from previous events:</Text>
+                      {previousEventProofs.map((proof, idx) => (
+                        <TouchableOpacity 
+                          key={idx}
+                          style={{ 
+                            flexDirection: 'row', 
+                            alignItems: 'center', 
+                            padding: 10,
+                            backgroundColor: selectedPreviousProofs.includes(proof._id) ? '#e0f2fe' : COLORS.white,
+                            borderRadius: 6,
+                            marginBottom: 6,
+                            borderWidth: 1,
+                            borderColor: selectedPreviousProofs.includes(proof._id) ? COLORS.primary : COLORS.gray200
+                          }}
+                          onPress={() => {
+                            if (selectedPreviousProofs.includes(proof._id)) {
+                              setSelectedPreviousProofs(selectedPreviousProofs.filter(id => id !== proof._id));
+                            } else {
+                              setSelectedPreviousProofs([...selectedPreviousProofs, proof._id]);
+                            }
+                          }}
+                        >
+                          <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: selectedPreviousProofs.includes(proof._id) ? COLORS.primary : COLORS.gray300, backgroundColor: selectedPreviousProofs.includes(proof._id) ? COLORS.primary : COLORS.white, alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                            {selectedPreviousProofs.includes(proof._id) && <Icons.Check size={14} color={COLORS.white} />}
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontWeight: '500', fontSize: 14 }}>{proof.name}</Text>
+                            <Text style={{ color: COLORS.gray500, fontSize: 12 }}>{proof.category?.replace(/_/g, ' ')} • from {proof.eventName}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                  
+                  {/* Upload new documents */}
+                  <TouchableOpacity 
+                    onPress={pickProofDocument}
+                    style={{ 
+                      flexDirection: 'row', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      padding: 14,
+                      backgroundColor: COLORS.primary,
+                      borderRadius: 8
+                    }}
+                  >
+                    <Icons.Upload size={18} color={COLORS.white} />
+                    <Text style={{ marginLeft: 8, color: COLORS.white, fontWeight: '600' }}>Choose Files</Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: COLORS.gray500, fontSize: 12, marginTop: 6 }}>Accepted: PDF, JPG, PNG (max 10MB each)</Text>
+                  
+                  {/* List of selected files */}
+                  {eventProofFiles.length > 0 && (
+                    <View style={{ marginTop: 12 }}>
+                      {eventProofFiles.map((fileData, idx) => (
+                        <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.gray50, padding: 10, borderRadius: 6, marginBottom: 6 }}>
+                          <Icons.Document size={20} color={COLORS.gray500} />
+                          <Text style={{ flex: 1, marginLeft: 8, fontSize: 13 }} numberOfLines={1}>{fileData.name}</Text>
+                          <TouchableOpacity 
+                            onPress={() => setShowProofCategoryPicker(idx)}
+                            style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: COLORS.gray200, borderRadius: 4, marginRight: 8 }}
+                          >
+                            <Text style={{ fontSize: 12, color: COLORS.gray700 }}>{fileData.category?.replace(/_/g, ' ')}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => setEventProofFiles(eventProofFiles.filter((_, i) => i !== idx))}>
+                            <Icons.X size={18} color={COLORS.danger} />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+                
                 <View style={styles.modalFooter}>
                   <Button title="Cancel" variant="outline" onPress={() => setShowCreateModal(false)} style={{ flex: 1 }} />
                   <Button title="Create Event" onPress={createEvent} disabled={!newEvent.eventName || !newEvent.startDate || !newEvent.city || !newEvent.state} style={{ flex: 1 }} />
@@ -4503,12 +4648,22 @@ const EventsScreen = () => {
                 <Text style={styles.modalTitle}>Select State</Text>
                 <TouchableOpacity onPress={() => setShowStatePicker(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
               </View>
-              <FlatList data={getAvailableStates()} keyExtractor={item => item} renderItem={({ item }) => (
-                <TouchableOpacity style={styles.pickerItem} onPress={() => handleEventStateChange(item)}>
-                  <Text style={styles.pickerItemText}>{item}</Text>
-                  {newEvent.state === item && <Icons.Check size={20} color={COLORS.primary} />}
-                </TouchableOpacity>
-              )} />
+              <FlatList 
+                data={getAvailableStates()} 
+                keyExtractor={item => item} 
+                renderItem={({ item }) => (
+                  <TouchableOpacity style={styles.pickerItem} onPress={() => handleEventStateChange(item)}>
+                    <Text style={styles.pickerItemText}>{item}</Text>
+                    {newEvent.state === item && <Icons.Check size={20} color={COLORS.primary} />}
+                  </TouchableOpacity>
+                )}
+                ListEmptyComponent={
+                  <View style={{ padding: 20, alignItems: 'center' }}>
+                    <Text style={{ color: COLORS.gray500, textAlign: 'center' }}>No states available. Please try refreshing the app.</Text>
+                    <Text style={{ color: COLORS.gray400, fontSize: 12, marginTop: 8 }}>Jurisdictions loaded: {jurisdictions.length}</Text>
+                  </View>
+                }
+              />
             </View>
           </View>
         </Modal>
@@ -4574,6 +4729,44 @@ const EventsScreen = () => {
                   <Button title="Submit Request" onPress={submitLocationRequest} loading={locationRequestSubmitting} disabled={!locationRequest.city || !locationRequest.state || locationRequest.state.length !== 2} style={{ flex: 1 }} />
                 </View>
               </View>
+            </View>
+          </View>
+        </Modal>
+        
+        {/* Proof Category Picker Modal */}
+        <Modal visible={showProofCategoryPicker !== null} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select Document Category</Text>
+                <TouchableOpacity onPress={() => setShowProofCategoryPicker(null)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+              </View>
+              <FlatList 
+                data={[
+                  { value: 'venue_contract', label: 'Venue Contract' },
+                  { value: 'event_permit', label: 'Event Permit' },
+                  { value: 'city_approval', label: 'City Approval' },
+                  { value: 'insurance', label: 'Insurance' },
+                  { value: 'other', label: 'Other' }
+                ]} 
+                keyExtractor={item => item.value} 
+                renderItem={({ item }) => (
+                  <TouchableOpacity 
+                    style={styles.pickerItem} 
+                    onPress={() => {
+                      if (showProofCategoryPicker !== null) {
+                        const updated = [...eventProofFiles];
+                        updated[showProofCategoryPicker].category = item.value;
+                        setEventProofFiles(updated);
+                      }
+                      setShowProofCategoryPicker(null);
+                    }}
+                  >
+                    <Text style={styles.pickerItemText}>{item.label}</Text>
+                    {showProofCategoryPicker !== null && eventProofFiles[showProofCategoryPicker]?.category === item.value && <Icons.Check size={20} color={COLORS.primary} />}
+                  </TouchableOpacity>
+                )} 
+              />
             </View>
           </View>
         </Modal>
