@@ -41,6 +41,135 @@ const useAuth = () => {
   return context;
 };
 
+// Toast Context for notifications
+const ToastContext = createContext(null);
+const useToast = () => {
+  const context = useContext(ToastContext);
+  if (!context) throw new Error('useToast must be used within ToastProvider');
+  return context;
+};
+
+// Toast Provider Component
+const ToastProvider = ({ children }) => {
+  const [toasts, setToasts] = useState([]);
+  
+  const addToast = useCallback((message, type = 'info', duration = 4000) => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    if (duration > 0) {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, duration);
+    }
+    return id;
+  }, []);
+  
+  const removeToast = useCallback((id) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+  
+  const toast = {
+    success: (msg, duration) => addToast(msg, 'success', duration),
+    error: (msg, duration) => addToast(msg, 'error', duration),
+    info: (msg, duration) => addToast(msg, 'info', duration),
+    warning: (msg, duration) => addToast(msg, 'warning', duration),
+  };
+  
+  return (
+    <ToastContext.Provider value={toast}>
+      {children}
+      <div className="toast-container">
+        {toasts.map(t => (
+          <div key={t.id} className={`toast toast-${t.type}`}>
+            <div className="toast-icon">
+              {t.type === 'success' && <Icons.Check />}
+              {t.type === 'error' && <Icons.X />}
+              {t.type === 'info' && <Icons.Alert />}
+              {t.type === 'warning' && <Icons.Alert />}
+            </div>
+            <span className="toast-message">{t.message}</span>
+            <button className="toast-close" onClick={() => removeToast(t.id)}>
+              <Icons.X />
+            </button>
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  );
+};
+
+// Confirm Modal Context
+const ConfirmContext = createContext(null);
+const useConfirm = () => {
+  const context = useContext(ConfirmContext);
+  if (!context) throw new Error('useConfirm must be used within ConfirmProvider');
+  return context;
+};
+
+// Confirm Provider Component
+const ConfirmProvider = ({ children }) => {
+  const [confirmState, setConfirmState] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    variant: 'primary', // primary, danger
+    onConfirm: null,
+    onCancel: null,
+  });
+  
+  const confirm = useCallback(({ title, message, confirmText = 'Confirm', cancelText = 'Cancel', variant = 'primary' }) => {
+    return new Promise((resolve) => {
+      setConfirmState({
+        isOpen: true,
+        title,
+        message,
+        confirmText,
+        cancelText,
+        variant,
+        onConfirm: () => {
+          setConfirmState(prev => ({ ...prev, isOpen: false }));
+          resolve(true);
+        },
+        onCancel: () => {
+          setConfirmState(prev => ({ ...prev, isOpen: false }));
+          resolve(false);
+        },
+      });
+    });
+  }, []);
+  
+  return (
+    <ConfirmContext.Provider value={confirm}>
+      {children}
+      {confirmState.isOpen && (
+        <div className="modal-overlay" onClick={confirmState.onCancel}>
+          <div className="confirm-modal" onClick={e => e.stopPropagation()}>
+            <div className="confirm-modal-header">
+              <h3>{confirmState.title}</h3>
+            </div>
+            <div className="confirm-modal-body">
+              <p>{confirmState.message}</p>
+            </div>
+            <div className="confirm-modal-footer">
+              <button className="btn btn-outline" onClick={confirmState.onCancel}>
+                {confirmState.cancelText}
+              </button>
+              <button 
+                className={`btn ${confirmState.variant === 'danger' ? 'btn-danger' : 'btn-primary'}`} 
+                onClick={confirmState.onConfirm}
+              >
+                {confirmState.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </ConfirmContext.Provider>
+  );
+};
+
 // ===========================================
 // API HELPER
 // ===========================================
@@ -625,6 +754,7 @@ const AuthProvider = ({ children }) => {
   const [business, setBusiness] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState(null);
+  const [businessRole, setBusinessRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchUser = useCallback(async () => {
@@ -634,6 +764,7 @@ const AuthProvider = ({ children }) => {
       const data = await api.get('/auth/me');
       setUser(data.user); setBusiness(data.business); setSubscription(data.subscription);
       setSubscriptionStatus(data.subscriptionStatus);
+      setBusinessRole(data.businessRole);
     } catch (error) { localStorage.removeItem('permitwise_token'); } 
     finally { setLoading(false); }
   }, []);
@@ -652,14 +783,26 @@ const AuthProvider = ({ children }) => {
     setUser(data.user); return data;
   };
 
-  const logout = () => { localStorage.removeItem('permitwise_token'); setUser(null); setBusiness(null); setSubscription(null); setSubscriptionStatus(null); };
+  const logout = () => { localStorage.removeItem('permitwise_token'); setUser(null); setBusiness(null); setSubscription(null); setSubscriptionStatus(null); setBusinessRole(null); };
 
   // Check if subscription allows write operations
   const canWrite = subscriptionStatus?.canWrite ?? true;
   const isExpired = subscriptionStatus?.isExpired ?? false;
+  
+  // Role-based permission helpers
+  const isOwner = businessRole === 'owner';
+  const isManager = businessRole === 'manager' || businessRole === 'owner';
+  const canManageTeam = isManager;
+  const canManageSubscription = isOwner;
+  const canManageBusiness = isManager;
 
   return (
-    <AuthContext.Provider value={{ user, business, subscription, subscriptionStatus, canWrite, isExpired, loading, login, register, logout, fetchUser, updateBusiness: setBusiness, updateSubscription: setSubscription, isAuthenticated: !!user, hasCompletedOnboarding: !!business }}>
+    <AuthContext.Provider value={{ 
+      user, business, subscription, subscriptionStatus, businessRole,
+      canWrite, isExpired, isOwner, isManager, canManageTeam, canManageSubscription, canManageBusiness,
+      loading, login, register, logout, fetchUser, updateBusiness: setBusiness, updateSubscription: setSubscription, 
+      isAuthenticated: !!user, hasCompletedOnboarding: !!business 
+    }}>
       {children}
     </AuthContext.Provider>
   );
@@ -1256,6 +1399,7 @@ const Dashboard = ({ onNavigate }) => {
 
 const PermitsPage = () => {
   const { business, canWrite, isExpired } = useAuth();
+  const toast = useToast();
   const [permits, setPermits] = useState([]); const [summary, setSummary] = useState(null); const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false); const [showCityModal, setShowCityModal] = useState(false); const [selectedPermit, setSelectedPermit] = useState(null);
   const [showSuggestModal, setShowSuggestModal] = useState(false);
@@ -1331,7 +1475,8 @@ const PermitsPage = () => {
       }
       setShowSuggestModal(false);
       fetchPermits();
-    } catch (err) { alert(err.message); }
+      toast.success('Permits added successfully!');
+    } catch (err) { toast.error(err.message); }
     finally { setAddingSuggestions(false); }
   };
 
@@ -1355,8 +1500,8 @@ const PermitsPage = () => {
           <EmptyState icon={Icons.Permit} title="No permits yet" description="Add the permits you need to track or let us suggest them based on your city." action={<div className="empty-actions"><Button onClick={() => canWrite ? fetchSuggestedPermits() : setShowUpgradeModal(true)}><Icons.Search /> Get Suggestions</Button><Button variant="outline" onClick={() => setShowCityModal(true)}><Icons.MapPin /> Add City</Button></div>} />
         </div>
       )}
-      <AddCityModal isOpen={showCityModal} onClose={() => setShowCityModal(false)} onSuccess={fetchPermits} />
-      <AddPermitModal isOpen={showAddModal} onClose={() => setShowAddModal(false)} onSuccess={fetchPermits} />
+      <AddCityModal isOpen={showCityModal} onClose={() => setShowCityModal(false)} onSuccess={fetchPermits} toast={toast} />
+      <AddPermitModal isOpen={showAddModal} onClose={() => setShowAddModal(false)} onSuccess={fetchPermits} toast={toast} />
       <PermitDetailModal permit={selectedPermit} onClose={() => setSelectedPermit(null)} onUpdate={fetchPermits} />
       
       {/* Suggested Permits Modal */}
@@ -1423,17 +1568,17 @@ const PermitsPage = () => {
   );
 };
 
-const AddCityModal = ({ isOpen, onClose, onSuccess }) => {
+const AddCityModal = ({ isOpen, onClose, onSuccess, toast }) => {
   const [city, setCity] = useState(''); const [state, setState] = useState(''); const [loading, setLoading] = useState(false); const [result, setResult] = useState(null);
-  const handleAdd = async () => { setLoading(true); try { const data = await api.post('/permits/add-city', { city, state }); setResult(data); onSuccess(); } catch (err) { alert(err.message); } finally { setLoading(false); } };
+  const handleAdd = async () => { setLoading(true); try { const data = await api.post('/permits/add-city', { city, state }); setResult(data); onSuccess(); } catch (err) { toast?.error(err.message); } finally { setLoading(false); } };
   return (<Modal isOpen={isOpen} onClose={onClose} title="Add Operating City">{result && <Alert type="success">{result.message}</Alert>}<p>Add a city where you operate.</p><div className="form-row"><Input label="City" value={city} onChange={(e) => setCity(e.target.value)} /><Select label="State" value={state} onChange={(e) => setState(e.target.value)} options={[{ value: '', label: 'Select' }, ...US_STATES.map(s => ({ value: s, label: s }))]} /></div><div className="modal-actions"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={handleAdd} loading={loading} disabled={!city || !state}>Add City</Button></div></Modal>);
 };
 
-const AddPermitModal = ({ isOpen, onClose, onSuccess }) => {
+const AddPermitModal = ({ isOpen, onClose, onSuccess, toast }) => {
   const [city, setCity] = useState(''); const [state, setState] = useState(''); const [vendorType, setVendorType] = useState('');
   const [permitTypes, setPermitTypes] = useState([]); const [selectedPermit, setSelectedPermit] = useState(''); const [loading, setLoading] = useState(false);
   const searchPermits = async () => { if (!city || !state || !vendorType) return; try { const data = await api.get(`/permit-types/required?city=${city}&state=${state}&vendorType=${vendorType}`); setPermitTypes(data.permitTypes || []); } catch (err) { console.error(err); } };
-  const handleAdd = async () => { if (!selectedPermit) return; setLoading(true); try { const pt = permitTypes.find(p => p._id === selectedPermit); await api.post('/permits', { permitTypeId: selectedPermit, jurisdictionId: pt.jurisdictionId._id, status: 'missing' }); onSuccess(); onClose(); } catch (err) { alert(err.message); } finally { setLoading(false); } };
+  const handleAdd = async () => { if (!selectedPermit) return; setLoading(true); try { const pt = permitTypes.find(p => p._id === selectedPermit); await api.post('/permits', { permitTypeId: selectedPermit, jurisdictionId: pt.jurisdictionId._id, status: 'missing' }); onSuccess(); onClose(); toast?.success('Permit added!'); } catch (err) { toast?.error(err.message); } finally { setLoading(false); } };
   return (<Modal isOpen={isOpen} onClose={onClose} title="Add Permit" size="lg"><div className="form-row"><Input label="City" value={city} onChange={(e) => setCity(e.target.value)} /><Select label="State" value={state} onChange={(e) => setState(e.target.value)} options={[{ value: '', label: 'Select' }, ...US_STATES.map(s => ({ value: s, label: s }))]} /></div><Select label="Business Type" value={vendorType} onChange={(e) => setVendorType(e.target.value)} options={[{ value: '', label: 'Select' }, ...VENDOR_TYPES]} /><Button onClick={searchPermits} variant="outline"><Icons.Search /> Search</Button>{permitTypes.length > 0 && <div className="permit-options">{permitTypes.map(pt => (<label key={pt._id} className={`permit-option ${selectedPermit === pt._id ? 'selected' : ''}`}><input type="radio" name="permit" value={pt._id} checked={selectedPermit === pt._id} onChange={(e) => setSelectedPermit(e.target.value)} /><span>{pt.name}</span></label>))}</div>}<div className="modal-actions"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={handleAdd} loading={loading} disabled={!selectedPermit}>Add Permit</Button></div></Modal>);
 };
 
@@ -1510,7 +1655,7 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
       onUpdate(); 
     } catch (error) { setUploadError(error.message); } finally { setUploading(false); e.target.value = ''; } 
   };
-  const handleAutofill = async () => { try { const data = await api.post('/autofill/generate', { permitTypeId: localPermit.permitTypeId._id }); window.open(getSecureFileUrl(data.downloadUrl), '_blank'); } catch (error) { alert(error.message); } };
+  const handleAutofill = async () => { try { const data = await api.post('/autofill/generate', { permitTypeId: localPermit.permitTypeId._id }); window.open(getSecureFileUrl(data.downloadUrl), '_blank'); } catch (error) { toast?.error?.(error.message) || console.error(error.message); } };
   
   const getImportanceLabel = (level) => {
     if (level === 'critical') return { text: 'Critical', variant: 'danger' };
@@ -1631,10 +1776,16 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
 };
 
 const DocumentsPage = () => {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [documents, setDocuments] = useState([]); const [loading, setLoading] = useState(true); const [showUploadModal, setShowUploadModal] = useState(false);
   const fetchDocuments = async () => { try { const data = await api.get('/documents'); setDocuments(data.documents); } catch (error) { console.error(error); } finally { setLoading(false); } };
   useEffect(() => { fetchDocuments(); }, []);
-  const handleDelete = async (id) => { if (!window.confirm('Delete this document?')) return; try { await api.delete(`/documents/${id}`); fetchDocuments(); } catch (error) { console.error(error); } };
+  const handleDelete = async (id) => { 
+    const confirmed = await confirm({ title: 'Delete Document', message: 'Are you sure you want to delete this document? This action cannot be undone.', confirmText: 'Delete', variant: 'danger' });
+    if (!confirmed) return;
+    try { await api.delete(`/documents/${id}`); fetchDocuments(); toast.success('Document deleted'); } catch (error) { toast.error(error.message); } 
+  };
   const getCategoryLabel = (doc) => {
     const labels = { permit: 'Permit', insurance: 'Insurance', inspection: 'Inspection', food_handler: 'Food Handler', vehicle: 'Vehicle', commissary: 'Commissary', license: 'License', other: 'Other' };
     let label = labels[doc.category] || doc.category;
@@ -1670,6 +1821,8 @@ const UploadModal = UploadDocumentModal; // Alias for Dashboard use
 
 const InspectionsPage = () => {
   const { subscription, isExpired } = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [checklists, setChecklists] = useState([]); // Recommended checklists
   const [userChecklists, setUserChecklists] = useState([]); // User's custom checklists
   const [inspections, setInspections] = useState([]);
@@ -1720,7 +1873,8 @@ const InspectionsPage = () => {
       await api.post('/inspections', { checklistId: activeChecklist._id, items: inspectionData.items, notes: inspectionData.notes, inspectionDate: new Date() });
       setActiveChecklist(null);
       fetchData();
-    } catch (err) { alert(err.message); }
+      toast.success('Inspection submitted successfully!');
+    } catch (err) { toast.error(err.message); }
   };
 
   const createUserChecklist = async () => {
@@ -1733,15 +1887,18 @@ const InspectionsPage = () => {
       setNewChecklist({ name: '', description: '', items: [{ itemText: '' }] });
       setShowCreateModal(false);
       fetchData();
-    } catch (err) { alert(err.message); }
+      toast.success('Checklist created!');
+    } catch (err) { toast.error(err.message); }
   };
 
   const deleteUserChecklist = async (id) => {
-    if (!window.confirm('Delete this checklist?')) return;
+    const confirmed = await confirm({ title: 'Delete Checklist', message: 'Are you sure you want to delete this checklist?', confirmText: 'Delete', variant: 'danger' });
+    if (!confirmed) return;
     try {
       await api.delete(`/user-checklists/${id}`);
       fetchData();
-    } catch (err) { alert(err.message); }
+      toast.success('Checklist deleted');
+    } catch (err) { toast.error(err.message); }
   };
 
   const submitSuggestion = async () => {
@@ -1754,8 +1911,8 @@ const InspectionsPage = () => {
       });
       setSuggestionText('');
       setShowSuggestModal(false);
-      alert('Thank you! Your suggestion has been submitted.');
-    } catch (err) { alert(err.message); }
+      toast.success('Thank you! Your suggestion has been submitted.');
+    } catch (err) { toast.error(err.message); }
   };
 
   if (!hasAccess) {
@@ -1988,6 +2145,8 @@ const InspectionsPage = () => {
 
 const EventsPage = () => {
   const { user, subscription, isExpired, canWrite } = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [events, setEvents] = useState([]); const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
@@ -2151,11 +2310,11 @@ const EventsPage = () => {
         details: `New location request for event: ${locationRequest.city}, ${locationRequest.state}`,
         additionalInfo: locationRequest.reason
       });
-      alert('Location request submitted! Our team will review and add it soon.');
+      toast.success('Location request submitted! Our team will review and add it soon.');
       setShowLocationRequestModal(false);
       setLocationRequest({ city: '', state: '', reason: '' });
     } catch (error) {
-      alert(error.message || 'Failed to submit request');
+      toast.error(error.message || 'Failed to submit request');
     } finally {
       setLocationRequestSubmitting(false);
     }
@@ -2182,7 +2341,7 @@ const EventsPage = () => {
       });
       setRequestSubmitted(true);
       setTimeout(() => { setShowRequestModal(false); setRequestSubmitted(false); setRequestForm({ eventName: '', organizerName: '', city: '', state: '', startDate: '', endDate: '', eventType: '', website: '', additionalInfo: '' }); }, 2000);
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast.error(err.message); }
     finally { setRequestSubmitting(false); }
   };
 
@@ -2218,8 +2377,8 @@ const EventsPage = () => {
       setEventProofFiles([]);
       setSelectedPreviousProofs([]);
       setOrganizerTab('my-events');
-      alert('Event created successfully!');
-    } catch (err) { alert(err.message); }
+      toast.success('Event created successfully!');
+    } catch (err) { toast.error(err.message); }
   };
   
   // Fetch previous event proofs when switching to create tab
@@ -2235,20 +2394,26 @@ const EventsPage = () => {
       await api.put(`/events/organizer/${eventId}/status`, { status });
       const orgData = await api.get('/events/organizer/my-events');
       setOrganizerEvents(orgData.events || []);
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast.error(err.message); }
   };
   
   // Cancel event with vendor notifications
   const cancelEvent = async (eventId) => {
-    if (!window.confirm('Are you sure you want to cancel this event? All approved vendors and applicants will be notified.')) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: 'Cancel Event',
+      message: 'Are you sure you want to cancel this event? All approved vendors and applicants will be notified by email.',
+      confirmText: 'Yes, Cancel Event',
+      cancelText: 'Keep Event',
+      variant: 'danger'
+    });
+    if (!confirmed) return;
+    
     try {
       await api.put(`/events/organizer/${eventId}/cancel`);
       const orgData = await api.get('/events/organizer/my-events');
       setOrganizerEvents(orgData.events || []);
-      alert('Event cancelled. All vendors have been notified.');
-    } catch (err) { alert(err.message); }
+      toast.success('Event cancelled. All vendors have been notified.');
+    } catch (err) { toast.error(err.message); }
   };
   
   // Upload proof documents for existing event
@@ -2268,8 +2433,8 @@ const EventsPage = () => {
       setOrganizerEvents(orgData.events || []);
       setShowProofUploadModal(null);
       setProofUploadFiles([]);
-      alert('Documents uploaded successfully!');
-    } catch (err) { alert(err.message); }
+      toast.success('Documents uploaded successfully!');
+    } catch (err) { toast.error(err.message); }
     finally { setProofUploading(false); }
   };
 
@@ -2278,14 +2443,14 @@ const EventsPage = () => {
       const data = await api.get(`/events/organizer/${eventId}/applications`);
       setVendorApplications(data.applications || []);
       setSelectedOrgEvent(organizerEvents.find(e => e._id === eventId));
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast.error(err.message); }
   };
 
   const handleApplication = async (applicationId, action) => {
     try {
       await api.put(`/events/organizer/applications/${applicationId}`, { status: action });
       if (selectedOrgEvent) fetchEventApplications(selectedOrgEvent._id);
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast.error(err.message); }
   };
 
   const inviteVendor = async (eventId) => {
@@ -2293,9 +2458,9 @@ const EventsPage = () => {
     try {
       await api.post(`/events/organizer/${eventId}/invite`, { email: inviteEmail });
       setInviteEmail('');
-      alert('Invitation sent!');
+      toast.success('Invitation sent!');
       fetchEventApplications(eventId);
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast.error(err.message); }
   };
 
   // Edit event functions
@@ -2361,8 +2526,8 @@ const EventsPage = () => {
       setOrganizerEvents(orgData.events || []);
       setShowEditEventModal(false);
       setEditingEvent(null);
-      alert('Event updated successfully!');
-    } catch (err) { alert(err.message); }
+      toast.success('Event updated successfully!');
+    } catch (err) { toast.error(err.message); }
   };
 
   // Vendor functions
@@ -2381,12 +2546,12 @@ const EventsPage = () => {
       setPublishedEvents(pubData.events || []);
       const data = await api.get('/events/my-events');
       setEvents(data.events || []);
-      alert('Application submitted!');
+      toast.success('Application submitted!');
     } catch (err) { 
       if (err.message?.includes('subscription') || err.message?.includes('expired')) {
         setShowUpgradeModal(true);
       } else {
-        alert(err.message); 
+        toast.error(err.message); 
       }
     }
   };
@@ -2405,7 +2570,7 @@ const EventsPage = () => {
       if (err.message?.includes('subscription') || err.message?.includes('expired')) {
         setShowUpgradeModal(true);
       } else {
-        alert(err.message); 
+        toast.error(err.message); 
       }
     }
   };
@@ -2424,9 +2589,9 @@ const EventsPage = () => {
       ]);
       setEvents(myData.events || []);
       setPublishedEvents(pubData.events || []);
-      alert('Successfully withdrawn from event. The organizer has been notified.');
+      toast.success('Successfully withdrawn from event. The organizer has been notified.');
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setWithdrawing(false);
     }
@@ -3886,6 +4051,8 @@ const EventsPage = () => {
 // ===========================================
 const OrganizerSettingsPage = () => {
   const { user, fetchUser } = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState('profile');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -3940,19 +4107,20 @@ const OrganizerSettingsPage = () => {
       setDocuments(data.documents || []);
       setShowUploadDocModal(false);
       setDocUploadData({ file: null, name: '', category: 'business_license' });
-      setMessage('Document uploaded successfully');
-    } catch (err) { setMessage(err.message); }
+      toast.success('Document uploaded successfully');
+    } catch (err) { toast.error(err.message); }
     finally { setUploadingDoc(false); }
   };
   
   const handleDocDelete = async (index) => {
-    if (!window.confirm('Delete this document?')) return;
+    const confirmed = await confirm({ title: 'Delete Document', message: 'Are you sure you want to delete this document?', confirmText: 'Delete', variant: 'danger' });
+    if (!confirmed) return;
     try {
       await api.delete(`/organizer/documents/${index}`);
       const data = await api.get('/organizer/documents');
       setDocuments(data.documents || []);
-      setMessage('Document deleted');
-    } catch (err) { setMessage(err.message); }
+      toast.success('Document deleted');
+    } catch (err) { toast.error(err.message); }
   };
   
   const handleProfileSave = async () => {
@@ -3960,8 +4128,8 @@ const OrganizerSettingsPage = () => {
     try {
       await api.put('/auth/profile', profileData);
       await fetchUser();
-      setMessage('Profile updated successfully');
-    } catch (err) { setMessage(err.message); }
+      toast.success('Profile updated successfully');
+    } catch (err) { toast.error(err.message); }
     finally { setLoading(false); }
   };
   
@@ -3970,8 +4138,8 @@ const OrganizerSettingsPage = () => {
     try {
       await api.put('/organizer/profile', organizationData);
       await fetchUser();
-      setMessage('Organization profile updated');
-    } catch (err) { setMessage(err.message); }
+      toast.success('Organization profile updated');
+    } catch (err) { toast.error(err.message); }
     finally { setLoading(false); }
   };
   
@@ -3980,8 +4148,8 @@ const OrganizerSettingsPage = () => {
     try {
       await api.put('/organizer/notifications', notificationPrefs);
       await fetchUser();
-      setMessage('Notification preferences saved');
-    } catch (err) { setMessage(err.message); }
+      toast.success('Notification preferences saved');
+    } catch (err) { toast.error(err.message); }
     finally { setLoading(false); }
   };
   
@@ -3989,14 +4157,14 @@ const OrganizerSettingsPage = () => {
     try {
       const data = await api.post('/organizer/subscription/checkout');
       if (data.url) window.location.href = data.url;
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast.error(err.message); }
   };
   
   const handleManageBilling = async () => {
     try {
       const data = await api.post('/organizer/subscription/portal');
       if (data.url) window.location.href = data.url;
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast.error(err.message); }
   };
   
   const isVerified = user?.organizerProfile?.verified;
@@ -4388,7 +4556,9 @@ const ChangePasswordForm = () => {
 };
 
 const SettingsPage = () => {
-  const { user, business, subscription, fetchUser, updateBusiness } = useAuth();
+  const { user, business, subscription, fetchUser, updateBusiness, isOwner, isManager, canManageTeam, canManageSubscription, canManageBusiness } = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState('profile'); const [loading, setLoading] = useState(false); const [message, setMessage] = useState('');
   const [profileData, setProfileData] = useState({ firstName: user?.firstName || '', lastName: user?.lastName || '', phone: user?.phone || '', notificationPreferences: user?.notificationPreferences || { email: true, sms: false, push: true } });
   const [businessData, setBusinessData] = useState({ 
@@ -4400,18 +4570,22 @@ const SettingsPage = () => {
     vehicleDetails: business?.vehicleDetails || { type: '', make: '', model: '', year: '', licensePlate: '' },
     insurance: business?.insurance || { provider: '', policyNumber: '', expiryDate: '' }
   });
-  const [teamMembers, setTeamMembers] = useState([]); const [newMember, setNewMember] = useState({ email: '', role: 'member' });
+  const [teamMembers, setTeamMembers] = useState([]); const [newMember, setNewMember] = useState({ email: '', role: 'staff' });
 
   useEffect(() => {
-    if (subscription?.features?.teamAccounts) {
+    if (subscription?.features?.teamAccounts && canManageTeam) {
       api.get('/team').then(data => setTeamMembers(data.members || [])).catch(console.error);
     }
-  }, [subscription]);
+  }, [subscription, canManageTeam]);
 
   const handleProfileSave = async () => { setLoading(true); try { await api.put('/auth/profile', profileData); await fetchUser(); setMessage('Profile updated'); } catch (err) { setMessage(err.message); } finally { setLoading(false); } };
-  const handleBusinessSave = async () => { setLoading(true); try { const data = await api.put('/business', businessData); updateBusiness(data.business); setMessage('Business updated'); } catch (err) { setMessage(err.message); } finally { setLoading(false); } };
+  const handleBusinessSave = async () => { 
+    if (!canManageBusiness) { toast.error('You do not have permission to edit business settings'); return; }
+    setLoading(true); try { const data = await api.put('/business', businessData); updateBusiness(data.business); setMessage('Business updated'); } catch (err) { setMessage(err.message); } finally { setLoading(false); } 
+  };
   
   const handleFoodHandlingToggle = async (checked) => {
+    if (!canManageBusiness) { toast.error('You do not have permission to change this setting'); return; }
     setBusinessData(d => ({ ...d, handlesFood: checked }));
     setLoading(true);
     try {
@@ -4436,15 +4610,29 @@ const SettingsPage = () => {
     } finally { setLoading(false); }
   };
   
-  const handleUpgrade = async (plan) => { try { const data = await api.post('/subscription/checkout', { plan }); if (data.url) window.location.href = data.url; } catch (err) { alert(err.message); } };
+  const handleUpgrade = async (plan) => { 
+    if (!canManageSubscription) { toast.error('Only the business owner can manage subscriptions'); return; }
+    try { const data = await api.post('/subscription/checkout', { plan }); if (data.url) window.location.href = data.url; } catch (err) { toast.error(err.message); } 
+  };
   const addCity = () => setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
   const removeCity = (i) => { if (businessData.operatingCities.length > 1) setBusinessData(d => ({ ...d, operatingCities: d.operatingCities.filter((_, idx) => idx !== i) })); };
-  const inviteMember = async () => { try { await api.post('/team/invite', newMember); setNewMember({ email: '', role: 'member' }); const data = await api.get('/team'); setTeamMembers(data.members || []); setMessage('Invitation sent'); } catch (err) { alert(err.message); } };
-  const removeMember = async (id) => { if (window.confirm('Remove this team member?')) { try { await api.delete(`/team/${id}`); setTeamMembers(m => m.filter(t => t._id !== id)); } catch (err) { alert(err.message); } } };
+  const inviteMember = async () => { 
+    if (!canManageTeam) { toast.error('You do not have permission to invite team members'); return; }
+    try { await api.post('/team/invite', newMember); setNewMember({ email: '', role: 'staff' }); const data = await api.get('/team'); setTeamMembers(data.members || []); toast.success('Invitation sent!'); } catch (err) { toast.error(err.message); } 
+  };
+  const removeMember = async (id) => { 
+    if (!canManageTeam) { toast.error('You do not have permission to remove team members'); return; }
+    const confirmed = await confirm({ title: 'Remove Team Member', message: 'Are you sure you want to remove this team member?', confirmText: 'Remove', variant: 'danger' });
+    if (confirmed) { try { await api.delete(`/team/${id}`); setTeamMembers(m => m.filter(t => t._id !== id)); toast.success('Team member removed'); } catch (err) { toast.error(err.message); } } 
+  };
 
-  const tabs = ['profile', 'business', 'cities', 'notifications', 'billing'];
-  if (subscription?.features?.teamAccounts) tabs.splice(4, 0, 'team');
+  // Build tabs based on permissions
+  const tabs = ['profile'];
+  if (canManageBusiness) tabs.push('business', 'cities');
+  tabs.push('notifications');
+  if (subscription?.features?.teamAccounts && canManageTeam) tabs.push('team');
+  if (canManageSubscription) tabs.push('billing');
 
   return (
     <div className="settings-page">
@@ -4560,7 +4748,7 @@ const SettingsPage = () => {
                 <h3>Invite Team Member</h3>
                 <div className="form-row">
                   <Input label="Email" value={newMember.email} onChange={(e) => setNewMember(m => ({ ...m, email: e.target.value }))} placeholder="team@example.com" />
-                  <Select label="Role" value={newMember.role} onChange={(e) => setNewMember(m => ({ ...m, role: e.target.value }))} options={[{ value: 'member', label: 'Member' }, { value: 'admin', label: 'Admin' }]} />
+                  <Select label="Role" value={newMember.role} onChange={(e) => setNewMember(m => ({ ...m, role: e.target.value }))} options={isOwner ? [{ value: 'staff', label: 'Staff' }, { value: 'manager', label: 'Manager' }] : [{ value: 'staff', label: 'Staff' }]} />
                 </div>
                 <Button onClick={inviteMember} disabled={!newMember.email}>Send Invite</Button>
               </Card>
@@ -4568,8 +4756,8 @@ const SettingsPage = () => {
               {teamMembers.length > 0 ? teamMembers.map(member => (
                 <Card key={member._id} className="team-member-card">
                   <div className="member-info"><span className="member-name">{member.userId?.firstName} {member.userId?.lastName}</span><span className="member-email">{member.userId?.email}</span></div>
-                  <div className="member-meta"><Badge variant={member.role === 'admin' ? 'primary' : 'default'}>{member.role}</Badge><Badge variant={member.status === 'active' ? 'success' : 'warning'}>{member.status}</Badge></div>
-                  {member.role !== 'owner' && <button className="remove-btn" onClick={() => removeMember(member._id)}><Icons.Trash /></button>}
+                  <div className="member-meta"><Badge variant={member.role === 'manager' ? 'primary' : 'default'}>{member.role === 'manager' ? 'Manager' : 'Staff'}</Badge></div>
+                  {(isOwner || (isManager && member.role !== 'manager')) && <button className="remove-btn" onClick={() => removeMember(member._id)}><Icons.Trash /></button>}
                 </Card>
               )) : <p className="empty-text">No team members yet</p>}
             </div>
@@ -4752,6 +4940,9 @@ const PrivacyPage = ({ onBack }) => (
 // ADMIN PAGE
 // ===========================================
 const SuperAdminPage = ({ onBack }) => {
+  const toast = useToast();
+  const confirm = useConfirm();
+  
   // Admin authentication state
   const [adminAuthenticated, setAdminAuthenticated] = useState(false);
   const [adminLoading, setAdminLoading] = useState(true);
@@ -5022,10 +5213,22 @@ const SuperAdminPage = ({ onBack }) => {
     } catch (err) { setMessage(err.message); }
   };
 
-  const deleteUser = async (id) => { if (window.confirm('Delete this user?')) { try { await adminApi(`/admin/users/${id}`, 'DELETE'); fetchData('users'); setMessage('User deleted'); } catch (err) { setMessage(err.message); } } };
-  const deleteBusiness = async (id) => { if (window.confirm('Delete this business?')) { try { await adminApi(`/admin/businesses/${id}`, 'DELETE'); fetchData('businesses'); setMessage('Business deleted'); } catch (err) { setMessage(err.message); } } };
-  const deleteJurisdiction = async (id) => { if (window.confirm('Delete this jurisdiction?')) { try { await adminApi(`/admin/jurisdictions/${id}`, 'DELETE'); fetchData('jurisdictions'); setMessage('Jurisdiction deleted'); } catch (err) { setMessage(err.message); } } };
-  const deletePermitType = async (id) => { if (window.confirm('Delete this permit type?')) { try { await adminApi(`/admin/permit-types/${id}`, 'DELETE'); fetchData('permitTypes'); setMessage('Permit type deleted'); } catch (err) { setMessage(err.message); } } };
+  const deleteUser = async (id) => { 
+    const confirmed = await confirm({ title: 'Delete User', message: 'Are you sure you want to delete this user?', confirmText: 'Delete', variant: 'danger' });
+    if (confirmed) { try { await adminApi(`/admin/users/${id}`, 'DELETE'); fetchData('users'); toast.success('User deleted'); } catch (err) { toast.error(err.message); } } 
+  };
+  const deleteBusiness = async (id) => { 
+    const confirmed = await confirm({ title: 'Delete Business', message: 'Are you sure you want to delete this business?', confirmText: 'Delete', variant: 'danger' });
+    if (confirmed) { try { await adminApi(`/admin/businesses/${id}`, 'DELETE'); fetchData('businesses'); toast.success('Business deleted'); } catch (err) { toast.error(err.message); } } 
+  };
+  const deleteJurisdiction = async (id) => { 
+    const confirmed = await confirm({ title: 'Delete Jurisdiction', message: 'Are you sure you want to delete this jurisdiction?', confirmText: 'Delete', variant: 'danger' });
+    if (confirmed) { try { await adminApi(`/admin/jurisdictions/${id}`, 'DELETE'); fetchData('jurisdictions'); toast.success('Jurisdiction deleted'); } catch (err) { toast.error(err.message); } } 
+  };
+  const deletePermitType = async (id) => { 
+    const confirmed = await confirm({ title: 'Delete Permit Type', message: 'Are you sure you want to delete this permit type?', confirmText: 'Delete', variant: 'danger' });
+    if (confirmed) { try { await adminApi(`/admin/permit-types/${id}`, 'DELETE'); fetchData('permitTypes'); toast.success('Permit type deleted'); } catch (err) { toast.error(err.message); } } 
+  };
   
   // Checklist CRUD functions
   const createChecklist = async () => {
@@ -5062,17 +5265,23 @@ const SuperAdminPage = ({ onBack }) => {
     } catch (err) { setMessage(err.message); }
   };
   
-  const deleteChecklist = async (id) => { if (window.confirm('Delete this checklist?')) { try { await adminApi(`/admin/checklists/${id}`, 'DELETE'); fetchData('checklists'); setMessage('Checklist deleted'); } catch (err) { setMessage(err.message); } } };
+  const deleteChecklist = async (id) => { 
+    const confirmed = await confirm({ title: 'Delete Checklist', message: 'Are you sure you want to delete this checklist?', confirmText: 'Delete', variant: 'danger' });
+    if (confirmed) { try { await adminApi(`/admin/checklists/${id}`, 'DELETE'); fetchData('checklists'); toast.success('Checklist deleted'); } catch (err) { toast.error(err.message); } } 
+  };
 
   // Suggestion functions
   const updateSuggestion = async (id, status, adminNotes) => {
     try {
       await adminApi(`/admin/suggestions/${id}`, 'PUT', { status, adminNotes });
       fetchData('suggestions');
-      setMessage(`Suggestion marked as ${status}`);
-    } catch (err) { setMessage(err.message); }
+      toast.success(`Suggestion marked as ${status}`);
+    } catch (err) { toast.error(err.message); }
   };
-  const deleteSuggestion = async (id) => { if (window.confirm('Delete this suggestion?')) { try { await adminApi(`/admin/suggestions/${id}`, 'DELETE'); fetchData('suggestions'); setMessage('Suggestion deleted'); } catch (err) { setMessage(err.message); } } };
+  const deleteSuggestion = async (id) => { 
+    const confirmed = await confirm({ title: 'Delete Suggestion', message: 'Are you sure you want to delete this suggestion?', confirmText: 'Delete', variant: 'danger' });
+    if (confirmed) { try { await adminApi(`/admin/suggestions/${id}`, 'DELETE'); fetchData('suggestions'); toast.success('Suggestion deleted'); } catch (err) { toast.error(err.message); } } 
+  };
 
   // Event CRUD functions
   const createEvent = async () => {
@@ -5093,10 +5302,13 @@ const SuperAdminPage = ({ onBack }) => {
       });
       setNewEvent({ eventName: '', organizerName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', vendorFee: '', maxVendors: '', status: 'draft', requiredPermits: [] });
       fetchData('events');
-      setMessage('Event created');
-    } catch (err) { setMessage(err.message); }
+      toast.success('Event created');
+    } catch (err) { toast.error(err.message); }
   };
-  const deleteEvent = async (id) => { if (window.confirm('Delete this event?')) { try { await adminApi(`/admin/events/${id}`, 'DELETE'); fetchData('events'); setMessage('Event deleted'); } catch (err) { setMessage(err.message); } } };
+  const deleteEvent = async (id) => { 
+    const confirmed = await confirm({ title: 'Delete Event', message: 'Are you sure you want to delete this event?', confirmText: 'Delete', variant: 'danger' });
+    if (confirmed) { try { await adminApi(`/admin/events/${id}`, 'DELETE'); fetchData('events'); toast.success('Event deleted'); } catch (err) { toast.error(err.message); } } 
+  };
   
   // Event vendor assignment functions
   const assignVendorToEvent = async () => {
@@ -5106,12 +5318,14 @@ const SuperAdminPage = ({ onBack }) => {
       setManagingEvent(result.event);
       setVendorToAssign('');
       fetchData('events');
-      setMessage('Vendor assigned to event');
-    } catch (err) { setMessage(err.message); }
+      toast.success('Vendor assigned to event');
+    } catch (err) { toast.error(err.message); }
   };
   
   const removeVendorFromEvent = async (vendorId) => {
-    if (!managingEvent || !window.confirm('Remove this vendor from the event?')) return;
+    if (!managingEvent) return;
+    const confirmed = await confirm({ title: 'Remove Vendor', message: 'Are you sure you want to remove this vendor from the event?', confirmText: 'Remove', variant: 'danger' });
+    if (!confirmed) return;
     try {
       await adminApi(`/admin/events/${managingEvent._id}/remove-vendor/${vendorId}`, 'DELETE');
       setManagingEvent(prev => ({
@@ -5172,16 +5386,22 @@ const SuperAdminPage = ({ onBack }) => {
 
   const revokeSubscription = async () => {
     if (!managingSubscription) return;
-    if (!window.confirm('Are you sure you want to revoke this subscription? The user will lose access to paid features.')) return;
+    const confirmed = await confirm({ 
+      title: 'Revoke Subscription', 
+      message: 'Are you sure you want to revoke this subscription? The user will lose access to paid features.', 
+      confirmText: 'Revoke Access', 
+      variant: 'danger' 
+    });
+    if (!confirmed) return;
     try {
       const result = await adminApi(`/admin/subscriptions/${managingSubscription._id}/revoke`, 'POST', {
         note: subscriptionForm.note
       });
-      setMessage(result.message);
+      toast.success(result.message);
       setManagingSubscription(null);
       setSubscriptionAction('');
       fetchData('businesses');
-    } catch (err) { setMessage(err.message); }
+    } catch (err) { toast.error(err.message); }
   };
 
   const openSubscriptionManager = (business) => {
@@ -6561,12 +6781,21 @@ const AppLayout = ({ children, activePage, onNavigate, onLogout }) => {
 // ===========================================
 const App = () => {
   const { user, isAuthenticated, hasCompletedOnboarding, loading, logout } = useAuth();
+  const toast = useToast();
   const isOrganizer = user?.isOrganizer;
   const isOrganizerDisabled = user?.isOrganizer && (user?.organizerProfile?.disabled || user?.organizerProfile?.verificationStatus === 'rejected');
   const [currentPage, setCurrentPage] = useState(isOrganizer ? 'events' : 'dashboard');
   const [authView, setAuthView] = useState(null);
   const [showPermitChecker, setShowPermitChecker] = useState(false);
-  const [legalPage, setLegalPage] = useState(null); // 'privacy', 'terms', 'superadmin'
+  // Initialize legalPage from URL immediately to avoid flash of login screen
+  const [legalPage, setLegalPage] = useState(() => {
+    const path = window.location.pathname;
+    const pathLower = path.toLowerCase();
+    if (path === '/privacy') return 'privacy';
+    if (path === '/terms') return 'terms';
+    if (pathLower === '/superadmin') return 'superadmin';
+    return null;
+  });
   const [resetToken, setResetToken] = useState(null);
   const [registerAsOrganizer, setRegisterAsOrganizer] = useState(false);
 
@@ -6589,8 +6818,14 @@ const App = () => {
 
   useEffect(() => { 
     const params = new URLSearchParams(window.location.search);
-    if (params.get('success')) { alert('Subscription activated!'); window.history.replaceState({}, '', window.location.pathname); }
-    if (params.get('canceled')) { alert('Checkout canceled.'); window.history.replaceState({}, '', window.location.pathname); }
+    if (params.get('success')) { 
+      setTimeout(() => toast.success('Subscription activated!'), 100);
+      window.history.replaceState({}, '', window.location.pathname); 
+    }
+    if (params.get('canceled')) { 
+      setTimeout(() => toast.info('Checkout canceled.'), 100);
+      window.history.replaceState({}, '', window.location.pathname); 
+    }
     // Check for password reset token
     if (params.get('token') && window.location.pathname.includes('reset-password')) {
       setResetToken(params.get('token'));
@@ -6616,7 +6851,7 @@ const App = () => {
 
   // Password reset page (accessible without auth)
   if (resetToken) {
-    return <ResetPasswordPage token={resetToken} onSuccess={() => { setResetToken(null); setAuthView('login'); window.history.replaceState({}, '', '/app'); alert('Password reset successful! Please log in.'); }} />;
+    return <ResetPasswordPage token={resetToken} onSuccess={() => { setResetToken(null); setAuthView('login'); window.history.replaceState({}, '', '/app'); toast.success('Password reset successful! Please log in.'); }} />;
   }
 
   // Legal pages are accessible without authentication
@@ -6664,5 +6899,13 @@ const App = () => {
   return <AppLayout activePage={currentPage} onNavigate={handleNavigate} onLogout={logout}>{renderPage()}</AppLayout>;
 };
 
-const AppWithAuth = () => <AuthProvider><App /></AuthProvider>;
+const AppWithAuth = () => (
+  <AuthProvider>
+    <ToastProvider>
+      <ConfirmProvider>
+        <App />
+      </ConfirmProvider>
+    </ToastProvider>
+  </AuthProvider>
+);
 export default AppWithAuth;
