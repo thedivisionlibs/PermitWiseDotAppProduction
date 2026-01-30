@@ -3710,22 +3710,16 @@ const EventsScreen = () => {
   // Fetch organizer's events
   const fetchOrganizerEvents = async () => {
     try {
-      console.log('Mobile fetchOrganizerEvents called');
       const [eventsData, jurData, vendorsData] = await Promise.all([
         api.get('/events/organizer/my-events'),
         api.get('/jurisdictions'),
         api.get('/events/organizer/registered-vendors')
       ]);
-      console.log('Mobile API responses:');
-      console.log('- Jurisdictions:', jurData.jurisdictions?.length || 0);
-      console.log('- Events:', eventsData.events?.length || 0);
-      console.log('- Vendors:', vendorsData.vendors?.length || 0);
       setOrganizerEvents(eventsData.events || []);
       setJurisdictions(jurData.jurisdictions || []);
       setRegisteredVendors(vendorsData.vendors || []);
     } catch (error) { 
-      console.error('Error fetching organizer data:', error); 
-      Alert.alert('Debug', 'Error: ' + error.message);
+      console.error('Error fetching organizer data:', error);
     }
     finally { setLoading(false); setRefreshing(false); }
   };
@@ -3975,6 +3969,28 @@ const EventsScreen = () => {
       Alert.alert('Success', `Event ${status}`);
     } catch (error) { Alert.alert('Error', error.message); }
   };
+  
+  // Cancel event with vendor notifications
+  const cancelEvent = async (eventId) => {
+    Alert.alert(
+      'Cancel Event',
+      'Are you sure you want to cancel this event? All approved vendors and applicants will be notified.',
+      [
+        { text: 'No', style: 'cancel' },
+        { 
+          text: 'Yes, Cancel Event', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.put(`/events/organizer/${eventId}/cancel`);
+              fetchOrganizerEvents();
+              Alert.alert('Event Cancelled', 'All vendors have been notified.');
+            } catch (error) { Alert.alert('Error', error.message); }
+          }
+        }
+      ]
+    );
+  };
 
   // Create event
   const createEvent = async () => {
@@ -4062,10 +4078,7 @@ const EventsScreen = () => {
     // Check organizer status directly from user object
     const userIsOrganizer = user.isOrganizer && !user.organizerProfile?.disabled;
     
-    console.log('Mobile EventsScreen init - isOrganizer:', userIsOrganizer, 'user.isOrganizer:', user.isOrganizer);
-    
     if (userIsOrganizer) {
-      console.log('Mobile: Fetching organizer events for user:', user._id);
       fetchOrganizerEvents();
     } else if (hasAccess) {
       fetchMyEvents();
@@ -4106,14 +4119,6 @@ const EventsScreen = () => {
             <Text style={styles.pageSubtitle}>Manage your events and vendors</Text>
           </View>
           <View style={styles.organizerBadge}><Text style={styles.organizerBadgeText}>ORGANIZER</Text></View>
-        </View>
-
-        {/* Debug Info */}
-        <View style={{ backgroundColor: '#f0f9ff', borderWidth: 1, borderColor: '#0ea5e9', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-          <Text style={{ fontSize: 12, fontWeight: '600' }}>Debug Info:</Text>
-          <Text style={{ fontSize: 11, color: '#666' }}>User: {user?.email}</Text>
-          <Text style={{ fontSize: 11, color: '#666' }}>isOrganizer: {String(isOrganizer)} | user.isOrganizer: {String(user?.isOrganizer)}</Text>
-          <Text style={{ fontSize: 11, color: '#666' }}>Jurisdictions: {jurisdictions.length} | Events: {organizerEvents.length}</Text>
         </View>
 
         {/* Organizer Tabs */}
@@ -4169,6 +4174,45 @@ const EventsScreen = () => {
                     <Text style={[styles.statusBadgeText, { color: item.status === 'published' ? '#166534' : item.status === 'closed' ? '#92400e' : '#374151' }]}>{item.status?.toUpperCase()}</Text>
                   </View>
                 </View>
+                
+                {/* Proof Status Button */}
+                {item.requiresProof !== false && item.status !== 'cancelled' && (
+                  <TouchableOpacity 
+                    style={{ 
+                      flexDirection: 'row', 
+                      alignItems: 'center', 
+                      gap: 8, 
+                      padding: 12, 
+                      marginBottom: 12,
+                      borderWidth: 2, 
+                      borderStyle: 'dashed',
+                      borderColor: item.verificationStatus === 'approved' ? COLORS.success : 
+                                   item.verificationStatus === 'rejected' ? COLORS.danger : '#f59e0b',
+                      borderRadius: 8,
+                      backgroundColor: item.verificationStatus === 'approved' ? '#dcfce7' : 
+                                       item.verificationStatus === 'rejected' ? '#fee2e2' : '#fef3c7'
+                    }}
+                    onPress={() => {
+                      if (item.verificationStatus !== 'approved') {
+                        Alert.alert('Upload Proof', 'Please use the web app to upload proof documents for this event.');
+                      }
+                    }}
+                    disabled={item.verificationStatus === 'approved'}
+                  >
+                    {item.verificationStatus === 'approved' ? (
+                      <><Icons.Check size={18} color="#166534" /><Text style={{ color: '#166534', fontWeight: '500' }}>Verified</Text></>
+                    ) : item.verificationStatus === 'rejected' ? (
+                      <><Icons.Alert size={18} color={COLORS.danger} /><Text style={{ color: COLORS.danger, fontWeight: '500' }}>Rejected - Upload New Proof</Text></>
+                    ) : item.verificationStatus === 'info_needed' ? (
+                      <><Icons.Alert size={18} color="#92400e" /><Text style={{ color: '#92400e', fontWeight: '500' }}>Info Needed - Upload More</Text></>
+                    ) : (item.proofDocuments?.length || 0) > 0 ? (
+                      <><Icons.Clock size={18} color="#92400e" /><Text style={{ color: '#92400e', fontWeight: '500' }}>Proof Pending Review</Text></>
+                    ) : (
+                      <><Icons.Upload size={18} color="#92400e" /><Text style={{ color: '#92400e', fontWeight: '500' }}>Upload Proof Documents</Text></>
+                    )}
+                  </TouchableOpacity>
+                )}
+                
                 <View style={{ borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.gray100, paddingVertical: 12, marginVertical: 12 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
                     <Text style={{ color: COLORS.gray500, fontSize: 13 }}>Event Type</Text>
@@ -4200,10 +4244,19 @@ const EventsScreen = () => {
                   )}
                 </View>
                 <View style={styles.organizerEventActions}>
-                  <Button title="Edit" variant="outline" size="sm" onPress={() => openEditEventModal(item)} style={{ flex: 1 }} />
-                  <Button title="Manage" variant="outline" size="sm" onPress={() => fetchEventApplications(item._id)} style={{ flex: 1 }} />
+                  {item.status === 'closed' || item.status === 'cancelled' ? (
+                    <Button title="View" variant="outline" size="sm" onPress={() => fetchEventApplications(item._id)} style={{ flex: 1 }} />
+                  ) : (
+                    <>
+                      <Button title={item.status === 'published' ? 'Edit Name' : 'Edit'} variant="outline" size="sm" onPress={() => openEditEventModal(item)} style={{ flex: 1 }} />
+                      <Button title="Manage" variant="outline" size="sm" onPress={() => fetchEventApplications(item._id)} style={{ flex: 1 }} />
+                    </>
+                  )}
                   {item.status === 'draft' && <Button title="Publish" size="sm" onPress={() => updateEventStatus(item._id, 'published')} style={{ flex: 1 }} />}
                   {item.status === 'published' && <Button title="Close" variant="outline" size="sm" onPress={() => updateEventStatus(item._id, 'closed')} style={{ flex: 1 }} />}
+                  {(item.status === 'draft' || item.status === 'published') && (
+                    <Button title="Cancel" variant="danger" size="sm" onPress={() => cancelEvent(item._id)} style={{ flex: 1 }} />
+                  )}
                 </View>
               </Card>
             )}
