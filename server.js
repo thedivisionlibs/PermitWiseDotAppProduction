@@ -1899,8 +1899,7 @@ app.post('/api/organizer/subscription/portal', authMiddleware, async (req, res) 
 app.get('/api/jurisdictions', async (req, res) => {
   try {
     const { state, type, search } = req.query;
-    // Include jurisdictions where active is true or not set (for backwards compatibility)
-    const query = { active: { $ne: false } };
+    const query = {};
     
     if (state) query.state = state;
     if (type) query.type = type;
@@ -5681,21 +5680,21 @@ app.put('/api/admin/organizers/:id/status', masterAdminMiddleware, async (req, r
 // Get all pending verifications (organizers + events with pending documents)
 app.get('/api/admin/verifications', masterAdminMiddleware, async (req, res) => {
   try {
-    // Get organizers with pending documents
-    const organizersWithPendingDocs = await User.find({
+    // Get organizers with documents (any status) - ordered by pending first
+    const organizersWithDocs = await User.find({
       isOrganizer: true,
-      'organizerProfile.documents': { $elemMatch: { status: 'pending' } }
-    }).select('firstName lastName email organizerProfile');
+      'organizerProfile.documents.0': { $exists: true }
+    }).select('firstName lastName email organizerProfile').sort({ 'organizerProfile.verified': 1 });
     
-    // Get events with pending proof documents
-    const eventsWithPendingDocs = await Event.find({
-      'proofDocuments': { $elemMatch: { status: 'pending' } }
-    }).select('eventName organizerName location startDate proofDocuments verificationStatus');
+    // Get events with proof documents (any status) - ordered by verification status
+    const eventsWithDocs = await Event.find({
+      'proofDocuments.0': { $exists: true }
+    }).select('eventName organizerName location startDate proofDocuments verificationStatus verificationNotes').sort({ verificationStatus: 1 });
     
     res.json({ 
       verifications: {
-        organizers: organizersWithPendingDocs,
-        events: eventsWithPendingDocs
+        organizers: organizersWithDocs,
+        events: eventsWithDocs
       }
     });
   } catch (error) {
