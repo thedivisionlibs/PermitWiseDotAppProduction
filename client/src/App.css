@@ -3492,3 +3492,55 @@ img { max-width: 100%; display: block; }
   padding-top: 1rem;
   border-top: 1px solid var(--gray-200);
 }
+
+/* Document Review Status Styles */
+.doc-review-row.doc-approved {
+  background: #dcfce7;
+  border-left: 3px solid var(--success);
+}
+.doc-review-row.doc-rejected {
+  background: #fee2e2;
+  border-left: 3px solid var(--danger);
+}
+.doc-review-notes {
+  width: 100%;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--gray-200);
+  color: var(--gray-600);
+  font-size: 0.8125rem;
+}
+.event-verification-notes {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: var(--gray-50);
+  border-radius: var(--radius);
+  color: var(--gray-600);
+  font-size: 0.875rem;
+}
+
+/* File Input Styling */
+.upload-new-proofs input[type="file"] {
+  display: none;
+}
+.upload-new-proofs .file-input-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+.upload-new-proofs .file-input-btn:hover {
+  background: var(--primary-dark, #1d4ed8);
+}
+.upload-new-proofs .file-input-btn svg {
+  width: 18px;
+  height: 18px;
+}
