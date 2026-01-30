@@ -2015,6 +2015,11 @@ const EventsPage = () => {
   const [editingEvent, setEditingEvent] = useState(null);
   const [editPermitTypes, setEditPermitTypes] = useState([]);
   
+  // Proof upload modal state (for existing events)
+  const [showProofUploadModal, setShowProofUploadModal] = useState(null); // null or event object
+  const [proofUploadFiles, setProofUploadFiles] = useState([]);
+  const [proofUploading, setProofUploading] = useState(false);
+  
   // Jurisdictions for location selection
   const [jurisdictions, setJurisdictions] = useState([]);
   const [showLocationRequestModal, setShowLocationRequestModal] = useState(false);
@@ -2049,22 +2054,16 @@ const EventsPage = () => {
   // Fetch organizer data
   const fetchOrganizerData = async () => {
     try {
-      console.log('fetchOrganizerData called');
       const [jurData, orgData, vendorsData] = await Promise.all([
         api.get('/jurisdictions'),
         api.get('/events/organizer/my-events'),
         api.get('/events/organizer/registered-vendors')
       ]);
-      console.log('API responses received:');
-      console.log('- Jurisdictions:', jurData.jurisdictions?.length || 0);
-      console.log('- Events:', orgData.events?.length || 0, orgData.events);
-      console.log('- Vendors:', vendorsData.vendors?.length || 0);
       setJurisdictions(jurData.jurisdictions || []);
       setOrganizerEvents(orgData.events || []);
       setRegisteredVendors(vendorsData.vendors || []);
     } catch (error) { 
       console.error('Error fetching organizer data:', error); 
-      alert('Error fetching organizer data: ' + error.message);
     }
   };
 
@@ -2094,8 +2093,6 @@ const EventsPage = () => {
       // Check organizer status directly from user object
       const userIsOrganizer = user.isOrganizer && !user.organizerProfile?.disabled;
       const userHasVendorAccess = !userIsOrganizer && (subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration);
-      
-      console.log('EventsPage init - isOrganizer:', userIsOrganizer, 'hasVendorAccess:', userHasVendorAccess, 'user.isOrganizer:', user.isOrganizer);
       
       if (userIsOrganizer) {
         await fetchOrganizerData();
@@ -2239,6 +2236,41 @@ const EventsPage = () => {
       const orgData = await api.get('/events/organizer/my-events');
       setOrganizerEvents(orgData.events || []);
     } catch (err) { alert(err.message); }
+  };
+  
+  // Cancel event with vendor notifications
+  const cancelEvent = async (eventId) => {
+    if (!window.confirm('Are you sure you want to cancel this event? All approved vendors and applicants will be notified.')) {
+      return;
+    }
+    try {
+      await api.put(`/events/organizer/${eventId}/cancel`);
+      const orgData = await api.get('/events/organizer/my-events');
+      setOrganizerEvents(orgData.events || []);
+      alert('Event cancelled. All vendors have been notified.');
+    } catch (err) { alert(err.message); }
+  };
+  
+  // Upload proof documents for existing event
+  const uploadEventProofs = async () => {
+    if (!showProofUploadModal || proofUploadFiles.length === 0) return;
+    setProofUploading(true);
+    try {
+      for (const fileData of proofUploadFiles) {
+        const fd = new FormData();
+        fd.append('file', fileData.file);
+        fd.append('name', fileData.file.name);
+        fd.append('category', fileData.category || 'venue_contract');
+        await api.upload(`/events/organizer/${showProofUploadModal._id}/proof`, fd);
+      }
+      // Refresh events
+      const orgData = await api.get('/events/organizer/my-events');
+      setOrganizerEvents(orgData.events || []);
+      setShowProofUploadModal(null);
+      setProofUploadFiles([]);
+      alert('Documents uploaded successfully!');
+    } catch (err) { alert(err.message); }
+    finally { setProofUploading(false); }
   };
 
   const fetchEventApplications = async (eventId) => {
@@ -2442,15 +2474,6 @@ const EventsPage = () => {
           </Alert>
         )}
         
-        {/* Debug Panel - Remove in production */}
-        <div style={{ background: '#f0f9ff', border: '1px solid #0ea5e9', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '12px' }}>
-          <strong>Debug Info:</strong>
-          <div>User: {user?.email} (ID: {user?._id})</div>
-          <div>isOrganizer: {String(isOrganizer)} | user.isOrganizer: {String(user?.isOrganizer)} | disabled: {String(user?.organizerProfile?.disabled)}</div>
-          <div>Jurisdictions: {jurisdictions.length} | Events: {organizerEvents.length} | Vendors: {registeredVendors.length}</div>
-          <div>Loading: {String(loading)}</div>
-        </div>
-        
         <div className="organizer-tabs">
           {['my-events', 'past-events', 'applications', 'create'].map(tab => {
             // Calculate counts for badges
@@ -2478,13 +2501,6 @@ const EventsPage = () => {
 
         {organizerTab === 'my-events' && !selectedOrgEvent && (
           <div className="organizer-events-list">
-            {/* Debug info - remove in production */}
-            {organizerEvents.length === 0 && (
-              <Alert type="info" style={{ marginBottom: '16px' }}>
-                <p>No events found for your account. Events total: {organizerEvents.length}</p>
-                <p style={{ fontSize: '12px', color: '#666' }}>User ID: {user?._id}</p>
-              </Alert>
-            )}
             {(() => {
               const today = new Date();
               today.setHours(0, 0, 0, 0);
@@ -2492,7 +2508,6 @@ const EventsPage = () => {
                 const eventDate = new Date(e.endDate || e.startDate);
                 return eventDate >= today;
               });
-              console.log('All events:', organizerEvents.length, 'Upcoming:', upcomingEvents.length, 'Today:', today.toISOString());
               return upcomingEvents.length > 0 ? upcomingEvents.map(event => (
               <Card key={event._id} className="organizer-event-card">
                 <div className="event-header">
@@ -2502,17 +2517,31 @@ const EventsPage = () => {
                     <p className="event-location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
                   </div>
                   <div className="event-badges">
-                    <Badge variant={event.status === 'published' ? 'success' : event.status === 'closed' ? 'warning' : 'default'}>{event.status}</Badge>
-                    {event.requiresProof !== false && (
-                      <Badge variant={event.verificationStatus === 'approved' ? 'success' : event.verificationStatus === 'rejected' ? 'danger' : 'warning'}>
-                        {event.verificationStatus === 'approved' ? '✓ Verified' : 
-                         event.verificationStatus === 'rejected' ? '✗ Rejected' :
-                         event.verificationStatus === 'info_needed' ? '⚠️ Info Needed' :
-                         (event.proofDocuments?.length || 0) > 0 ? '⏳ Proof Pending' : '📄 Proof Required'}
-                      </Badge>
-                    )}
+                    <Badge variant={event.status === 'published' ? 'success' : event.status === 'closed' ? 'warning' : event.status === 'cancelled' ? 'danger' : 'default'}>{event.status}</Badge>
                   </div>
                 </div>
+                
+                {/* Proof Status Button */}
+                {event.requiresProof !== false && event.status !== 'cancelled' && (
+                  <button 
+                    className={`proof-status-btn ${event.verificationStatus === 'approved' ? 'approved' : event.verificationStatus === 'rejected' ? 'rejected' : 'pending'}`}
+                    onClick={() => event.verificationStatus !== 'approved' && setShowProofUploadModal(event)}
+                    disabled={event.verificationStatus === 'approved'}
+                  >
+                    {event.verificationStatus === 'approved' ? (
+                      <><Icons.Check /> Verified</>
+                    ) : event.verificationStatus === 'rejected' ? (
+                      <><Icons.Alert /> Rejected - Upload New Proof</>
+                    ) : event.verificationStatus === 'info_needed' ? (
+                      <><Icons.Alert /> Info Needed - Upload More</>
+                    ) : (event.proofDocuments?.length || 0) > 0 ? (
+                      <><Icons.Clock /> Proof Pending Review</>
+                    ) : (
+                      <><Icons.Upload /> Upload Proof Documents</>
+                    )}
+                  </button>
+                )}
+                
                 <div className="event-details">
                   <div className="event-detail-row">
                     <span className="event-detail-label">Event Type</span>
@@ -2544,10 +2573,21 @@ const EventsPage = () => {
                   )}
                 </div>
                 <div className="event-actions">
-                  <Button size="sm" variant="outline" onClick={() => openEditEventModal(event)}><Icons.Edit /> Edit</Button>
-                  <Button size="sm" variant="outline" onClick={() => fetchEventApplications(event._id)}>Manage Vendors</Button>
+                  {event.status === 'closed' || event.status === 'cancelled' ? (
+                    <Button size="sm" variant="outline" onClick={() => fetchEventApplications(event._id)}><Icons.Eye /> View Details</Button>
+                  ) : (
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => openEditEventModal(event)}>
+                        <Icons.Edit /> {event.status === 'published' ? 'Edit Name/Address' : 'Edit'}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => fetchEventApplications(event._id)}>Manage Vendors</Button>
+                    </>
+                  )}
                   {event.status === 'draft' && <Button size="sm" onClick={() => updateEventStatus(event._id, 'published')}>Publish</Button>}
                   {event.status === 'published' && <Button size="sm" variant="outline" onClick={() => updateEventStatus(event._id, 'closed')}>Close</Button>}
+                  {(event.status === 'draft' || event.status === 'published') && (
+                    <Button size="sm" variant="danger" onClick={() => cancelEvent(event._id)}>Cancel Event</Button>
+                  )}
                 </div>
               </Card>
             )) : (
@@ -2570,7 +2610,6 @@ const EventsPage = () => {
                 const eventDate = new Date(e.endDate || e.startDate);
                 return eventDate < today;
               });
-              console.log('Past events filter:', organizerEvents.length, 'total,', pastEvents.length, 'past');
               return pastEvents.length > 0 ? pastEvents.map(event => {
                 const approvedVendors = event.vendorApplications?.filter(v => v.status === 'approved') || [];
                 const totalAttended = event.assignedVendors?.length || approvedVendors.length;
@@ -3060,61 +3099,171 @@ const EventsPage = () => {
           </div>
         </Modal>
         
+        {/* Proof Upload Modal */}
+        <Modal isOpen={showProofUploadModal !== null} onClose={() => { setShowProofUploadModal(null); setProofUploadFiles([]); }} title="Upload Event Proof Documents" size="md">
+          {showProofUploadModal && (
+            <div className="proof-upload-form">
+              <p className="form-hint">Upload documents to verify your ownership or rights to host "{showProofUploadModal.eventName}"</p>
+              
+              {/* Existing documents */}
+              {showProofUploadModal.proofDocuments?.length > 0 && (
+                <div className="existing-proofs">
+                  <h4>Existing Documents</h4>
+                  {showProofUploadModal.proofDocuments.map((doc, idx) => (
+                    <div key={idx} className={`proof-doc-item ${doc.status}`}>
+                      <Icons.Document />
+                      <span className="doc-name">{doc.name}</span>
+                      <Badge variant={doc.status === 'approved' ? 'success' : doc.status === 'rejected' ? 'danger' : 'warning'}>
+                        {doc.status}
+                      </Badge>
+                      <a href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer" className="view-link">View</a>
+                    </div>
+                  ))}
+                  {showProofUploadModal.proofDocuments.some(d => d.status === 'rejected' && d.reviewNotes) && (
+                    <Alert type="warning" style={{ marginTop: '12px' }}>
+                      <strong>Reviewer Feedback:</strong>
+                      <p style={{ margin: '4px 0 0' }}>
+                        {showProofUploadModal.proofDocuments.find(d => d.status === 'rejected')?.reviewNotes}
+                      </p>
+                    </Alert>
+                  )}
+                </div>
+              )}
+              
+              {/* Upload new documents */}
+              <div className="upload-new-proofs" style={{ marginTop: '16px' }}>
+                <label className="form-label">Upload New Documents</label>
+                <input 
+                  type="file" 
+                  id="event-proof-upload-modal"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  multiple
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    const newProofs = files.map(file => ({ file, name: file.name, category: 'venue_contract' }));
+                    setProofUploadFiles([...proofUploadFiles, ...newProofs]);
+                    e.target.value = '';
+                  }}
+                />
+                <label htmlFor="event-proof-upload-modal" className="file-input-btn">
+                  <Icons.Upload /> Choose Files
+                </label>
+                <p className="upload-hint">Accepted: PDF, JPG, PNG (max 10MB each)</p>
+              </div>
+              
+              {/* List of files to upload */}
+              {proofUploadFiles.length > 0 && (
+                <div className="proof-files-list">
+                  {proofUploadFiles.map((fileData, idx) => (
+                    <div key={idx} className="proof-file-item">
+                      <Icons.Document />
+                      <span className="file-name">{fileData.file.name}</span>
+                      <Select 
+                        value={fileData.category}
+                        onChange={(e) => {
+                          const updated = [...proofUploadFiles];
+                          updated[idx].category = e.target.value;
+                          setProofUploadFiles(updated);
+                        }}
+                        options={[
+                          { value: 'venue_contract', label: 'Venue Contract' },
+                          { value: 'event_permit', label: 'Event Permit' },
+                          { value: 'city_approval', label: 'City Approval' },
+                          { value: 'insurance', label: 'Insurance' },
+                          { value: 'other', label: 'Other' }
+                        ]}
+                        style={{ width: '150px', flex: 'none' }}
+                      />
+                      <button type="button" className="remove-file-btn" onClick={() => setProofUploadFiles(proofUploadFiles.filter((_, i) => i !== idx))}>
+                        <Icons.X />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              <div className="modal-actions">
+                <Button variant="outline" onClick={() => { setShowProofUploadModal(null); setProofUploadFiles([]); }}>Cancel</Button>
+                <Button onClick={uploadEventProofs} disabled={proofUploadFiles.length === 0 || proofUploading} loading={proofUploading}>
+                  Upload {proofUploadFiles.length > 0 && `(${proofUploadFiles.length})`}
+                </Button>
+              </div>
+            </div>
+          )}
+        </Modal>
+        
         {/* Edit Event Modal */}
-        <Modal isOpen={showEditEventModal} onClose={() => { setShowEditEventModal(false); setEditingEvent(null); }} title="Edit Event" size="lg">
+        <Modal isOpen={showEditEventModal} onClose={() => { setShowEditEventModal(false); setEditingEvent(null); }} title={editingEvent?.status === 'published' ? 'Edit Event (Limited)' : 'Edit Event'} size="lg">
           {editingEvent && (
             <div className="edit-event-form">
+              {editingEvent.status === 'published' && (
+                <Alert type="info" style={{ marginBottom: '16px' }}>
+                  <strong>Limited Editing</strong>
+                  <p style={{ margin: '4px 0 0' }}>Published events can only have their name and address modified. To edit other details, change the event to draft status first.</p>
+                </Alert>
+              )}
+              
               <div className="form-section">
                 <Input label="Event Name *" value={editingEvent.eventName} onChange={(e) => setEditingEvent(ev => ({ ...ev, eventName: e.target.value }))} />
-                <Input label="Description" value={editingEvent.description} onChange={(e) => setEditingEvent(ev => ({ ...ev, description: e.target.value }))} />
+                {editingEvent.status !== 'published' && (
+                  <Input label="Description" value={editingEvent.description} onChange={(e) => setEditingEvent(ev => ({ ...ev, description: e.target.value }))} />
+                )}
               </div>
+              
               <div className="form-section">
                 <div className="form-section-title">Date & Location</div>
-                <div className="form-row">
-                  <DateInput label="Start Date *" required value={editingEvent.startDate} onChange={(e) => setEditingEvent(ev => ({ ...ev, startDate: e.target.value }))} />
-                  <DateInput label="End Date" value={editingEvent.endDate} onChange={(e) => setEditingEvent(ev => ({ ...ev, endDate: e.target.value }))} />
-                  <DateInput label="Application Deadline" value={editingEvent.applicationDeadline} onChange={(e) => setEditingEvent(ev => ({ ...ev, applicationDeadline: e.target.value }))} />
-                </div>
-                <div className="form-row">
-                  <Select label="State *" value={editingEvent.state} onChange={(e) => handleEditEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...[...new Set(jurisdictions.map(j => j.state))].sort().map(s => ({ value: s, label: s }))]} />
-                  <Select label="City *" value={editingEvent.city} onChange={(e) => setEditingEvent(ev => ({ ...ev, city: e.target.value }))} options={[{ value: '', label: editingEvent.state ? 'Select City' : 'Select state first' }, ...getAvailableCities(editingEvent.state).map(c => ({ value: c, label: c }))]} disabled={!editingEvent.state} />
-                </div>
+                {editingEvent.status !== 'published' && (
+                  <div className="form-row">
+                    <DateInput label="Start Date *" required value={editingEvent.startDate} onChange={(e) => setEditingEvent(ev => ({ ...ev, startDate: e.target.value }))} />
+                    <DateInput label="End Date" value={editingEvent.endDate} onChange={(e) => setEditingEvent(ev => ({ ...ev, endDate: e.target.value }))} />
+                    <DateInput label="Application Deadline" value={editingEvent.applicationDeadline} onChange={(e) => setEditingEvent(ev => ({ ...ev, applicationDeadline: e.target.value }))} />
+                  </div>
+                )}
+                {editingEvent.status !== 'published' && (
+                  <div className="form-row">
+                    <Select label="State *" value={editingEvent.state} onChange={(e) => handleEditEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...[...new Set(jurisdictions.map(j => j.state))].sort().map(s => ({ value: s, label: s }))]} />
+                    <Select label="City *" value={editingEvent.city} onChange={(e) => setEditingEvent(ev => ({ ...ev, city: e.target.value }))} options={[{ value: '', label: editingEvent.state ? 'Select City' : 'Select state first' }, ...getAvailableCities(editingEvent.state).map(c => ({ value: c, label: c }))]} disabled={!editingEvent.state} />
+                  </div>
+                )}
                 <Input label="Venue Address" value={editingEvent.address || ''} onChange={(e) => setEditingEvent(ev => ({ ...ev, address: e.target.value }))} />
               </div>
-              <div className="form-section">
-                <div className="form-section-title">Event Details</div>
-                <div className="form-row">
-                  <Select label="Event Type" value={editingEvent.eventType} onChange={(e) => setEditingEvent(ev => ({ ...ev, eventType: e.target.value }))} options={[
-                    { value: 'food_event', label: 'Food Event' },
-                    { value: 'farmers_market', label: 'Farmers Market' },
-                    { value: 'festival', label: 'Festival' },
-                    { value: 'fair', label: 'Fair' },
-                    { value: 'craft_show', label: 'Craft Show' },
-                    { value: 'night_market', label: 'Night Market' },
-                    { value: 'other', label: 'Other' }
-                  ]} />
-                  <Input label="Max Vendors" type="number" value={editingEvent.maxVendors} onChange={(e) => setEditingEvent(ev => ({ ...ev, maxVendors: e.target.value }))} />
-                  <Select label="Status" value={editingEvent.status} onChange={(e) => setEditingEvent(ev => ({ ...ev, status: e.target.value }))} options={[
-                    { value: 'draft', label: 'Draft (not visible)' },
-                    { value: 'published', label: 'Published (accepting applications)' },
-                    { value: 'closed', label: 'Closed (no new applications)' }
-                  ]} />
-                </div>
-              </div>
-              <div className="form-section">
-                <div className="form-section-title">Fees</div>
-                <div className="form-row">
-                  <Input label="Application Fee ($)" type="number" value={editingEvent.feeStructure?.applicationFee || 0} onChange={(e) => setEditingEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, applicationFee: parseFloat(e.target.value) || 0 } }))} />
-                  <Input label="Booth Fee ($)" type="number" value={editingEvent.feeStructure?.boothFee || 0} onChange={(e) => setEditingEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, boothFee: parseFloat(e.target.value) || 0 } }))} />
-                  <Input label="Electricity Fee ($)" type="number" value={editingEvent.feeStructure?.electricityFee || 0} onChange={(e) => setEditingEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, electricityFee: parseFloat(e.target.value) || 0 } }))} />
-                </div>
-              </div>
-              <div className="form-section">
-                <div className="form-section-title">Required Permits</div>
-                <p className="form-hint">Select permits vendors must have to participate</p>
-                {!editingEvent.state ? (
-                  <p className="empty-text">Please select a state above to see available permits.</p>
-                ) : editPermitTypes.length > 0 ? (
+              
+              {editingEvent.status !== 'published' && (
+                <>
+                  <div className="form-section">
+                    <div className="form-section-title">Event Details</div>
+                    <div className="form-row">
+                      <Select label="Event Type" value={editingEvent.eventType} onChange={(e) => setEditingEvent(ev => ({ ...ev, eventType: e.target.value }))} options={[
+                        { value: 'food_event', label: 'Food Event' },
+                        { value: 'farmers_market', label: 'Farmers Market' },
+                        { value: 'festival', label: 'Festival' },
+                        { value: 'fair', label: 'Fair' },
+                        { value: 'craft_show', label: 'Craft Show' },
+                        { value: 'night_market', label: 'Night Market' },
+                        { value: 'other', label: 'Other' }
+                      ]} />
+                      <Input label="Max Vendors" type="number" value={editingEvent.maxVendors} onChange={(e) => setEditingEvent(ev => ({ ...ev, maxVendors: e.target.value }))} />
+                      <Select label="Status" value={editingEvent.status} onChange={(e) => setEditingEvent(ev => ({ ...ev, status: e.target.value }))} options={[
+                        { value: 'draft', label: 'Draft (not visible)' },
+                        { value: 'published', label: 'Published (accepting applications)' },
+                        { value: 'closed', label: 'Closed (no new applications)' }
+                      ]} />
+                    </div>
+                  </div>
+                  <div className="form-section">
+                    <div className="form-section-title">Fees</div>
+                    <div className="form-row">
+                      <Input label="Application Fee ($)" type="number" value={editingEvent.feeStructure?.applicationFee || 0} onChange={(e) => setEditingEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, applicationFee: parseFloat(e.target.value) || 0 } }))} />
+                      <Input label="Booth Fee ($)" type="number" value={editingEvent.feeStructure?.boothFee || 0} onChange={(e) => setEditingEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, boothFee: parseFloat(e.target.value) || 0 } }))} />
+                      <Input label="Electricity Fee ($)" type="number" value={editingEvent.feeStructure?.electricityFee || 0} onChange={(e) => setEditingEvent(ev => ({ ...ev, feeStructure: { ...ev.feeStructure, electricityFee: parseFloat(e.target.value) || 0 } }))} />
+                    </div>
+                  </div>
+                  <div className="form-section">
+                    <div className="form-section-title">Required Permits</div>
+                    <p className="form-hint">Select permits vendors must have to participate</p>
+                    {!editingEvent.state ? (
+                      <p className="empty-text">Please select a state above to see available permits.</p>
+                    ) : editPermitTypes.length > 0 ? (
                   <div className="permit-type-checkboxes">
                     {editPermitTypes.map(pt => {
                       const isChecked = (editingEvent.requiredPermitTypes || []).includes(pt._id);
@@ -3190,9 +3339,46 @@ const EventsPage = () => {
                   <Icons.Plus /> Add Custom Requirement
                 </Button>
               </div>
+                </>
+              )}
+              
+              {/* Proof Documents Section - available for all event statuses except cancelled */}
+              {editingEvent.status !== 'cancelled' && (
+                <div className="form-section">
+                  <div className="form-section-title">Proof Documents</div>
+                  <p className="form-hint">Upload documents proving your ownership or rights to host events at this venue</p>
+                  
+                  {/* Existing documents */}
+                  {editingEvent.proofDocuments?.length > 0 && (
+                    <div className="existing-proofs" style={{ marginBottom: '12px' }}>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>Existing Documents</h4>
+                      {editingEvent.proofDocuments.map((doc, idx) => (
+                        <div key={idx} className={`proof-doc-item ${doc.status}`} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: '#f9fafb', borderRadius: '6px', marginBottom: '6px' }}>
+                          <Icons.Document />
+                          <span style={{ flex: 1 }}>{doc.name}</span>
+                          <Badge variant={doc.status === 'approved' ? 'success' : doc.status === 'rejected' ? 'danger' : 'warning'}>
+                            {doc.status}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setShowEditEventModal(false);
+                      setShowProofUploadModal(editingEvent);
+                    }}
+                  >
+                    <Icons.Upload /> Upload Proof Documents
+                  </Button>
+                </div>
+              )}
+              
               <div className="form-actions">
                 <Button variant="outline" onClick={() => { setShowEditEventModal(false); setEditingEvent(null); }}>Cancel</Button>
-                <Button onClick={saveEditedEvent} disabled={!editingEvent.eventName || !editingEvent.startDate || !editingEvent.city || !editingEvent.state}>
+                <Button onClick={saveEditedEvent} disabled={!editingEvent.eventName || (editingEvent.status !== 'published' && (!editingEvent.startDate || !editingEvent.city || !editingEvent.state))}>
                   Save Changes
                 </Button>
               </div>
