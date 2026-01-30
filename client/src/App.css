@@ -3544,3 +3544,129 @@ img { max-width: 100%; display: block; }
   width: 18px;
   height: 18px;
 }
+
+/* Proof Status Button */
+.proof-status-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  margin: 12px 0;
+  border: 2px dashed var(--gray-300);
+  border-radius: var(--radius);
+  background: var(--gray-50);
+  color: var(--gray-600);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.proof-status-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: #e0f2fe;
+  color: var(--primary);
+}
+.proof-status-btn:disabled {
+  cursor: default;
+}
+.proof-status-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.proof-status-btn.approved {
+  border-style: solid;
+  border-color: var(--success);
+  background: #dcfce7;
+  color: #166534;
+}
+.proof-status-btn.rejected {
+  border-color: var(--danger);
+  background: #fee2e2;
+  color: #dc2626;
+}
+.proof-status-btn.pending {
+  border-color: var(--warning);
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* Proof Upload Modal Styles */
+.proof-upload-form .form-hint {
+  color: var(--gray-500);
+  margin-bottom: 16px;
+}
+.proof-upload-form .existing-proofs h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.proof-upload-form .proof-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--gray-50);
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+.proof-upload-form .proof-doc-item svg {
+  width: 18px;
+  height: 18px;
+  color: var(--gray-400);
+}
+.proof-upload-form .proof-doc-item .doc-name {
+  flex: 1;
+  font-size: 14px;
+}
+.proof-upload-form .proof-doc-item .view-link {
+  color: var(--primary);
+  font-size: 13px;
+  text-decoration: none;
+}
+.proof-upload-form .proof-doc-item .view-link:hover {
+  text-decoration: underline;
+}
+.proof-files-list {
+  margin-top: 12px;
+}
+.proof-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--gray-50);
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+.proof-file-item svg {
+  width: 18px;
+  height: 18px;
+  color: var(--gray-400);
+  flex-shrink: 0;
+}
+.proof-file-item .file-name {
+  flex: 1;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proof-file-item .remove-file-btn {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: var(--danger);
+  display: flex;
+  align-items: center;
+}
+.proof-file-item .remove-file-btn:hover {
+  background: #fee2e2;
+  border-radius: 4px;
+}
+.proof-upload-form .upload-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--gray-500);
+}
