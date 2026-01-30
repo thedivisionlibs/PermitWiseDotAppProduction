@@ -2046,40 +2046,68 @@ const EventsPage = () => {
   // Plan check: Elite, Promo, or Lifetime required for vendors (NOT organizers - they have separate access)
   const hasVendorAccess = !isOrganizer && (subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration);
 
+  // Fetch organizer data
+  const fetchOrganizerData = async () => {
+    try {
+      console.log('fetchOrganizerData called');
+      const [jurData, orgData, vendorsData] = await Promise.all([
+        api.get('/jurisdictions'),
+        api.get('/events/organizer/my-events'),
+        api.get('/events/organizer/registered-vendors')
+      ]);
+      console.log('API responses received:');
+      console.log('- Jurisdictions:', jurData.jurisdictions?.length || 0);
+      console.log('- Events:', orgData.events?.length || 0, orgData.events);
+      console.log('- Vendors:', vendorsData.vendors?.length || 0);
+      setJurisdictions(jurData.jurisdictions || []);
+      setOrganizerEvents(orgData.events || []);
+      setRegisteredVendors(vendorsData.vendors || []);
+    } catch (error) { 
+      console.error('Error fetching organizer data:', error); 
+      alert('Error fetching organizer data: ' + error.message);
+    }
+  };
+
+  // Fetch vendor data
+  const fetchVendorData = async () => {
+    try {
+      const [myData, pubData] = await Promise.all([
+        api.get('/events/my-events'),
+        api.get('/events/published')
+      ]);
+      setEvents(myData.events || []);
+      setPublishedEvents(pubData.events || []);
+    } catch (error) { 
+      console.error('Error fetching vendor data:', error); 
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      // Wait for user to load
+    const init = async () => {
       if (!user) {
         setLoading(false);
         return;
       }
       
-      try {
-        if (isOrganizer) {
-          // Fetch organizer-specific data
-          const [jurData, orgData, vendorsData] = await Promise.all([
-            api.get('/jurisdictions'),
-            api.get('/events/organizer/my-events'),
-            api.get('/events/organizer/registered-vendors')
-          ]);
-          console.log('Jurisdictions fetched:', jurData.jurisdictions?.length);
-          setJurisdictions(jurData.jurisdictions || []);
-          setOrganizerEvents(orgData.events || []);
-          setRegisteredVendors(vendorsData.vendors || []);
-        } else if (hasVendorAccess) {
-          // Fetch vendor-specific data (only for non-organizers with access)
-          const [myData, pubData] = await Promise.all([
-            api.get('/events/my-events'),
-            api.get('/events/published')
-          ]);
-          setEvents(myData.events || []);
-          setPublishedEvents(pubData.events || []);
-        }
-      } catch (error) { console.error('Error fetching events data:', error); }
-      finally { setLoading(false); }
+      setLoading(true);
+      
+      // Check organizer status directly from user object
+      const userIsOrganizer = user.isOrganizer && !user.organizerProfile?.disabled;
+      const userHasVendorAccess = !userIsOrganizer && (subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration);
+      
+      console.log('EventsPage init - isOrganizer:', userIsOrganizer, 'hasVendorAccess:', userHasVendorAccess, 'user.isOrganizer:', user.isOrganizer);
+      
+      if (userIsOrganizer) {
+        await fetchOrganizerData();
+      } else if (userHasVendorAccess) {
+        await fetchVendorData();
+      }
+      
+      setLoading(false);
     };
-    fetchData();
-  }, [user, hasVendorAccess, isOrganizer]);
+    
+    init();
+  }, [user, subscription]); // Depend on both user and subscription
 
   // Show loading spinner for everyone while data loads
   if (loading) return <LoadingSpinner />;
@@ -2414,8 +2442,24 @@ const EventsPage = () => {
           </Alert>
         )}
         
+        {/* Debug Panel - Remove in production */}
+        <div style={{ background: '#f0f9ff', border: '1px solid #0ea5e9', borderRadius: '8px', padding: '12px', marginBottom: '16px', fontSize: '12px' }}>
+          <strong>Debug Info:</strong>
+          <div>User: {user?.email} (ID: {user?._id})</div>
+          <div>isOrganizer: {String(isOrganizer)} | user.isOrganizer: {String(user?.isOrganizer)} | disabled: {String(user?.organizerProfile?.disabled)}</div>
+          <div>Jurisdictions: {jurisdictions.length} | Events: {organizerEvents.length} | Vendors: {registeredVendors.length}</div>
+          <div>Loading: {String(loading)}</div>
+        </div>
+        
         <div className="organizer-tabs">
-          {['my-events', 'past-events', 'applications', 'create'].map(tab => (
+          {['my-events', 'past-events', 'applications', 'create'].map(tab => {
+            // Calculate counts for badges
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const upcomingCount = organizerEvents.filter(e => new Date(e.endDate || e.startDate) >= today).length;
+            const pastCount = organizerEvents.filter(e => new Date(e.endDate || e.startDate) < today).length;
+            
+            return (
             <button key={tab} className={organizerTab === tab ? 'active' : ''} onClick={() => { 
               if (tab === 'create' && !organizerVerified) {
                 setShowVerificationModal(true);
@@ -2425,19 +2469,30 @@ const EventsPage = () => {
                 setSelectedOrgEvent(null); 
               }
             }}>
-              {tab === 'my-events' ? '🎪 Upcoming Events' : 
-               tab === 'past-events' ? '📜 Past Events' :
+              {tab === 'my-events' ? `🎪 Upcoming (${upcomingCount})` : 
+               tab === 'past-events' ? `📜 Past (${pastCount})` :
                tab === 'applications' ? '📋 Applications' : '➕ Create Event'}
             </button>
-          ))}
+          );})}
         </div>
 
         {organizerTab === 'my-events' && !selectedOrgEvent && (
           <div className="organizer-events-list">
+            {/* Debug info - remove in production */}
+            {organizerEvents.length === 0 && (
+              <Alert type="info" style={{ marginBottom: '16px' }}>
+                <p>No events found for your account. Events total: {organizerEvents.length}</p>
+                <p style={{ fontSize: '12px', color: '#666' }}>User ID: {user?._id}</p>
+              </Alert>
+            )}
             {(() => {
               const today = new Date();
               today.setHours(0, 0, 0, 0);
-              const upcomingEvents = organizerEvents.filter(e => new Date(e.endDate || e.startDate) >= today);
+              const upcomingEvents = organizerEvents.filter(e => {
+                const eventDate = new Date(e.endDate || e.startDate);
+                return eventDate >= today;
+              });
+              console.log('All events:', organizerEvents.length, 'Upcoming:', upcomingEvents.length, 'Today:', today.toISOString());
               return upcomingEvents.length > 0 ? upcomingEvents.map(event => (
               <Card key={event._id} className="organizer-event-card">
                 <div className="event-header">
@@ -2511,7 +2566,11 @@ const EventsPage = () => {
             {(() => {
               const today = new Date();
               today.setHours(0, 0, 0, 0);
-              const pastEvents = organizerEvents.filter(e => new Date(e.endDate || e.startDate) < today);
+              const pastEvents = organizerEvents.filter(e => {
+                const eventDate = new Date(e.endDate || e.startDate);
+                return eventDate < today;
+              });
+              console.log('Past events filter:', organizerEvents.length, 'total,', pastEvents.length, 'past');
               return pastEvents.length > 0 ? pastEvents.map(event => {
                 const approvedVendors = event.vendorApplications?.filter(v => v.status === 'approved') || [];
                 const totalAttended = event.assignedVendors?.length || approvedVendors.length;
