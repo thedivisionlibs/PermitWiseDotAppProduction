@@ -3243,3 +3243,252 @@ img { max-width: 100%; display: block; }
   width: 14px;
   height: 14px;
 }
+
+/* Past Events Section */
+.past-events .section-description {
+  margin-bottom: 1rem;
+  color: var(--gray-500);
+}
+.past-event-card {
+  opacity: 0.9;
+}
+.past-event-summary {
+  display: flex;
+  gap: 2rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--gray-100);
+  border-bottom: 1px solid var(--gray-100);
+  margin: 1rem 0;
+}
+.summary-stat {
+  text-align: center;
+}
+.summary-stat .stat-value {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+.summary-stat .stat-label {
+  font-size: 0.75rem;
+  color: var(--gray-500);
+  text-transform: uppercase;
+}
+.past-event-vendors h4,
+.past-event-documents h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  color: var(--gray-700);
+}
+.vendor-list-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.vendor-chip {
+  background: var(--gray-100);
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  color: var(--gray-700);
+}
+.vendor-chip.more {
+  background: var(--primary);
+  color: white;
+}
+.document-list-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.doc-link-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: #e0f2fe;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  color: var(--primary);
+  text-decoration: none;
+}
+.doc-link-chip:hover {
+  background: #bae6fd;
+}
+.doc-link-chip svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Verification Requirements */
+.verification-requirements {
+  background: var(--gray-50);
+  padding: 1rem;
+  border-radius: var(--radius);
+  margin: 1rem 0;
+  text-align: left;
+}
+.verification-requirements h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9375rem;
+}
+.verification-requirements ul {
+  margin: 0;
+  padding-left: 1.5rem;
+}
+.verification-requirements li {
+  margin: 0.25rem 0;
+  color: var(--gray-600);
+}
+
+/* Proof Files Section */
+.previous-proofs-section {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: var(--gray-50);
+  border-radius: var(--radius);
+}
+.previous-proofs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.proof-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.proof-checkbox:hover {
+  border-color: var(--primary);
+}
+.proof-checkbox input[type="checkbox"] {
+  margin-top: 2px;
+}
+.proof-info {
+  display: flex;
+  flex-direction: column;
+}
+.proof-info strong {
+  font-size: 0.9375rem;
+}
+.proof-info small {
+  color: var(--gray-500);
+  font-size: 0.8125rem;
+}
+.upload-new-proofs {
+  margin-top: 1rem;
+}
+.proof-files-list {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.proof-file-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--gray-50);
+  border-radius: var(--radius);
+}
+.proof-file-item svg {
+  width: 20px;
+  height: 20px;
+  color: var(--gray-500);
+}
+.proof-file-item .file-name {
+  flex: 1;
+  font-size: 0.875rem;
+}
+.proof-file-item .form-group {
+  margin: 0;
+  width: 150px;
+}
+.remove-file-btn {
+  background: none;
+  border: none;
+  padding: 0.25rem;
+  cursor: pointer;
+  color: var(--danger);
+}
+
+/* SuperAdmin Verifications Section */
+.verification-section {
+  padding: 1.5rem;
+}
+.verification-section h4 {
+  margin: 0 0 0.25rem;
+  font-size: 1.125rem;
+}
+.verification-list {
+  margin-top: 1rem;
+}
+.verification-item {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.verification-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+.verification-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.verification-info strong {
+  font-size: 1rem;
+}
+.verification-meta {
+  font-size: 0.8125rem;
+  color: var(--gray-500);
+}
+.documents-to-review {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.doc-review-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: var(--gray-50);
+  border-radius: var(--radius);
+}
+.doc-review-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.doc-review-info svg {
+  width: 20px;
+  height: 20px;
+  color: var(--gray-500);
+}
+.doc-review-info .doc-name {
+  font-weight: 500;
+}
+.doc-review-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.event-verification-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--gray-200);
+}
