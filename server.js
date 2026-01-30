@@ -3534,10 +3534,10 @@ app.get('/api/events/organizer/registered-vendors', authMiddleware, async (req, 
       return res.status(403).json({ error: 'Organizer access required' });
     }
     
-    // Get all vendor businesses with their users
+    // Get all vendor businesses with their owners
     const vendors = await VendorBusiness.find({})
-      .populate('userId', 'email firstName lastName')
-      .select('businessName primaryVendorType userId')
+      .populate('ownerId', 'email firstName lastName')
+      .select('businessName primaryVendorType ownerId')
       .sort({ businessName: 1 })
       .limit(100);
     
@@ -3546,8 +3546,8 @@ app.get('/api/events/organizer/registered-vendors', authMiddleware, async (req, 
       _id: v._id,
       businessName: v.businessName,
       vendorType: v.primaryVendorType,
-      email: v.userId?.email,
-      ownerName: v.userId ? `${v.userId.firstName} ${v.userId.lastName}` : null
+      email: v.ownerId?.email,
+      ownerName: v.ownerId ? `${v.ownerId.firstName} ${v.ownerId.lastName}` : null
     })).filter(v => v.email); // Only include vendors with email
     
     res.json({ vendors: formattedVendors });
