@@ -20,6 +20,17 @@ const getSecureFileUrl = (fileUrl) => {
   return `${url}${separator}token=${token}`;
 };
 
+// Admin-specific secure file URL (uses superadmin token)
+const getAdminSecureFileUrl = (fileUrl) => {
+  if (!fileUrl) return '';
+  const token = localStorage.getItem('superadminToken');
+  if (!token) return fileUrl;
+  
+  const url = fileUrl.includes('/uploads/') ? fileUrl : `${BASE_URL}${fileUrl}`;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}token=${token}`;
+};
+
 // ===========================================
 // CONTEXT
 // ===========================================
@@ -2037,6 +2048,12 @@ const EventsPage = () => {
 
   useEffect(() => {
     const fetchData = async () => {
+      // Wait for user to load
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+      
       try {
         if (isOrganizer) {
           // Fetch organizer-specific data
@@ -2045,6 +2062,7 @@ const EventsPage = () => {
             api.get('/events/organizer/my-events'),
             api.get('/events/organizer/registered-vendors')
           ]);
+          console.log('Jurisdictions fetched:', jurData.jurisdictions?.length);
           setJurisdictions(jurData.jurisdictions || []);
           setOrganizerEvents(orgData.events || []);
           setRegisteredVendors(vendorsData.vendors || []);
@@ -2057,11 +2075,11 @@ const EventsPage = () => {
           setEvents(myData.events || []);
           setPublishedEvents(pubData.events || []);
         }
-      } catch (error) { console.error(error); }
+      } catch (error) { console.error('Error fetching events data:', error); }
       finally { setLoading(false); }
     };
     fetchData();
-  }, [hasVendorAccess, isOrganizer]);
+  }, [user, hasVendorAccess, isOrganizer]);
 
   // Show loading spinner for everyone while data loads
   if (loading) return <LoadingSpinner />;
@@ -2840,6 +2858,7 @@ const EventsPage = () => {
                 <label className="form-label">Or upload new documents:</label>
                 <input 
                   type="file" 
+                  id="event-proof-upload"
                   accept=".pdf,.jpg,.jpeg,.png"
                   multiple
                   onChange={(e) => {
@@ -2849,6 +2868,9 @@ const EventsPage = () => {
                     e.target.value = '';
                   }}
                 />
+                <label htmlFor="event-proof-upload" className="file-input-btn">
+                  <Icons.Upload /> Choose Files
+                </label>
                 <p className="upload-hint">Accepted: PDF, JPG, PNG (max 10MB each)</p>
               </div>
               
@@ -5281,11 +5303,11 @@ const SuperAdminPage = ({ onBack }) => {
         {activeTab === 'verifications' && (
           <div>
             <div className="admin-section-header">
-              <h3>📋 Pending Document Verifications</h3>
+              <h3>📋 Document Verifications</h3>
               <p className="section-description">Review and approve documents uploaded by organizers and for events</p>
             </div>
             
-            {/* Organizer Documents Pending Verification */}
+            {/* Organizer Documents Verification */}
             <Card className="verification-section">
               <h4>👤 Organizer Account Documents</h4>
               <p className="form-hint">Documents uploaded by organizers to verify their accounts</p>
@@ -5300,44 +5322,59 @@ const SuperAdminPage = ({ onBack }) => {
                           <span className="verification-meta">{org.email}</span>
                         </div>
                         <Badge variant={org.organizerProfile?.verified ? 'success' : 'warning'}>
-                          {org.organizerProfile?.verified ? 'Verified' : 'Pending'}
+                          {org.organizerProfile?.verified ? 'Verified' : 'Pending Verification'}
                         </Badge>
                       </div>
                       
                       <div className="documents-to-review">
-                        {(org.organizerProfile?.documents || []).filter(d => d.status === 'pending').map((doc, docIdx) => (
-                          <div key={docIdx} className="doc-review-row">
+                        {(org.organizerProfile?.documents || []).map((doc, docIdx) => (
+                          <div key={docIdx} className={`doc-review-row ${doc.status === 'approved' ? 'doc-approved' : doc.status === 'rejected' ? 'doc-rejected' : ''}`}>
                             <div className="doc-review-info">
                               <Icons.Document />
                               <span className="doc-name">{doc.name}</span>
                               <Badge>{doc.category?.replace(/_/g, ' ')}</Badge>
+                              <Badge variant={doc.status === 'approved' ? 'success' : doc.status === 'rejected' ? 'danger' : 'warning'}>
+                                {doc.status}
+                              </Badge>
                             </div>
                             <div className="doc-review-actions">
-                              <a href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
+                              <a href={getAdminSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
                                 <Icons.Download /> View
                               </a>
-                              <Button size="sm" variant="success" onClick={() => reviewOrganizerDocument(org._id, docIdx, 'approved')}>
-                                ✓ Approve
-                              </Button>
-                              <Button size="sm" variant="danger" onClick={() => {
-                                const reason = prompt('Rejection reason:');
-                                if (reason) reviewOrganizerDocument(org._id, docIdx, 'rejected', reason);
-                              }}>
-                                ✗ Reject
-                              </Button>
+                              {doc.status === 'pending' && (
+                                <>
+                                  <Button size="sm" variant="success" onClick={() => reviewOrganizerDocument(org._id, docIdx, 'approved')}>
+                                    ✓ Approve
+                                  </Button>
+                                  <Button size="sm" variant="danger" onClick={() => {
+                                    const reason = prompt('Rejection reason:');
+                                    if (reason) reviewOrganizerDocument(org._id, docIdx, 'rejected', reason);
+                                  }}>
+                                    ✗ Reject
+                                  </Button>
+                                </>
+                              )}
                             </div>
+                            {doc.reviewNotes && (
+                              <div className="doc-review-notes">
+                                <small><strong>Review Notes:</strong> {doc.reviewNotes}</small>
+                              </div>
+                            )}
                           </div>
                         ))}
+                        {(org.organizerProfile?.documents || []).length === 0 && (
+                          <p className="empty-text" style={{ margin: '8px 0' }}>No documents uploaded</p>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="empty-text">No organizer documents pending review</p>
+                <p className="empty-text">No organizers with documents to review</p>
               )}
             </Card>
             
-            {/* Event Proof Documents Pending Verification */}
+            {/* Event Proof Documents Verification */}
             <Card className="verification-section" style={{ marginTop: '24px' }}>
               <h4>🎪 Event Proof Documents</h4>
               <p className="form-hint">Documents uploaded by organizers to prove venue/event ownership</p>
@@ -5358,55 +5395,80 @@ const SuperAdminPage = ({ onBack }) => {
                         </Badge>
                       </div>
                       
+                      {/* Document History */}
                       <div className="documents-to-review">
-                        {(event.proofDocuments || []).filter(d => d.status === 'pending').map((doc, docIdx) => (
-                          <div key={docIdx} className="doc-review-row">
+                        {(event.proofDocuments || []).map((doc, docIdx) => (
+                          <div key={docIdx} className={`doc-review-row ${doc.status === 'approved' ? 'doc-approved' : doc.status === 'rejected' ? 'doc-rejected' : ''}`}>
                             <div className="doc-review-info">
                               <Icons.Document />
                               <span className="doc-name">{doc.name}</span>
                               <Badge>{doc.category?.replace(/_/g, ' ')}</Badge>
+                              <Badge variant={doc.status === 'approved' ? 'success' : doc.status === 'rejected' ? 'danger' : 'warning'}>
+                                {doc.status}
+                              </Badge>
                             </div>
                             <div className="doc-review-actions">
-                              <a href={getSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
+                              <a href={getAdminSecureFileUrl(doc.fileUrl)} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
                                 <Icons.Download /> View
                               </a>
-                              <Button size="sm" variant="success" onClick={() => reviewEventDocument(event._id, docIdx, 'approved')}>
-                                ✓ Approve
-                              </Button>
-                              <Button size="sm" variant="danger" onClick={() => {
-                                const reason = prompt('Rejection reason:');
-                                if (reason) reviewEventDocument(event._id, docIdx, 'rejected', reason);
-                              }}>
-                                ✗ Reject
-                              </Button>
+                              {doc.status === 'pending' && (
+                                <>
+                                  <Button size="sm" variant="success" onClick={() => reviewEventDocument(event._id, docIdx, 'approved')}>
+                                    ✓ Approve
+                                  </Button>
+                                  <Button size="sm" variant="danger" onClick={() => {
+                                    const reason = prompt('Rejection reason:');
+                                    if (reason) reviewEventDocument(event._id, docIdx, 'rejected', reason);
+                                  }}>
+                                    ✗ Reject
+                                  </Button>
+                                </>
+                              )}
                             </div>
+                            {doc.reviewNotes && (
+                              <div className="doc-review-notes">
+                                <small><strong>Review Notes:</strong> {doc.reviewNotes}</small>
+                              </div>
+                            )}
                           </div>
                         ))}
+                        {(event.proofDocuments || []).length === 0 && (
+                          <p className="empty-text" style={{ margin: '8px 0' }}>No documents uploaded</p>
+                        )}
                       </div>
                       
+                      {/* Event-level verification notes */}
+                      {event.verificationNotes && (
+                        <div className="event-verification-notes">
+                          <small><strong>Event Notes:</strong> {event.verificationNotes}</small>
+                        </div>
+                      )}
+                      
                       {/* Quick actions for entire event */}
-                      <div className="event-verification-actions">
-                        <Button size="sm" variant="success" onClick={() => updateEventVerification(event._id, 'approved')}>
-                          Approve All & Verify Event
-                        </Button>
-                        <Button size="sm" variant="warning" onClick={() => {
-                          const note = prompt('What information is needed?');
-                          if (note) updateEventVerification(event._id, 'info_needed', note);
-                        }}>
-                          Request More Info
-                        </Button>
-                        <Button size="sm" variant="danger" onClick={() => {
-                          const reason = prompt('Rejection reason:');
-                          if (reason) updateEventVerification(event._id, 'rejected', reason);
-                        }}>
-                          Reject Event
-                        </Button>
-                      </div>
+                      {event.verificationStatus !== 'approved' && (
+                        <div className="event-verification-actions">
+                          <Button size="sm" variant="success" onClick={() => updateEventVerification(event._id, 'approved')}>
+                            Approve All & Verify Event
+                          </Button>
+                          <Button size="sm" variant="warning" onClick={() => {
+                            const note = prompt('What information is needed?');
+                            if (note) updateEventVerification(event._id, 'info_needed', note);
+                          }}>
+                            Request More Info
+                          </Button>
+                          <Button size="sm" variant="danger" onClick={() => {
+                            const reason = prompt('Rejection reason:');
+                            if (reason) updateEventVerification(event._id, 'rejected', reason);
+                          }}>
+                            Reject Event
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="empty-text">No event documents pending review</p>
+                <p className="empty-text">No event documents to review</p>
               )}
             </Card>
           </div>
