@@ -1899,7 +1899,8 @@ app.post('/api/organizer/subscription/portal', authMiddleware, async (req, res) 
 app.get('/api/jurisdictions', async (req, res) => {
   try {
     const { state, type, search } = req.query;
-    const query = { active: true };
+    // Include jurisdictions where active is true or not set (for backwards compatibility)
+    const query = { active: { $ne: false } };
     
     if (state) query.state = state;
     if (type) query.type = type;
@@ -3688,6 +3689,91 @@ app.post('/api/events/organizer/:id/proof', authMiddleware, upload.single('file'
     await event.save();
     
     res.status(201).json({ document: doc, event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get previous event proofs for reuse
+app.get('/api/events/organizer/previous-proofs', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    // Get all events by this organizer that have proof documents
+    const events = await Event.find({ 
+      organizerId: req.user._id,
+      'proofDocuments.0': { $exists: true } // Has at least one proof document
+    }).select('eventName proofDocuments');
+    
+    // Flatten all proofs with event info
+    const proofs = [];
+    for (const event of events) {
+      for (const proof of event.proofDocuments || []) {
+        if (proof.status === 'approved' || proof.status === 'pending') {
+          proofs.push({
+            _id: `${event._id}-${proof._id}`,
+            eventId: event._id,
+            eventName: event.eventName,
+            proofId: proof._id,
+            name: proof.name,
+            category: proof.category,
+            fileUrl: proof.fileUrl,
+            status: proof.status
+          });
+        }
+      }
+    }
+    
+    res.json({ proofs });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Copy proofs from previous events
+app.post('/api/events/organizer/:id/copy-proofs', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    const event = await Event.findOne({ _id: req.params.id, organizerId: req.user._id });
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    const { proofIds } = req.body;
+    if (!proofIds || proofIds.length === 0) {
+      return res.status(400).json({ error: 'No proof IDs provided' });
+    }
+    
+    // Parse proof IDs (format: eventId-proofId)
+    for (const combinedId of proofIds) {
+      const [sourceEventId, sourceProofId] = combinedId.split('-');
+      const sourceEvent = await Event.findOne({ _id: sourceEventId, organizerId: req.user._id });
+      if (sourceEvent) {
+        const sourceProof = sourceEvent.proofDocuments?.find(p => p._id.toString() === sourceProofId);
+        if (sourceProof) {
+          // Copy the proof to the new event
+          if (!event.proofDocuments) event.proofDocuments = [];
+          event.proofDocuments.push({
+            name: sourceProof.name,
+            fileName: sourceProof.fileName,
+            fileUrl: sourceProof.fileUrl,
+            fileType: sourceProof.fileType,
+            category: sourceProof.category,
+            uploadedAt: new Date(),
+            status: 'pending', // Needs re-approval for new event
+            reviewNotes: `Copied from event: ${sourceEvent.eventName}`
+          });
+        }
+      }
+    }
+    
+    await event.save();
+    res.json({ success: true, event });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -5587,6 +5673,143 @@ app.put('/api/admin/organizers/:id/status', masterAdminMiddleware, async (req, r
     await user.save();
     
     res.json({ message: disabled ? 'Organizer disabled' : 'Organizer enabled', user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all pending verifications (organizers + events with pending documents)
+app.get('/api/admin/verifications', masterAdminMiddleware, async (req, res) => {
+  try {
+    // Get organizers with pending documents
+    const organizersWithPendingDocs = await User.find({
+      isOrganizer: true,
+      'organizerProfile.documents': { $elemMatch: { status: 'pending' } }
+    }).select('firstName lastName email organizerProfile');
+    
+    // Get events with pending proof documents
+    const eventsWithPendingDocs = await Event.find({
+      'proofDocuments': { $elemMatch: { status: 'pending' } }
+    }).select('eventName organizerName location startDate proofDocuments verificationStatus');
+    
+    res.json({ 
+      verifications: {
+        organizers: organizersWithPendingDocs,
+        events: eventsWithPendingDocs
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Review organizer document
+app.put('/api/admin/organizers/:id/documents/:docIndex/review', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { status, reviewNotes } = req.body;
+    
+    const user = await User.findById(req.params.id);
+    if (!user || !user.isOrganizer) {
+      return res.status(404).json({ error: 'Organizer not found' });
+    }
+    
+    const docIndex = parseInt(req.params.docIndex);
+    if (!user.organizerProfile?.documents || docIndex >= user.organizerProfile.documents.length) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    user.organizerProfile.documents[docIndex].status = status;
+    user.organizerProfile.documents[docIndex].reviewNotes = reviewNotes || '';
+    user.organizerProfile.documents[docIndex].reviewedAt = new Date();
+    
+    // Check if all documents are now approved - auto-verify organizer
+    const allApproved = user.organizerProfile.documents.every(d => d.status === 'approved');
+    if (allApproved && user.organizerProfile.documents.length > 0) {
+      user.organizerProfile.verified = true;
+      user.organizerProfile.verificationStatus = 'approved';
+      user.organizerProfile.verifiedAt = new Date();
+    }
+    
+    await user.save();
+    res.json({ message: `Document ${status}`, user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Review event proof document
+app.put('/api/admin/events/:id/documents/:docIndex/review', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { status, reviewNotes } = req.body;
+    
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    const docIndex = parseInt(req.params.docIndex);
+    if (!event.proofDocuments || docIndex >= event.proofDocuments.length) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    event.proofDocuments[docIndex].status = status;
+    event.proofDocuments[docIndex].reviewNotes = reviewNotes || '';
+    event.proofDocuments[docIndex].reviewedAt = new Date();
+    
+    // Check if all documents are now approved - update event verification
+    const allApproved = event.proofDocuments.every(d => d.status === 'approved');
+    if (allApproved && event.proofDocuments.length > 0) {
+      event.verificationStatus = 'approved';
+    }
+    
+    await event.save();
+    res.json({ message: `Document ${status}`, event });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update event verification status
+app.put('/api/admin/events/:id/verification', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { verificationStatus, verificationNotes } = req.body;
+    
+    const event = await Event.findById(req.params.id);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    event.verificationStatus = verificationStatus;
+    event.verificationNotes = verificationNotes || '';
+    
+    // If approving, also approve all pending documents
+    if (verificationStatus === 'approved') {
+      event.proofDocuments = (event.proofDocuments || []).map(doc => ({
+        ...doc,
+        status: doc.status === 'pending' ? 'approved' : doc.status,
+        reviewedAt: doc.status === 'pending' ? new Date() : doc.reviewedAt
+      }));
+    }
+    
+    await event.save();
+    
+    // Send email notification to organizer
+    const organizer = await User.findById(event.organizerId);
+    if (organizer?.email && process.env.SENDGRID_API_KEY) {
+      const statusText = verificationStatus === 'approved' ? 'approved' : 
+                         verificationStatus === 'rejected' ? 'rejected' :
+                         verificationStatus === 'info_needed' ? 'requires additional information' : verificationStatus;
+      try {
+        await sgMail.send({
+          to: organizer.email,
+          from: process.env.SENDGRID_FROM_EMAIL || 'noreply@permitwise.com',
+          subject: `Event Verification Update: ${event.eventName}`,
+          text: `Your event "${event.eventName}" has been ${statusText}. ${verificationNotes ? `\n\nNote from admin: ${verificationNotes}` : ''}`
+        });
+      } catch (emailErr) { console.error('Email error:', emailErr); }
+    }
+    
+    res.json({ message: `Event verification updated to ${verificationStatus}`, event });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
