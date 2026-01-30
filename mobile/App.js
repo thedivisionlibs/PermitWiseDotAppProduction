@@ -3683,6 +3683,11 @@ const EventsScreen = () => {
 
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  const organizerVerified = user?.organizerProfile?.verified;
+  const verificationStatus = user?.organizerProfile?.verificationStatus || 'pending';
+  
+  // Verification modal state
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
 
   // Plan check for vendors: Elite, Promo, or Lifetime required
   const hasAccess = isOrganizer || subscription?.plan === 'elite' || subscription?.plan === 'promo' || subscription?.plan === 'lifetime' || subscription?.features?.eventIntegration;
@@ -4019,20 +4024,26 @@ const EventsScreen = () => {
 
         {/* Organizer Tabs */}
         <View style={styles.organizerTabs}>
-          {[{ key: 'my-events', label: '🎪 Events' }, { key: 'applications', label: '📋 Applications' }].map(tab => (
+          {[{ key: 'my-events', label: '🎪 Upcoming' }, { key: 'past-events', label: '📜 Past' }, { key: 'applications', label: '📋 Apps' }].map(tab => (
             <TouchableOpacity key={tab.key} style={[styles.organizerTab, organizerTab === tab.key && styles.organizerTabActive]} onPress={() => { setOrganizerTab(tab.key); setSelectedOrgEvent(null); }}>
               <Text style={[styles.organizerTabText, organizerTab === tab.key && styles.organizerTabTextActive]}>{tab.label}</Text>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity style={styles.createEventButton} onPress={() => setShowCreateModal(true)}>
+          <TouchableOpacity style={styles.createEventButton} onPress={() => {
+            if (!organizerVerified) {
+              setShowVerificationModal(true);
+            } else {
+              setShowCreateModal(true);
+            }
+          }}>
             <Icons.Plus size={18} color={COLORS.white} />
           </TouchableOpacity>
         </View>
 
-        {/* My Events Tab */}
+        {/* My Events Tab (Upcoming only) */}
         {organizerTab === 'my-events' && !selectedOrgEvent && (
           <FlatList
-            data={organizerEvents}
+            data={organizerEvents.filter(e => new Date(e.endDate || e.startDate) >= new Date(new Date().setHours(0,0,0,0)))}
             keyExtractor={item => item._id}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchOrganizerEvents(); }} />}
             renderItem={({ item }) => (
@@ -4094,9 +4105,9 @@ const EventsScreen = () => {
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <Icons.Event size={48} color={COLORS.gray300} />
-                <Text style={styles.emptyTitle}>No events yet</Text>
-                <Text style={styles.emptyText}>Create your first event to start accepting vendor applications.</Text>
-                <Button title="Create Event" onPress={() => setShowCreateModal(true)} style={{ marginTop: 16 }} />
+                <Text style={styles.emptyTitle}>No upcoming events</Text>
+                <Text style={styles.emptyText}>Create a new event to start accepting vendor applications.</Text>
+                <Button title="Create Event" onPress={() => organizerVerified ? setShowCreateModal(true) : setShowVerificationModal(true)} style={{ marginTop: 16 }} />
               </View>
             }
             contentContainerStyle={styles.listContent}
@@ -4217,6 +4228,65 @@ const EventsScreen = () => {
               </View>
             )}
           </ScrollView>
+        )}
+        
+        {/* Past Events Tab */}
+        {organizerTab === 'past-events' && (
+          <FlatList
+            data={organizerEvents.filter(e => new Date(e.endDate || e.startDate) < new Date(new Date().setHours(0,0,0,0)))}
+            keyExtractor={item => item._id}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchOrganizerEvents(); }} />}
+            renderItem={({ item }) => {
+              const approvedVendors = item.vendorApplications?.filter(v => v.status === 'approved') || [];
+              const totalAttended = item.assignedVendors?.length || approvedVendors.length;
+              return (
+                <Card style={[styles.organizerEventCard, { opacity: 0.9 }]}>
+                  <View style={styles.organizerEventHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.organizerEventName}>{item.eventName}</Text>
+                      <View style={styles.organizerEventMeta}>
+                        <Icons.Calendar size={14} color={COLORS.gray500} />
+                        <Text style={styles.organizerEventMetaText}>{formatDate(item.startDate)}</Text>
+                      </View>
+                      <View style={styles.organizerEventMeta}>
+                        <Icons.MapPin size={14} color={COLORS.gray500} />
+                        <Text style={styles.organizerEventMetaText}>{item.location?.city}, {item.location?.state}</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: '#f3f4f6' }]}>
+                      <Text style={[styles.statusBadgeText, { color: '#374151' }]}>COMPLETED</Text>
+                    </View>
+                  </View>
+                  
+                  {/* Summary Stats */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.gray100, marginVertical: 12 }}>
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ fontSize: 24, fontWeight: '700', color: COLORS.primary }}>{totalAttended}</Text>
+                      <Text style={{ fontSize: 11, color: COLORS.gray500, textTransform: 'uppercase' }}>Vendors</Text>
+                    </View>
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ fontSize: 24, fontWeight: '700', color: COLORS.primary }}>{item.vendorApplications?.length || 0}</Text>
+                      <Text style={{ fontSize: 11, color: COLORS.gray500, textTransform: 'uppercase' }}>Applications</Text>
+                    </View>
+                    <View style={{ alignItems: 'center' }}>
+                      <Text style={{ fontSize: 24, fontWeight: '700', color: COLORS.primary }}>{item.proofDocuments?.length || 0}</Text>
+                      <Text style={{ fontSize: 11, color: COLORS.gray500, textTransform: 'uppercase' }}>Documents</Text>
+                    </View>
+                  </View>
+                  
+                  <Button title="View Details" variant="outline" size="sm" onPress={() => fetchEventApplications(item._id)} />
+                </Card>
+              );
+            }}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Icons.Clock size={48} color={COLORS.gray300} />
+                <Text style={styles.emptyTitle}>No past events</Text>
+                <Text style={styles.emptyText}>Your completed events will appear here.</Text>
+              </View>
+            }
+            contentContainerStyle={styles.listContent}
+          />
         )}
 
         {/* Applications Tab */}
@@ -4363,6 +4433,64 @@ const EventsScreen = () => {
                   <Button title="Create Event" onPress={createEvent} disabled={!newEvent.eventName || !newEvent.startDate || !newEvent.city || !newEvent.state} style={{ flex: 1 }} />
                 </View>
               </ScrollView>
+            </View>
+          </View>
+        </Modal>
+        
+        {/* Verification Required Modal */}
+        <Modal visible={showVerificationModal} animationType="fade" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { padding: 24 }]}>
+              <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: verificationStatus === 'rejected' ? '#fee2e2' : verificationStatus === 'info_needed' ? '#fef3c7' : '#e0f2fe', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                  {verificationStatus === 'rejected' ? (
+                    <Icons.X size={32} color={COLORS.danger} />
+                  ) : verificationStatus === 'info_needed' ? (
+                    <Icons.Alert size={32} color="#f59e0b" />
+                  ) : (
+                    <Icons.Clock size={32} color={COLORS.primary} />
+                  )}
+                </View>
+                <Text style={{ fontSize: 20, fontWeight: '700', color: COLORS.gray800, marginBottom: 8 }}>
+                  {verificationStatus === 'rejected' ? 'Account Not Approved' : 
+                   verificationStatus === 'info_needed' ? 'Additional Info Needed' : 
+                   'Verification Required'}
+                </Text>
+              </View>
+              
+              {verificationStatus === 'rejected' && (
+                <Text style={{ color: COLORS.gray600, textAlign: 'center', marginBottom: 16 }}>
+                  {user?.organizerProfile?.verificationNotes || 'Your organizer application was not approved. Please contact support for more information.'}
+                </Text>
+              )}
+              
+              {verificationStatus === 'info_needed' && (
+                <Text style={{ color: COLORS.gray600, textAlign: 'center', marginBottom: 16 }}>
+                  {user?.organizerProfile?.verificationNotes || 'Please upload the required verification documents to continue.'}
+                </Text>
+              )}
+              
+              {verificationStatus === 'pending' && (
+                <>
+                  <Text style={{ color: COLORS.gray600, textAlign: 'center', marginBottom: 12 }}>
+                    To create events, you must first verify your organizer account by uploading required documentation.
+                  </Text>
+                  <View style={{ backgroundColor: COLORS.gray50, padding: 16, borderRadius: 8, marginBottom: 16 }}>
+                    <Text style={{ fontWeight: '600', marginBottom: 8 }}>Required Documents:</Text>
+                    <Text style={{ color: COLORS.gray600 }}>• Business License or Registration</Text>
+                    <Text style={{ color: COLORS.gray600 }}>• Government-issued ID</Text>
+                    <Text style={{ color: COLORS.gray600 }}>• Proof of event organizing experience (optional)</Text>
+                  </View>
+                  <Text style={{ color: COLORS.gray500, textAlign: 'center', fontSize: 13 }}>
+                    Once uploaded, our team will review within 1-2 business days.
+                  </Text>
+                </>
+              )}
+              
+              <View style={{ flexDirection: 'row', gap: 12, marginTop: 20 }}>
+                <Button title="Close" variant="outline" onPress={() => setShowVerificationModal(false)} style={{ flex: 1 }} />
+                <Button title={verificationStatus === 'pending' ? 'Upload Documents' : 'Go to Settings'} onPress={() => { setShowVerificationModal(false); navigation.navigate('Settings'); }} style={{ flex: 1 }} />
+              </View>
             </View>
           </View>
         </Modal>
