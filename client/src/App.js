@@ -1584,6 +1584,7 @@ const AddPermitModal = ({ isOpen, onClose, onSuccess, toast }) => {
 
 const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
   const { subscription } = useAuth();
+  const toast = useToast();
   const [editing, setEditing] = useState(false); 
   const [formData, setFormData] = useState({}); 
   const [loading, setLoading] = useState(false); 
@@ -1655,7 +1656,7 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
       onUpdate(); 
     } catch (error) { setUploadError(error.message); } finally { setUploading(false); e.target.value = ''; } 
   };
-  const handleAutofill = async () => { try { const data = await api.post('/autofill/generate', { permitTypeId: localPermit.permitTypeId._id }); window.open(getSecureFileUrl(data.downloadUrl), '_blank'); } catch (error) { toast?.error?.(error.message) || console.error(error.message); } };
+  const handleAutofill = async () => { try { const data = await api.post('/autofill/generate', { permitTypeId: localPermit.permitTypeId._id }); window.open(getSecureFileUrl(data.downloadUrl), '_blank'); } catch (error) { toast.error(error.message); } };
   
   const getImportanceLabel = (level) => {
     if (level === 'critical') return { text: 'Critical', variant: 'danger' };
