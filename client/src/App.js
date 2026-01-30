@@ -6848,7 +6848,7 @@ const App = () => {
     if (path === '/privacy') setLegalPage('privacy');
     else if (path === '/terms') setLegalPage('terms');
     else if (pathLower === '/superadmin') setLegalPage('superadmin');
-  }, []);
+  }, [toast]);
 
   // Password reset page (accessible without auth)
   if (resetToken) {
