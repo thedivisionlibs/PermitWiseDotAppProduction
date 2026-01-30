@@ -437,6 +437,7 @@ const AuthProvider = ({ children }) => {
   const [business, setBusiness] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState(null);
+  const [businessRole, setBusinessRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchUser = useCallback(async () => {
@@ -446,6 +447,7 @@ const AuthProvider = ({ children }) => {
       const data = await api.get('/auth/me');
       setUser(data.user); setBusiness(data.business); setSubscription(data.subscription);
       setSubscriptionStatus(data.subscriptionStatus);
+      setBusinessRole(data.businessRole);
     } catch (error) { await AsyncStorage.removeItem('permitwise_token'); }
     finally { setLoading(false); }
   }, []);
@@ -466,17 +468,181 @@ const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     await AsyncStorage.removeItem('permitwise_token');
-    setUser(null); setBusiness(null); setSubscription(null); setSubscriptionStatus(null);
+    setUser(null); setBusiness(null); setSubscription(null); setSubscriptionStatus(null); setBusinessRole(null);
   };
 
   // Check if subscription allows write operations
   const canWrite = subscriptionStatus?.canWrite ?? true;
   const isExpired = subscriptionStatus?.isExpired ?? false;
+  
+  // Role-based permission helpers
+  const isOwner = businessRole === 'owner';
+  const isManager = businessRole === 'manager' || businessRole === 'owner';
+  const canManageTeam = isManager;
+  const canManageSubscription = isOwner;
+  const canManageBusiness = isManager;
 
   return (
-    <AuthContext.Provider value={{ user, business, subscription, subscriptionStatus, canWrite, isExpired, loading, login, register, logout, fetchUser, updateBusiness: setBusiness, isAuthenticated: !!user, hasCompletedOnboarding: !!business }}>
+    <AuthContext.Provider value={{ 
+      user, business, subscription, subscriptionStatus, businessRole,
+      canWrite, isExpired, isOwner, isManager, canManageTeam, canManageSubscription, canManageBusiness,
+      loading, login, register, logout, fetchUser, updateBusiness: setBusiness, 
+      isAuthenticated: !!user, hasCompletedOnboarding: !!business 
+    }}>
       {children}
     </AuthContext.Provider>
+  );
+};
+
+// ===========================================
+// TOAST CONTEXT (Mobile)
+// ===========================================
+const ToastContext = createContext(null);
+const useToast = () => useContext(ToastContext);
+
+const ToastProvider = ({ children }) => {
+  const [toasts, setToasts] = useState([]);
+  
+  const addToast = useCallback((message, type = 'info', duration = 3000) => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    if (duration > 0) {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, duration);
+    }
+    return id;
+  }, []);
+  
+  const removeToast = useCallback((id) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+  
+  const toast = {
+    success: (msg, duration) => addToast(msg, 'success', duration),
+    error: (msg, duration) => addToast(msg, 'error', duration),
+    info: (msg, duration) => addToast(msg, 'info', duration),
+    warning: (msg, duration) => addToast(msg, 'warning', duration),
+  };
+  
+  const getToastStyle = (type) => {
+    switch(type) {
+      case 'success': return { backgroundColor: '#dcfce7', borderColor: '#22c55e', iconColor: '#166534' };
+      case 'error': return { backgroundColor: '#fee2e2', borderColor: '#ef4444', iconColor: '#dc2626' };
+      case 'warning': return { backgroundColor: '#fef3c7', borderColor: '#f59e0b', iconColor: '#92400e' };
+      default: return { backgroundColor: '#dbeafe', borderColor: '#3b82f6', iconColor: '#1d4ed8' };
+    }
+  };
+  
+  return (
+    <ToastContext.Provider value={toast}>
+      {children}
+      {toasts.length > 0 && (
+        <View style={{ position: 'absolute', top: 50, left: 16, right: 16, zIndex: 9999 }}>
+          {toasts.map(t => {
+            const toastStyle = getToastStyle(t.type);
+            return (
+              <TouchableOpacity 
+                key={t.id} 
+                onPress={() => removeToast(t.id)}
+                style={{ 
+                  backgroundColor: toastStyle.backgroundColor, 
+                  borderLeftWidth: 4, 
+                  borderLeftColor: toastStyle.borderColor,
+                  borderRadius: 8, 
+                  padding: 14, 
+                  marginBottom: 8,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 8,
+                  elevation: 5
+                }}
+              >
+                <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: toastStyle.borderColor + '20', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                  {t.type === 'success' && <Icons.Check size={16} color={toastStyle.iconColor} />}
+                  {t.type === 'error' && <Icons.X size={16} color={toastStyle.iconColor} />}
+                  {(t.type === 'info' || t.type === 'warning') && <Icons.Alert size={16} color={toastStyle.iconColor} />}
+                </View>
+                <Text style={{ flex: 1, color: '#1f2937', fontSize: 14 }}>{t.message}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+    </ToastContext.Provider>
+  );
+};
+
+// ===========================================
+// CONFIRM CONTEXT (Mobile)
+// ===========================================
+const ConfirmContext = createContext(null);
+const useConfirm = () => useContext(ConfirmContext);
+
+const ConfirmProvider = ({ children }) => {
+  const [confirmState, setConfirmState] = useState({
+    visible: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    variant: 'primary',
+    onConfirm: null,
+    onCancel: null,
+  });
+  
+  const confirm = useCallback(({ title, message, confirmText = 'Confirm', cancelText = 'Cancel', variant = 'primary' }) => {
+    return new Promise((resolve) => {
+      setConfirmState({
+        visible: true,
+        title,
+        message,
+        confirmText,
+        cancelText,
+        variant,
+        onConfirm: () => {
+          setConfirmState(prev => ({ ...prev, visible: false }));
+          resolve(true);
+        },
+        onCancel: () => {
+          setConfirmState(prev => ({ ...prev, visible: false }));
+          resolve(false);
+        },
+      });
+    });
+  }, []);
+  
+  return (
+    <ConfirmContext.Provider value={confirm}>
+      {children}
+      <Modal visible={confirmState.visible} transparent animationType="fade">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 16, width: '100%', maxWidth: 340, overflow: 'hidden' }}>
+            <View style={{ padding: 20 }}>
+              <Text style={{ fontSize: 18, fontWeight: '600', color: '#111827', marginBottom: 8 }}>{confirmState.title}</Text>
+              <Text style={{ fontSize: 14, color: '#6b7280', lineHeight: 20 }}>{confirmState.message}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#e5e7eb' }}>
+              <TouchableOpacity 
+                style={{ flex: 1, padding: 14, alignItems: 'center', borderRightWidth: 1, borderRightColor: '#e5e7eb' }}
+                onPress={confirmState.onCancel}
+              >
+                <Text style={{ fontSize: 16, color: '#6b7280', fontWeight: '500' }}>{confirmState.cancelText}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={{ flex: 1, padding: 14, alignItems: 'center', backgroundColor: confirmState.variant === 'danger' ? '#fee2e2' : '#eff6ff' }}
+                onPress={confirmState.onConfirm}
+              >
+                <Text style={{ fontSize: 16, color: confirmState.variant === 'danger' ? '#dc2626' : '#2563eb', fontWeight: '600' }}>{confirmState.confirmText}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </ConfirmContext.Provider>
   );
 };
 
@@ -3641,6 +3807,8 @@ const InspectionsScreen = () => {
 
 const EventsScreen = () => {
   const { user, subscription, business } = useAuth();
+  const toast = useToast();
+  const confirm = useConfirm();
   const [events, setEvents] = useState([]);
   const [publishedEvents, setPublishedEvents] = useState([]);
   const [organizerEvents, setOrganizerEvents] = useState([]);
@@ -3972,30 +4140,26 @@ const EventsScreen = () => {
   
   // Cancel event with vendor notifications
   const cancelEvent = async (eventId) => {
-    Alert.alert(
-      'Cancel Event',
-      'Are you sure you want to cancel this event? All approved vendors and applicants will be notified.',
-      [
-        { text: 'No', style: 'cancel' },
-        { 
-          text: 'Yes, Cancel Event', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await api.put(`/events/organizer/${eventId}/cancel`);
-              fetchOrganizerEvents();
-              Alert.alert('Event Cancelled', 'All vendors have been notified.');
-            } catch (error) { Alert.alert('Error', error.message); }
-          }
-        }
-      ]
-    );
+    const confirmed = await confirm({
+      title: 'Cancel Event',
+      message: 'Are you sure you want to cancel this event? All approved vendors and applicants will be notified.',
+      confirmText: 'Yes, Cancel Event',
+      cancelText: 'No',
+      variant: 'danger'
+    });
+    if (!confirmed) return;
+    
+    try {
+      await api.put(`/events/organizer/${eventId}/cancel`);
+      fetchOrganizerEvents();
+      toast.success('Event cancelled. All vendors have been notified.');
+    } catch (error) { toast.error(error.message); }
   };
 
   // Create event
   const createEvent = async () => {
     if (!newEvent.eventName || !newEvent.startDate || !newEvent.city || !newEvent.state) {
-      Alert.alert('Error', 'Please fill in all required fields');
+      toast.error('Please fill in all required fields');
       return;
     }
     try {
@@ -5676,10 +5840,14 @@ const AppContent = () => {
 export default function App() {
   return (
     <AuthProvider>
-      <NavigationContainer>
-        <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
-        <AppContent />
-      </NavigationContainer>
+      <ToastProvider>
+        <ConfirmProvider>
+          <NavigationContainer>
+            <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+            <AppContent />
+          </NavigationContainer>
+        </ConfirmProvider>
+      </ToastProvider>
     </AuthProvider>
   );
 }
