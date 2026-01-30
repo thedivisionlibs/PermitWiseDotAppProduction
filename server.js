@@ -75,10 +75,32 @@ app.get('/uploads/:filename', async (req, res) => {
     
     // Check for auth token (header or query param)
     const authHeader = req.headers.authorization;
+    const adminToken = req.headers['x-admin-token'];
     const token = authHeader?.split(' ')[1] || req.query.token;
     
-    if (!token) {
+    if (!token && !adminToken) {
       return res.status(401).json({ error: 'Authentication required. Add ?token=YOUR_TOKEN to the URL.' });
+    }
+    
+    // First, check if this is an admin token (either header or query param)
+    let isAdmin = false;
+    if (adminToken || token) {
+      try {
+        const tokenToCheck = adminToken || token;
+        const decoded = jwt.verify(tokenToCheck, JWT_SECRET);
+        if (decoded.isMasterAdmin) {
+          isAdmin = true;
+          // Admin can access any file - serve it directly
+          return res.sendFile(filePath);
+        }
+      } catch (err) {
+        // Not an admin token, continue to check user token
+      }
+    }
+    
+    // If not admin, require user token
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
     
     // Verify token and get user
@@ -90,8 +112,34 @@ app.get('/uploads/:filename', async (req, res) => {
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
     
+    if (!userId) {
+      return res.status(401).json({ error: 'Invalid token format' });
+    }
+    
     const user = await User.findById(userId);
-    if (!user || !user.vendorBusinessId) {
+    if (!user) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    
+    // Organizers can access their own proof documents
+    if (user.isOrganizer) {
+      // Check if file is in organizer's proof documents
+      const event = await Event.findOne({
+        organizerId: user._id,
+        'proofDocuments.fileUrl': { $regex: filename }
+      });
+      if (event) {
+        return res.sendFile(filePath);
+      }
+      
+      // Check organizer profile documents
+      if (user.organizerProfile?.documents?.some(d => d.fileUrl?.includes(filename))) {
+        return res.sendFile(filePath);
+      }
+    }
+    
+    // Vendors need a business to access files
+    if (!user.vendorBusinessId) {
       return res.status(403).json({ error: 'Access denied' });
     }
     
@@ -718,14 +766,27 @@ const authMiddleware = async (req, res, next) => {
 const checkFeature = (feature) => async (req, res, next) => {
   try {
     const subscription = await Subscription.findOne({ 
-      vendorBusinessId: req.user.vendorBusinessId,
-      status: { $in: ['active', 'trial'] }
+      vendorBusinessId: req.user.vendorBusinessId
     });
-    if (!subscription) {
-      return res.status(403).json({ error: 'No active subscription' });
+    
+    const isActive = isSubscriptionActive(subscription);
+    
+    if (!subscription || !isActive) {
+      return res.status(403).json({ 
+        error: 'subscription_expired',
+        message: 'Your subscription has expired. Please upgrade to access this feature.',
+        upgradeRequired: true,
+        requiredFeature: feature
+      });
     }
     if (feature && !subscription.features[feature]) {
-      return res.status(403).json({ error: `Feature '${feature}' not available in your plan. Please upgrade.` });
+      return res.status(403).json({ 
+        error: 'feature_unavailable',
+        message: `The ${feature} feature is not available in your current plan. Please upgrade.`,
+        upgradeRequired: true,
+        requiredFeature: feature,
+        currentPlan: subscription.plan
+      });
     }
     req.subscription = subscription;
     next();
@@ -946,6 +1007,73 @@ const requireWriteAccess = async (req, res, next) => {
   }
 };
 
+// Middleware: Check plan limits (maxCities, maxTeamMembers, etc.)
+const checkPlanLimit = (limitType) => async (req, res, next) => {
+  try {
+    if (!req.user?.vendorBusinessId) {
+      return res.status(400).json({ error: 'Business profile required' });
+    }
+    
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.user.vendorBusinessId });
+    const isActive = isSubscriptionActive(subscription);
+    
+    if (!isActive) {
+      return res.status(403).json({
+        error: 'subscription_expired',
+        message: 'Your subscription has expired. Please upgrade to continue.',
+        upgradeRequired: true
+      });
+    }
+    
+    const limits = subscription.features || {};
+    const business = await VendorBusiness.findById(req.user.vendorBusinessId);
+    
+    let currentCount = 0;
+    let maxAllowed = 0;
+    let itemName = '';
+    
+    switch (limitType) {
+      case 'cities':
+        currentCount = business?.operatingCities?.length || 0;
+        maxAllowed = limits.maxCities || 1;
+        itemName = 'operating cities';
+        break;
+      case 'teamMembers':
+        const teamCount = await User.countDocuments({ vendorBusinessId: req.user.vendorBusinessId });
+        currentCount = teamCount;
+        maxAllowed = limits.maxTeamMembers || 1;
+        itemName = 'team members';
+        break;
+      case 'permits':
+        const permitCount = await VendorPermit.countDocuments({ vendorBusinessId: req.user.vendorBusinessId });
+        currentCount = permitCount;
+        maxAllowed = limits.maxPermits || 10;
+        itemName = 'permits';
+        break;
+      default:
+        return next(); // Unknown limit type, allow
+    }
+    
+    if (currentCount >= maxAllowed) {
+      return res.status(403).json({
+        error: 'plan_limit_reached',
+        message: `You've reached your plan limit of ${maxAllowed} ${itemName}. Please upgrade for more.`,
+        upgradeRequired: true,
+        limitType,
+        currentCount,
+        maxAllowed,
+        currentPlan: subscription.plan
+      });
+    }
+    
+    req.subscription = subscription;
+    req.planLimits = { currentCount, maxAllowed, limitType };
+    next();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // Middleware: Require specific premium feature
 const requirePremiumFeature = (feature) => async (req, res, next) => {
   try {
@@ -980,6 +1108,95 @@ const requirePremiumFeature = (feature) => async (req, res, next) => {
     next();
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+// ===========================================
+// ROLE-BASED ACCESS CONTROL (RBAC)
+// ===========================================
+
+// Role hierarchy: owner > manager > staff
+const ROLE_HIERARCHY = {
+  owner: 3,
+  manager: 2,
+  staff: 1
+};
+
+// Helper: Get user's effective role for their business
+const getUserBusinessRole = async (user) => {
+  if (!user || !user.vendorBusinessId) return null;
+  
+  // If user is the business owner (User.role === 'owner')
+  if (user.role === 'owner') {
+    return 'owner';
+  }
+  
+  // Otherwise, check teamMembers array for their role
+  const business = await VendorBusiness.findById(user.vendorBusinessId);
+  if (!business) return null;
+  
+  const teamMember = business.teamMembers.find(
+    tm => tm.userId && tm.userId.toString() === user._id.toString()
+  );
+  
+  return teamMember?.role || 'staff'; // Default to staff if in business but no explicit role
+};
+
+// Middleware: Require minimum role level
+// Usage: requireRole('manager') - allows owner and manager
+// Usage: requireRole('owner') - allows only owner
+const requireRole = (...allowedRoles) => async (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    if (!req.user.vendorBusinessId) {
+      return res.status(400).json({ error: 'Business profile required' });
+    }
+    
+    const userRole = await getUserBusinessRole(req.user);
+    
+    if (!userRole) {
+      return res.status(403).json({ 
+        error: 'access_denied',
+        message: 'You do not have access to this business'
+      });
+    }
+    
+    // Check if user's role is in the allowed roles
+    if (!allowedRoles.includes(userRole)) {
+      // Also allow higher roles (owner can do everything)
+      const userLevel = ROLE_HIERARCHY[userRole] || 0;
+      const requiredLevel = Math.min(...allowedRoles.map(r => ROLE_HIERARCHY[r] || 0));
+      
+      if (userLevel < requiredLevel) {
+        return res.status(403).json({
+          error: 'insufficient_permissions',
+          message: `This action requires ${allowedRoles.join(' or ')} permissions`,
+          currentRole: userRole,
+          requiredRoles: allowedRoles
+        });
+      }
+    }
+    
+    req.userRole = userRole;
+    next();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Middleware: Attach user role (non-blocking, just adds info)
+const attachUserRole = async (req, res, next) => {
+  try {
+    if (req.user && req.user.vendorBusinessId) {
+      req.userRole = await getUserBusinessRole(req.user);
+    }
+    next();
+  } catch (error) {
+    // Don't block on role lookup failure
+    next();
   }
 };
 
@@ -1379,8 +1596,14 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
     if (user.vendorBusinessId) {
       subscriptionStatus = await getSubscriptionStatus(user.vendorBusinessId);
     }
+    
+    // Get user's role in the business
+    let businessRole = null;
+    if (user.vendorBusinessId) {
+      businessRole = await getUserBusinessRole(user);
+    }
       
-    res.json({ user, business, subscription, subscriptionStatus });
+    res.json({ user, business, subscription, subscriptionStatus, businessRole });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1562,7 +1785,7 @@ app.get('/api/business', authMiddleware, async (req, res) => {
 });
 
 // Update business
-app.put('/api/business', authMiddleware, async (req, res) => {
+app.put('/api/business', authMiddleware, requireRole('owner', 'manager'), async (req, res) => {
   try {
     if (!req.user.vendorBusinessId) {
       return res.status(404).json({ error: 'No business found' });
@@ -1585,9 +1808,15 @@ app.put('/api/business', authMiddleware, async (req, res) => {
 });
 
 // Add team member
-app.post('/api/business/team', authMiddleware, checkFeature('teamAccounts'), async (req, res) => {
+app.post('/api/business/team', authMiddleware, checkFeature('teamAccounts'), requireRole('owner', 'manager'), async (req, res) => {
   try {
     const { email, role, firstName, lastName } = req.body;
+    
+    // Validate role - managers can only add staff
+    const assignRole = role || 'staff';
+    if (req.userRole === 'manager' && assignRole === 'manager') {
+      return res.status(403).json({ error: 'Managers cannot add other managers. Only the owner can do this.' });
+    }
     
     const business = await VendorBusiness.findById(req.user.vendorBusinessId);
     if (!business) {
@@ -1618,7 +1847,7 @@ app.post('/api/business/team', authMiddleware, checkFeature('teamAccounts'), asy
         password: hashedPassword,
         firstName,
         lastName,
-        role,
+        role: assignRole,
         vendorBusinessId: business._id
       });
       await user.save();
@@ -1637,7 +1866,7 @@ app.post('/api/business/team', authMiddleware, checkFeature('teamAccounts'), asy
       );
     }
     
-    business.teamMembers.push({ userId: user._id, role });
+    business.teamMembers.push({ userId: user._id, role: assignRole });
     await business.save();
     
     res.status(201).json({ message: 'Team member added', business });
@@ -1647,11 +1876,19 @@ app.post('/api/business/team', authMiddleware, checkFeature('teamAccounts'), asy
 });
 
 // Remove team member
-app.delete('/api/business/team/:userId', authMiddleware, async (req, res) => {
+app.delete('/api/business/team/:userId', authMiddleware, requireRole('owner', 'manager'), async (req, res) => {
   try {
     const business = await VendorBusiness.findById(req.user.vendorBusinessId);
     if (!business) {
       return res.status(404).json({ error: 'Business not found' });
+    }
+    
+    // Find the member being removed
+    const memberToRemove = business.teamMembers.find(tm => tm.userId.toString() === req.params.userId);
+    
+    // Managers can only remove staff
+    if (req.userRole === 'manager' && memberToRemove?.role === 'manager') {
+      return res.status(403).json({ error: 'Managers cannot remove other managers. Only the owner can do this.' });
     }
     
     business.teamMembers = business.teamMembers.filter(
@@ -1685,15 +1922,31 @@ app.get('/api/team', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/team/invite', authMiddleware, checkFeature('teamAccounts'), async (req, res) => {
+app.post('/api/team/invite', authMiddleware, checkFeature('teamAccounts'), requireRole('owner', 'manager'), async (req, res) => {
   try {
     const { email, role } = req.body;
+    
+    // Validate role - managers can only invite staff, owners can invite anyone
+    const inviteRole = role || 'staff';
+    if (req.userRole === 'manager' && inviteRole === 'manager') {
+      return res.status(403).json({ error: 'Managers cannot invite other managers. Only the owner can do this.' });
+    }
+    
     const business = await VendorBusiness.findById(req.user.vendorBusinessId);
     if (!business) {
       return res.status(404).json({ error: 'Business not found' });
     }
-    if (business.teamMembers.length >= (req.subscription?.features?.maxTeamMembers || 5)) {
-      return res.status(400).json({ error: 'Team member limit reached' });
+    const maxTeamMembers = req.subscription?.features?.maxTeamMembers || 5;
+    if (business.teamMembers.length >= maxTeamMembers) {
+      return res.status(403).json({ 
+        error: 'plan_limit_reached',
+        message: `You've reached your plan limit of ${maxTeamMembers} team members. Please upgrade for more.`,
+        upgradeRequired: true,
+        limitType: 'teamMembers',
+        currentCount: business.teamMembers.length,
+        maxAllowed: maxTeamMembers,
+        currentPlan: req.subscription?.plan
+      });
     }
     let user = await User.findOne({ email: email.toLowerCase() });
     if (user) {
@@ -1707,7 +1960,7 @@ app.post('/api/team/invite', authMiddleware, checkFeature('teamAccounts'), async
       user = new User({
         email: email.toLowerCase(),
         password: hashedPassword,
-        role: role || 'member',
+        role: inviteRole,
         vendorBusinessId: business._id
       });
       await user.save();
@@ -1715,7 +1968,7 @@ app.post('/api/team/invite', authMiddleware, checkFeature('teamAccounts'), async
         `<h1>Team Invitation</h1><p>You've been invited to join ${business.businessName} on PermitWise.</p><p>Your temporary password is: <strong>${tempPassword}</strong></p><p>Login at: <a href="${CLIENT_URL}/login">${CLIENT_URL}/login</a></p>`
       );
     }
-    business.teamMembers.push({ userId: user._id, role: role || 'member' });
+    business.teamMembers.push({ userId: user._id, role: inviteRole });
     await business.save();
     res.status(201).json({ message: 'Team member invited' });
   } catch (error) {
@@ -1723,12 +1976,24 @@ app.post('/api/team/invite', authMiddleware, checkFeature('teamAccounts'), async
   }
 });
 
-app.delete('/api/team/:id', authMiddleware, async (req, res) => {
+app.delete('/api/team/:id', authMiddleware, requireRole('owner', 'manager'), async (req, res) => {
   try {
     const business = await VendorBusiness.findById(req.user.vendorBusinessId);
     if (!business) {
       return res.status(404).json({ error: 'Business not found' });
     }
+    
+    // Find the team member being removed
+    const memberToRemove = business.teamMembers.find(tm => tm._id.toString() === req.params.id);
+    if (!memberToRemove) {
+      return res.status(404).json({ error: 'Team member not found' });
+    }
+    
+    // Managers can only remove staff, not other managers
+    if (req.userRole === 'manager' && memberToRemove.role === 'manager') {
+      return res.status(403).json({ error: 'Managers cannot remove other managers. Only the owner can do this.' });
+    }
+    
     business.teamMembers = business.teamMembers.filter(tm => tm._id.toString() !== req.params.id);
     await business.save();
     res.json({ message: 'Team member removed' });
@@ -2451,20 +2716,11 @@ app.delete('/api/permits/:id', authMiddleware, requireWriteAccess, async (req, r
 });
 
 // Add permits for a city
-app.post('/api/permits/add-city', authMiddleware, requireWriteAccess, async (req, res) => {
+app.post('/api/permits/add-city', authMiddleware, requireWriteAccess, checkPlanLimit('cities'), async (req, res) => {
   try {
     const { city, state } = req.body;
     
-    // Check city limit based on subscription
-    const subscription = await Subscription.findOne({
-      vendorBusinessId: req.user.vendorBusinessId,
-      status: { $in: ['active', 'trial'] }
-    });
-    
     const business = await VendorBusiness.findById(req.user.vendorBusinessId);
-    if (business.operatingCities.length >= (subscription?.features?.maxCities || 1)) {
-      return res.status(403).json({ error: 'City limit reached. Please upgrade your plan.' });
-    }
     
     const jurisdiction = await Jurisdiction.findOne({
       $or: [
@@ -2612,7 +2868,7 @@ app.post('/api/documents', authMiddleware, requireWriteAccess, upload.single('fi
 });
 
 // Delete document
-app.delete('/api/documents/:id', authMiddleware, async (req, res) => {
+app.delete('/api/documents/:id', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     const document = await Document.findOneAndDelete({
       _id: req.params.id,
@@ -3064,7 +3320,7 @@ app.post('/api/inspections', authMiddleware, requirePremiumFeature('inspectionCh
 });
 
 // Update inspection
-app.put('/api/inspections/:id', authMiddleware, async (req, res) => {
+app.put('/api/inspections/:id', authMiddleware, requirePremiumFeature('inspectionChecklists'), async (req, res) => {
   try {
     const { results, notes, overallStatus, photos, location } = req.body;
     
@@ -3185,7 +3441,7 @@ app.post('/api/user-checklists', authMiddleware, requireWriteAccess, async (req,
 });
 
 // Update a personal checklist
-app.put('/api/user-checklists/:id', authMiddleware, async (req, res) => {
+app.put('/api/user-checklists/:id', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     const { name, description, category, items, active } = req.body;
     
@@ -3203,7 +3459,7 @@ app.put('/api/user-checklists/:id', authMiddleware, async (req, res) => {
 });
 
 // Delete a personal checklist
-app.delete('/api/user-checklists/:id', authMiddleware, async (req, res) => {
+app.delete('/api/user-checklists/:id', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     const checklist = await UserChecklist.findOneAndDelete({
       _id: req.params.id,
@@ -4911,7 +5167,7 @@ app.get('/api/subscription', authMiddleware, async (req, res) => {
 });
 
 // Create checkout session
-app.post('/api/subscription/checkout', authMiddleware, async (req, res) => {
+app.post('/api/subscription/checkout', authMiddleware, requireRole('owner'), async (req, res) => {
   try {
     const { plan } = req.body;
     
@@ -4975,7 +5231,7 @@ app.post('/api/subscription/checkout', authMiddleware, async (req, res) => {
 });
 
 // Create billing portal session
-app.post('/api/subscription/portal', authMiddleware, async (req, res) => {
+app.post('/api/subscription/portal', authMiddleware, requireRole('owner'), async (req, res) => {
   try {
     if (!stripe) {
       return res.status(400).json({ error: 'Stripe not configured' });
