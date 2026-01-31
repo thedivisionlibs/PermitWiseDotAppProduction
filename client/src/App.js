@@ -1014,6 +1014,59 @@ const ResetPasswordPage = ({ token, onSuccess }) => {
   );
 };
 
+const VerifyEmailPage = ({ token, onSuccess, onError }) => {
+  const [status, setStatus] = useState('verifying'); // 'verifying', 'success', 'error'
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const verifyEmail = async () => {
+      try {
+        await api.post('/auth/verify-email', { token });
+        setStatus('success');
+        setTimeout(() => onSuccess(), 2000);
+      } catch (err) {
+        setStatus('error');
+        setError(err.message || 'Verification failed');
+      }
+    };
+    if (token) verifyEmail();
+  }, [token, onSuccess]);
+
+  return (
+    <div className="auth-page">
+      <div className="auth-container" style={{ textAlign: 'center' }}>
+        <div className="auth-header">
+          <div className="logo"><Icons.Shield /><span>PermitWise</span></div>
+          <h1>Email Verification</h1>
+        </div>
+        <div style={{ padding: '2rem' }}>
+          {status === 'verifying' && (
+            <>
+              <LoadingSpinner />
+              <p style={{ marginTop: '1rem', color: 'var(--gray-600)' }}>Verifying your email address...</p>
+            </>
+          )}
+          {status === 'success' && (
+            <>
+              <div style={{ fontSize: '3rem', color: 'var(--success)', marginBottom: '1rem' }}>✓</div>
+              <h2 style={{ color: 'var(--success)', marginBottom: '0.5rem' }}>Email Verified!</h2>
+              <p style={{ color: 'var(--gray-600)' }}>Your email has been verified successfully. Redirecting to login...</p>
+            </>
+          )}
+          {status === 'error' && (
+            <>
+              <div style={{ fontSize: '3rem', color: 'var(--danger)', marginBottom: '1rem' }}>✗</div>
+              <h2 style={{ color: 'var(--danger)', marginBottom: '0.5rem' }}>Verification Failed</h2>
+              <p style={{ color: 'var(--gray-600)', marginBottom: '1rem' }}>{error}</p>
+              <Button onClick={onError}>Go to Login</Button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const PermitChecker = ({ onClose, onGetStarted }) => {
   const [city, setCity] = useState(''); const [state, setState] = useState(''); const [vendorType, setVendorType] = useState('');
   const [results, setResults] = useState(null); const [loading, setLoading] = useState(false);
@@ -2391,18 +2444,50 @@ const EventsPage = () => {
   };
 
   const updateEventStatus = async (eventId, status) => {
+    // For closing events, show a confirmation dialog
+    if (status === 'closed') {
+      const confirmed = await confirm({
+        title: 'Close Event',
+        message: 'Are you sure you want to close this event? This will:\n\n• Mark the event as completed\n• Stop accepting new applications\n• Move it to your Past Events\n\nVendors will still be able to view their participation details.',
+        confirmText: 'Yes, Close Event',
+        cancelText: 'Keep Open',
+        variant: 'primary'
+      });
+      if (!confirmed) return;
+    }
+    
     try {
       await api.put(`/events/organizer/${eventId}/status`, { status });
       const orgData = await api.get('/events/organizer/my-events');
       setOrganizerEvents(orgData.events || []);
+      if (status === 'closed') {
+        toast.success('Event closed successfully.');
+      }
     } catch (err) { toast.error(err.message); }
   };
   
   // Cancel event with vendor notifications
-  const cancelEvent = async (eventId) => {
+  const cancelEvent = async (eventId, eventStartDate) => {
+    // Check if event date has passed
+    const eventDate = new Date(eventStartDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (eventDate <= today) {
+      toast.error('Cannot cancel an event that has already started or passed. Use "Close" instead to mark it as completed.');
+      return;
+    }
+    
+    // Prompt for cancellation reason
+    const reason = window.prompt('Please provide a reason for cancelling this event (this will be shared with all vendors):');
+    if (!reason || reason.trim() === '') {
+      toast.error('A cancellation reason is required.');
+      return;
+    }
+    
     const confirmed = await confirm({
       title: 'Cancel Event',
-      message: 'Are you sure you want to cancel this event? All approved vendors and applicants will be notified by email.',
+      message: `Are you sure you want to cancel this event?\n\nReason: "${reason}"\n\nAll approved vendors and applicants will be notified by email with this reason.`,
       confirmText: 'Yes, Cancel Event',
       cancelText: 'Keep Event',
       variant: 'danger'
@@ -2410,7 +2495,7 @@ const EventsPage = () => {
     if (!confirmed) return;
     
     try {
-      await api.put(`/events/organizer/${eventId}/cancel`);
+      await api.put(`/events/organizer/${eventId}/cancel`, { reason: reason.trim() });
       const orgData = await api.get('/events/organizer/my-events');
       setOrganizerEvents(orgData.events || []);
       toast.success('Event cancelled. All vendors have been notified.');
@@ -2752,7 +2837,7 @@ const EventsPage = () => {
                   {event.status === 'draft' && <Button size="sm" onClick={() => updateEventStatus(event._id, 'published')}>Publish</Button>}
                   {event.status === 'published' && <Button size="sm" variant="outline" onClick={() => updateEventStatus(event._id, 'closed')}>Close</Button>}
                   {(event.status === 'draft' || event.status === 'published') && (
-                    <Button size="sm" variant="danger" onClick={() => cancelEvent(event._id)}>Cancel Event</Button>
+                    <Button size="sm" variant="danger" onClick={() => cancelEvent(event._id, event.startDate)}>Cancel Event</Button>
                   )}
                 </div>
               </Card>
@@ -3649,8 +3734,17 @@ const EventsPage = () => {
   };
 
   // Separate events by source
-  const organizerInvitations = events.filter(e => e.eventSource === 'organizer_invitation');
-  const marketplaceEvents = events.filter(e => e.eventSource === 'admin_added' || e.eventSource === 'vendor_application');
+  const organizerInvitations = events.filter(e => e.eventSource === 'organizer_invitation' && e.status !== 'closed' && e.status !== 'cancelled');
+  const marketplaceEvents = events.filter(e => (e.eventSource === 'admin_added' || e.eventSource === 'vendor_application') && e.status !== 'closed' && e.status !== 'cancelled');
+  
+  // Past events: closed, cancelled, or date has passed
+  const pastVendorEvents = events.filter(e => {
+    if (e.status === 'closed' || e.status === 'cancelled') return true;
+    const eventDate = new Date(e.endDate || e.startDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return eventDate < today;
+  });
 
   // Check for events vendor can still apply to (not already applied or invited)
   // Use both local events list AND vendorHasApplied flag from server
@@ -3843,6 +3937,41 @@ const EventsPage = () => {
           </div>
         )}
       </div>
+      
+      {/* Past Events Section for Vendors */}
+      {pastVendorEvents.length > 0 && (
+        <div className="events-section past-events-section">
+          <div className="events-section-header">
+            <h2>📜 Past Events <span className="section-count">{pastVendorEvents.length}</span></h2>
+            <p className="section-description">Completed, closed, or cancelled events you participated in</p>
+          </div>
+          <div className="events-readiness-list">
+            {pastVendorEvents.map(event => (
+              <Card key={event._id} className={`event-readiness-card past ${event.status === 'cancelled' ? 'cancelled' : ''}`}>
+                <div className="event-readiness-header">
+                  <div className="event-date-badge past">
+                    <span className="month">{new Date(event.startDate).toLocaleDateString('en-US', { month: 'short' })}</span>
+                    <span className="day">{new Date(event.startDate).getDate()}</span>
+                  </div>
+                  <div className="event-info">
+                    <h3>{event.eventName}</h3>
+                    <p className="organizer">Organized by {event.organizerName}</p>
+                    <p className="location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
+                    {event.status === 'cancelled' && (
+                      <div className="cancelled-notice">
+                        <Badge variant="danger">Cancelled</Badge>
+                        {event.cancellationReason && <p className="cancellation-reason">Reason: {event.cancellationReason}</p>}
+                      </div>
+                    )}
+                    {event.status === 'closed' && <Badge variant="warning">Closed</Badge>}
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => setSelectedEvent(event)}>View Details</Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Event Details Modal - Enhanced */}
       <Modal isOpen={!!selectedEvent} onClose={() => setSelectedEvent(null)} title={selectedEvent?.eventName}>
@@ -6772,9 +6901,122 @@ const Sidebar = ({ activePage, onNavigate, onLogout }) => {
   );
 };
 
+// Notifications Dropdown Component
+const NotificationsDropdown = () => {
+  const [notifications, setNotifications] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const dropdownRef = useRef(null);
+  
+  const fetchNotifications = async () => {
+    try {
+      setLoading(true);
+      const data = await api.get('/notifications?limit=10');
+      setNotifications(data.notifications || []);
+    } catch (err) {
+      console.error('Failed to fetch notifications:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  useEffect(() => {
+    fetchNotifications();
+    // Poll for new notifications every 60 seconds
+    const interval = setInterval(fetchNotifications, 60000);
+    return () => clearInterval(interval);
+  }, []);
+  
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+  
+  const unreadCount = notifications.filter(n => !n.read).length;
+  
+  const formatTime = (date) => {
+    const now = new Date();
+    const d = new Date(date);
+    const diffMs = now - d;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return d.toLocaleDateString();
+  };
+  
+  return (
+    <div className="notifications-dropdown" ref={dropdownRef}>
+      <button className="notifications-trigger" onClick={() => setIsOpen(!isOpen)}>
+        <Icons.Bell />
+        {unreadCount > 0 && <span className="notification-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>}
+      </button>
+      {isOpen && (
+        <div className="notifications-menu">
+          <div className="notifications-header">
+            <h4>Notifications</h4>
+            {unreadCount > 0 && <span className="unread-count">{unreadCount} new</span>}
+          </div>
+          <div className="notifications-list">
+            {loading && <div className="notification-loading"><LoadingSpinner /></div>}
+            {!loading && notifications.length === 0 && (
+              <div className="notification-empty">No notifications yet</div>
+            )}
+            {!loading && notifications.map(n => (
+              <div key={n._id} className={`notification-item ${n.read ? '' : 'unread'}`}>
+                <div className="notification-icon">
+                  {n.type === 'permit_expiring' && <Icons.Alert />}
+                  {n.type === 'event_update' && <Icons.Event />}
+                  {n.type === 'application_status' && <Icons.Check />}
+                  {!['permit_expiring', 'event_update', 'application_status'].includes(n.type) && <Icons.Bell />}
+                </div>
+                <div className="notification-content">
+                  <p className="notification-message">{n.message}</p>
+                  <span className="notification-time">{formatTime(n.createdAt)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AppLayout = ({ children, activePage, onNavigate, onLogout }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  return (<div className="app-layout"><Sidebar activePage={activePage} onNavigate={(p) => { onNavigate(p); setMobileMenuOpen(false); }} onLogout={onLogout} /><div className="mobile-header"><button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}><Icons.Menu /></button><div className="logo"><Icons.Shield /><span>PermitWise</span></div></div>{mobileMenuOpen && <div className="mobile-nav-overlay" onClick={() => setMobileMenuOpen(false)}><Sidebar activePage={activePage} onNavigate={(p) => { onNavigate(p); setMobileMenuOpen(false); }} onLogout={onLogout} /></div>}<main className="main-content"><ExpiredSubscriptionBanner />{children}</main></div>);
+  return (
+    <div className="app-layout">
+      <Sidebar activePage={activePage} onNavigate={(p) => { onNavigate(p); setMobileMenuOpen(false); }} onLogout={onLogout} />
+      <div className="mobile-header">
+        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)}><Icons.Menu /></button>
+        <div className="logo"><Icons.Shield /><span>PermitWise</span></div>
+        <NotificationsDropdown />
+      </div>
+      {mobileMenuOpen && (
+        <div className="mobile-nav-overlay" onClick={() => setMobileMenuOpen(false)}>
+          <Sidebar activePage={activePage} onNavigate={(p) => { onNavigate(p); setMobileMenuOpen(false); }} onLogout={onLogout} />
+        </div>
+      )}
+      <main className="main-content">
+        <div className="main-header">
+          <div className="header-spacer"></div>
+          <NotificationsDropdown />
+        </div>
+        <ExpiredSubscriptionBanner />
+        {children}
+      </main>
+    </div>
+  );
 };
 
 // ===========================================
@@ -6798,6 +7040,13 @@ const App = () => {
     return null;
   });
   const [resetToken, setResetToken] = useState(null);
+  const [verifyEmailToken, setVerifyEmailToken] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('token') && window.location.pathname.includes('verify-email')) {
+      return params.get('token');
+    }
+    return null;
+  });
   const [registerAsOrganizer, setRegisterAsOrganizer] = useState(false);
 
   // Update default page when user loads
@@ -6853,6 +7102,24 @@ const App = () => {
   // Password reset page (accessible without auth)
   if (resetToken) {
     return <ResetPasswordPage token={resetToken} onSuccess={() => { setResetToken(null); setAuthView('login'); window.history.replaceState({}, '', '/app'); toast.success('Password reset successful! Please log in.'); }} />;
+  }
+
+  // Email verification page (accessible without auth)
+  if (verifyEmailToken) {
+    return <VerifyEmailPage 
+      token={verifyEmailToken} 
+      onSuccess={() => { 
+        setVerifyEmailToken(null); 
+        setAuthView('login'); 
+        window.history.replaceState({}, '', '/app'); 
+        toast.success('Email verified successfully! Please log in.'); 
+      }} 
+      onError={() => { 
+        setVerifyEmailToken(null); 
+        setAuthView('login'); 
+        window.history.replaceState({}, '', '/app'); 
+      }} 
+    />;
   }
 
   // Legal pages are accessible without authentication
