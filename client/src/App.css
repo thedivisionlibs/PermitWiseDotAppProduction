@@ -3252,6 +3252,43 @@ img { max-width: 100%; display: block; }
 .past-event-card {
   opacity: 0.9;
 }
+
+/* Vendor Portal Past Events */
+.past-events-section {
+  margin-top: 2rem;
+  border-top: 2px solid var(--gray-200);
+  padding-top: 2rem;
+}
+.past-events-section .events-section-header h2 {
+  color: var(--gray-500);
+}
+.event-readiness-card.past {
+  opacity: 0.8;
+  background: var(--gray-50);
+}
+.event-readiness-card.past .event-date-badge {
+  background: var(--gray-300);
+  color: var(--gray-600);
+}
+.event-readiness-card.past .event-date-badge.past {
+  background: var(--gray-200);
+}
+.event-readiness-card.cancelled {
+  border-left: 4px solid var(--danger);
+}
+.cancelled-notice {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.cancellation-reason {
+  font-size: 0.8125rem;
+  color: var(--gray-600);
+  font-style: italic;
+  margin: 0;
+}
+
 .past-event-summary {
   display: flex;
   gap: 2rem;
@@ -3852,5 +3889,160 @@ img { max-width: 100%; display: block; }
   }
   .toast {
     padding: 12px 14px;
+  }
+}
+
+/* Notifications Dropdown */
+.main-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--gray-100);
+  background: white;
+}
+.header-spacer {
+  flex: 1;
+}
+
+.notifications-dropdown {
+  position: relative;
+}
+.notifications-trigger {
+  position: relative;
+  background: transparent;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: background 0.2s;
+}
+.notifications-trigger:hover {
+  background: var(--gray-100);
+}
+.notifications-trigger svg {
+  width: 22px;
+  height: 22px;
+  color: var(--gray-600);
+}
+.notification-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: var(--danger);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.notifications-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  width: 360px;
+  max-height: 480px;
+  background: white;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+  border: 1px solid var(--gray-100);
+  overflow: hidden;
+  z-index: 1000;
+}
+.notifications-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid var(--gray-100);
+}
+.notifications-header h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+.unread-count {
+  font-size: 12px;
+  color: var(--primary);
+  background: var(--primary-light);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.notifications-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+.notification-loading,
+.notification-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--gray-500);
+}
+.notification-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gray-50);
+  transition: background 0.2s;
+}
+.notification-item:hover {
+  background: var(--gray-50);
+}
+.notification-item.unread {
+  background: var(--primary-light);
+}
+.notification-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--gray-100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.notification-icon svg {
+  width: 16px;
+  height: 16px;
+  color: var(--gray-600);
+}
+.notification-content {
+  flex: 1;
+  min-width: 0;
+}
+.notification-message {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--gray-800);
+  line-height: 1.4;
+}
+.notification-time {
+  font-size: 11px;
+  color: var(--gray-500);
+}
+
+/* Mobile header notifications */
+.mobile-header .notifications-dropdown {
+  margin-left: auto;
+}
+.mobile-header .notifications-menu {
+  position: fixed;
+  top: 56px;
+  right: 8px;
+  width: calc(100vw - 16px);
+  max-width: 360px;
+}
+
+@media (max-width: 768px) {
+  .main-header {
+    display: none;
   }
 }
