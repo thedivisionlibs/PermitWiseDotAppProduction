@@ -1216,8 +1216,8 @@ const OnboardingScreen = () => {
         cityDetails: { city: form.operatingCities[0].city, state: form.operatingCities[0].state }
       });
       setSuggestionSubmitted(true);
-      Alert.alert('Thank You!', 'Your request has been submitted. We\'ll notify you when coverage is ready.');
-    } catch (err) { Alert.alert('Error', err.message); }
+      toast.success('Your request has been submitted. We\'ll notify you when coverage is ready.');
+    } catch (err) { toast.error(err.message); }
   };
 
   const handleSubmit = async () => {
@@ -1425,9 +1425,9 @@ const DashboardScreen = ({ navigation }) => {
   const handleResendVerification = async () => {
     try {
       await api.post('/auth/resend-verification');
-      Alert.alert('Email Sent', 'A new verification email has been sent to your inbox. Please check your email and click the verification link.');
+      toast.success('A new verification email has been sent to your inbox. Please check your email and click the verification link.');
     } catch (error) {
-      Alert.alert('Error', error.message || 'Failed to send verification email. Please try again.');
+      toast.error(error.message || 'Failed to send verification email. Please try again.');
     }
   };
 
@@ -1514,7 +1514,7 @@ const PermitsScreen = ({ navigation }) => {
 
   const handleAddPermit = () => {
     if (!canWrite) {
-      Alert.alert('Subscription Expired', 'Please upgrade your subscription to add new permits.');
+      toast.error('Please upgrade your subscription to add new permits.');
       return;
     }
     navigation.navigate('AddPermit');
@@ -1538,7 +1538,7 @@ const PermitsScreen = ({ navigation }) => {
 
   const fetchSuggestedPermits = async () => {
     if (!canWrite) {
-      Alert.alert('Subscription Expired', 'Please upgrade your subscription to add permits.');
+      toast.error('Please upgrade your subscription to add permits.');
       return;
     }
     if (!business?.operatingCities?.[0]) return;
@@ -1551,9 +1551,9 @@ const PermitsScreen = ({ navigation }) => {
         setSelectedSuggestions(data.permitTypes.map(p => p._id));
         setShowSuggestModal(true);
       } else {
-        Alert.alert('No Suggestions', 'We don\'t have permit data for your city yet. You can add permits manually.');
+        toast.info('We don\'t have permit data for your city yet. You can add permits manually.');
       }
-    } catch (err) { console.error(err); Alert.alert('Error', err.message); }
+    } catch (err) { console.error(err); toast.error(err.message); }
     finally { setLoadingSuggestions(false); }
   };
 
@@ -1573,8 +1573,8 @@ const PermitsScreen = ({ navigation }) => {
       }
       setShowSuggestModal(false);
       fetchPermits();
-      Alert.alert('Success', `Added ${selectedSuggestions.length} permit(s)`);
-    } catch (err) { Alert.alert('Error', err.message); }
+      toast.success(`Added ${selectedSuggestions.length} permit(s)`);
+    } catch (err) { toast.error(err.message); }
     finally { setAddingSuggestions(false); }
   };
 
@@ -1719,17 +1719,17 @@ const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
 
   const handleAdd = async () => {
     if (!city || !state) {
-      Alert.alert('Error', 'Please enter city and state');
+      toast.error('Please enter city and state');
       return;
     }
     setLoading(true);
     try {
       const data = await api.post('/permits/add-city', { city, state });
       setResult(data);
-      Alert.alert('Success', data.message || 'Permits added for ' + city);
+      toast.success(data.message || 'Permits added for ' + city);
       onSuccess();
     } catch (err) {
-      Alert.alert('Error', err.message);
+      toast.error(err.message);
     } finally {
       setLoading(false);
     }
@@ -1837,7 +1837,7 @@ const PermitDetailScreen = ({ route, navigation }) => {
         await Linking.openURL(secureUrl);
       }
     } catch (error) {
-      Alert.alert('Error', error.message);
+      toast.error(error.message);
     } finally {
       setLoadingAutofill(false);
     }
@@ -1878,7 +1878,7 @@ const PermitDetailScreen = ({ route, navigation }) => {
       } else if (source === 'camera') {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission Required', 'Please grant camera permissions.');
+          toast.error('Please grant camera permissions.');
           return;
         }
         const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
@@ -1893,7 +1893,7 @@ const PermitDetailScreen = ({ route, navigation }) => {
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission Required', 'Please grant photo library permissions.');
+          toast.error('Please grant photo library permissions.');
           return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
@@ -1916,17 +1916,17 @@ const PermitDetailScreen = ({ route, navigation }) => {
         
         try {
           await api.upload('/documents', formData);
-          Alert.alert('Success', 'Document uploaded successfully');
+          toast.success('Document uploaded successfully');
           refreshPermit();
         } catch (err) {
-          Alert.alert('Error', err.message || 'Failed to upload document');
+          toast.error(err.message || 'Failed to upload document');
         } finally {
           setUploading(false);
         }
       }
     } catch (err) {
       console.error('Document picker error:', err);
-      Alert.alert('Error', 'Failed to pick document');
+      toast.error('Failed to pick document');
     }
   };
   
@@ -2129,12 +2129,12 @@ const AddPermitScreen = ({ navigation }) => {
   const handleSubmit = async () => {
     // Check if user can write (subscription is active)
     if (!canWrite) {
-      Alert.alert('Subscription Expired', 'Please upgrade your subscription to add new permits.');
+      toast.error('Please upgrade your subscription to add new permits.');
       return;
     }
     
     if (!selectedJurisdiction || !selectedPermitType) {
-      Alert.alert('Error', 'Please select jurisdiction and permit type');
+      toast.error('Please select jurisdiction and permit type');
       return;
     }
     setLoading(true);
@@ -2148,14 +2148,14 @@ const AddPermitScreen = ({ navigation }) => {
         expiryDate: form.expiryDate || null,
         status: form.expiryDate ? 'active' : 'missing'
       });
-      Alert.alert('Success', 'Permit added');
+      toast.success('Permit added');
       navigation.goBack();
     } catch (e) { 
       // Handle subscription_expired error from server
       if (e.message?.includes('subscription') || e.message?.includes('expired')) {
-        Alert.alert('Subscription Expired', 'Please upgrade your subscription to add new permits.');
+        toast.error('Please upgrade your subscription to add new permits.');
       } else {
-        Alert.alert('Error', e.message); 
+        toast.error(e.message); 
       }
     }
     finally { setLoading(false); }
@@ -2226,9 +2226,9 @@ const EditPermitScreen = ({ route, navigation }) => {
         expiryDate: form.expiryDate || null,
         status: form.status
       });
-      Alert.alert('Success', 'Permit updated');
+      toast.success('Permit updated');
       navigation.goBack();
-    } catch (e) { Alert.alert('Error', e.message); }
+    } catch (e) { toast.error(e.message); }
     finally { setLoading(false); }
   };
 
@@ -2239,7 +2239,7 @@ const EditPermitScreen = ({ route, navigation }) => {
         try {
           await api.delete(`/permits/${permit._id}`);
           navigation.navigate('PermitsList');
-        } catch (e) { Alert.alert('Error', e.message); }
+        } catch (e) { toast.error(e.message); }
       }}
     ]);
   };
@@ -2290,7 +2290,7 @@ const DocumentsScreen = ({ navigation }) => {
     Alert.alert('Delete Document', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
-        try { await api.delete(`/documents/${id}`); fetchDocuments(); } catch (e) { Alert.alert('Error', e.message); }
+        try { await api.delete(`/documents/${id}`); fetchDocuments(); } catch (e) { toast.error(e.message); }
       }}
     ]);
   };
@@ -2390,7 +2390,7 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
       } else if (type === 'camera') {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission Required', 'Camera access is needed to take photos');
+          toast.error('Camera access is needed to take photos');
           return;
         }
         const result = await ImagePicker.launchCameraAsync({
@@ -2408,7 +2408,7 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
       } else if (type === 'photos') {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission Required', 'Photo library access is needed');
+          toast.error('Photo library access is needed');
           return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
@@ -2426,7 +2426,7 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
       }
     } catch (error) {
       console.error('File selection error:', error);
-      Alert.alert('Error', 'Failed to select file');
+      toast.error('Failed to select file');
     }
   };
 
@@ -2441,7 +2441,7 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
 
   const handleUpload = async () => {
     if (!selectedFile) {
-      Alert.alert('Select File', 'Please select a file to upload');
+      toast.info('Please select a file to upload');
       return;
     }
     
@@ -2456,12 +2456,12 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
       formData.append('category', category);
       
       await api.upload('/documents', formData);
-      Alert.alert('Success', 'Document uploaded successfully');
+      toast.success('Document uploaded successfully');
       setSelectedFile(null);
       setCategory('other');
       onSuccess();
     } catch (error) {
-      Alert.alert('Error', error.message || 'Failed to upload document');
+      toast.error(error.message || 'Failed to upload document');
     } finally {
       setLoading(false);
     }
@@ -2562,9 +2562,9 @@ const OrganizerSettingsScreen = ({ navigation }) => {
     try {
       await api.put('/auth/profile', profileData);
       await fetchUser();
-      Alert.alert('Success', 'Profile updated');
+      toast.success('Profile updated');
       setActiveSection(null);
-    } catch (err) { Alert.alert('Error', err.message); }
+    } catch (err) { toast.error(err.message); }
     finally { setLoading(false); }
   };
 
@@ -2573,9 +2573,9 @@ const OrganizerSettingsScreen = ({ navigation }) => {
     try {
       await api.put('/organizer/profile', organizationData);
       await fetchUser();
-      Alert.alert('Success', 'Organization profile updated');
+      toast.success('Organization profile updated');
       setActiveSection(null);
-    } catch (err) { Alert.alert('Error', err.message); }
+    } catch (err) { toast.error(err.message); }
     finally { setLoading(false); }
   };
 
@@ -2584,9 +2584,9 @@ const OrganizerSettingsScreen = ({ navigation }) => {
     try {
       await api.put('/organizer/notifications', notificationPrefs);
       await fetchUser();
-      Alert.alert('Success', 'Notification preferences saved');
+      toast.success('Notification preferences saved');
       setActiveSection(null);
-    } catch (err) { Alert.alert('Error', err.message); }
+    } catch (err) { toast.error(err.message); }
     finally { setLoading(false); }
   };
 
@@ -2594,7 +2594,7 @@ const OrganizerSettingsScreen = ({ navigation }) => {
     try {
       const data = await api.post('/organizer/subscription/checkout');
       if (data.url) Linking.openURL(data.url);
-    } catch (err) { Alert.alert('Error', err.message); }
+    } catch (err) { toast.error(err.message); }
   };
 
   const handleLogout = () => {
@@ -2835,6 +2835,11 @@ const SettingsScreen = ({ navigation }) => {
   const [teamMembers, setTeamMembers] = useState([]);
   const [newMemberEmail, setNewMemberEmail] = useState('');
   const [showVehicleTypePicker, setShowVehicleTypePicker] = useState(false);
+  
+  // Password change state
+  const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordError, setPasswordError] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
 
   // Fetch team members if subscription allows
   useEffect(() => {
@@ -2844,8 +2849,39 @@ const SettingsScreen = ({ navigation }) => {
   }, [subscription]);
 
   const handleLogout = () => { Alert.alert('Log Out', 'Are you sure?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Log Out', style: 'destructive', onPress: logout }]); };
-  const handleProfileSave = async () => { setLoading(true); try { await api.put('/auth/profile', profileData); await fetchUser(); Alert.alert('Success', 'Profile updated'); setActiveSection(null); } catch (err) { Alert.alert('Error', err.message); } finally { setLoading(false); } };
-  const handleBusinessSave = async () => { setLoading(true); try { const data = await api.put('/business', businessData); updateBusiness(data.business); Alert.alert('Success', 'Business updated'); setActiveSection(null); } catch (err) { Alert.alert('Error', err.message); } finally { setLoading(false); } };
+  const handleProfileSave = async () => { setLoading(true); try { await api.put('/auth/profile', profileData); await fetchUser(); toast.success('Profile updated'); setActiveSection(null); } catch (err) { toast.error(err.message); } finally { setLoading(false); } };
+  
+  const handlePasswordChange = async () => {
+    setPasswordError('');
+    if (!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword) {
+      setPasswordError('All fields are required');
+      return;
+    }
+    if (passwordData.newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters');
+      return;
+    }
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setPasswordError('New passwords do not match');
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      await api.put('/auth/change-password', {
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword
+      });
+      toast.success('Password changed successfully');
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setActiveSection(null);
+    } catch (err) {
+      setPasswordError(err.message || 'Failed to change password');
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+  
+  const handleBusinessSave = async () => { setLoading(true); try { const data = await api.put('/business', businessData); updateBusiness(data.business); toast.success('Business updated'); setActiveSection(null); } catch (err) { toast.error(err.message); } finally { setLoading(false); } };
   
   const handleFoodHandlingToggle = async (checked) => {
     setBusinessData(d => ({ ...d, handlesFood: checked }));
@@ -2859,20 +2895,20 @@ const SettingsScreen = ({ navigation }) => {
       const syncResult = await api.post('/permits/sync-food-handling', { handlesFood: checked });
       
       if (checked && syncResult.addedCount > 0) {
-        Alert.alert('Food Handling Enabled', `Added ${syncResult.addedCount} food safety permit(s) to your dashboard.`);
+        toast.success(`Added ${syncResult.addedCount} food safety permit(s) to your dashboard.`);
       } else if (!checked && syncResult.removedCount > 0) {
-        Alert.alert('Food Handling Disabled', `Removed ${syncResult.removedCount} empty food safety permit(s). Permits with documents were kept.`);
+        toast.info(`Removed ${syncResult.removedCount} empty food safety permit(s). Permits with documents were kept.`);
       } else {
-        Alert.alert('Success', checked ? 'Food handling enabled.' : 'Food handling disabled.');
+        toast.success(checked ? 'Food handling enabled.' : 'Food handling disabled.');
       }
     } catch (err) { 
-      Alert.alert('Error', err.message);
+      toast.error(err.message);
       // Revert on error
       setBusinessData(d => ({ ...d, handlesFood: !checked }));
     } finally { setLoading(false); }
   };
   
-  const handleNotificationSave = async () => { setLoading(true); try { await api.put('/auth/profile', { notificationPreferences: notificationPrefs }); await fetchUser(); Alert.alert('Success', 'Notification preferences updated'); setActiveSection(null); } catch (err) { Alert.alert('Error', err.message); } finally { setLoading(false); } };
+  const handleNotificationSave = async () => { setLoading(true); try { await api.put('/auth/profile', { notificationPreferences: notificationPrefs }); await fetchUser(); toast.success('Notification preferences updated'); setActiveSection(null); } catch (err) { toast.error(err.message); } finally { setLoading(false); } };
   const addCity = () => setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
   const removeCity = (i) => { if (businessData.operatingCities.length > 1) setBusinessData(d => ({ ...d, operatingCities: d.operatingCities.filter((_, idx) => idx !== i) })); };
@@ -2881,12 +2917,12 @@ const SettingsScreen = ({ navigation }) => {
     if (!newMemberEmail) return;
     setLoading(true);
     try {
-      await api.post('/team/invite', { email: newMemberEmail, role: 'member' });
+      await api.post('/team/invite', { email: newMemberEmail, role: 'staff' });
       setNewMemberEmail('');
       const data = await api.get('/team');
       setTeamMembers(data.members || []);
-      Alert.alert('Success', 'Invitation sent');
-    } catch (err) { Alert.alert('Error', err.message); }
+      toast.success('Invitation sent');
+    } catch (err) { toast.error(err.message); }
     finally { setLoading(false); }
   };
 
@@ -2897,7 +2933,7 @@ const SettingsScreen = ({ navigation }) => {
         try {
           await api.delete(`/team/${id}`);
           setTeamMembers(m => m.filter(t => t._id !== id));
-        } catch (err) { Alert.alert('Error', err.message); }
+        } catch (err) { toast.error(err.message); }
       }}
     ]);
   };
@@ -2937,6 +2973,19 @@ const SettingsScreen = ({ navigation }) => {
             <Input label="Last Name" value={profileData.lastName} onChangeText={v => setProfileData(d => ({ ...d, lastName: v }))} />
             <PhoneInput label="Phone" value={profileData.phone} onChangeText={v => setProfileData(d => ({ ...d, phone: v }))} />
             <Button title="Save Profile" onPress={handleProfileSave} loading={loading} />
+          </Card>
+        )}
+
+        <TouchableOpacity onPress={() => { setActiveSection(activeSection === 'password' ? null : 'password'); setPasswordError(''); setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' }); }}>
+          <Card style={styles.settingsCard}><Text style={styles.settingsSection}>Change Password</Text><Icons.Lock size={18} color={COLORS.gray400} /></Card>
+        </TouchableOpacity>
+        {activeSection === 'password' && (
+          <Card style={styles.editCard}>
+            {passwordError ? <Text style={{ color: COLORS.danger, marginBottom: 12 }}>{passwordError}</Text> : null}
+            <Input label="Current Password" value={passwordData.currentPassword} onChangeText={v => setPasswordData(d => ({ ...d, currentPassword: v }))} secureTextEntry />
+            <Input label="New Password" value={passwordData.newPassword} onChangeText={v => setPasswordData(d => ({ ...d, newPassword: v }))} secureTextEntry />
+            <Input label="Confirm New Password" value={passwordData.confirmPassword} onChangeText={v => setPasswordData(d => ({ ...d, confirmPassword: v }))} secureTextEntry />
+            <Button title="Change Password" onPress={handlePasswordChange} loading={savingPassword} />
           </Card>
         )}
 
@@ -3201,10 +3250,10 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
     setSelectedPlan(plan);
     try {
       await BillingService.purchaseSubscription(SUBSCRIPTION_SKUS[plan], plan);
-      Alert.alert('Success', 'Redirecting to checkout...');
+      toast.success('Redirecting to checkout...');
       onSubscribe();
     } catch (error) {
-      Alert.alert('Error', error.message);
+      toast.error(error.message);
     } finally {
       setLoading(false);
       setSelectedPlan(null);
@@ -3216,14 +3265,14 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
     try {
       const restored = await BillingService.restorePurchases();
       if (restored) {
-        Alert.alert('Success', 'Purchases restored');
+        toast.success('Purchases restored');
         onSubscribe();
         onClose();
       } else {
-        Alert.alert('Info', 'No purchases to restore');
+        toast.info('No purchases to restore');
       }
     } catch (error) {
-      Alert.alert('Error', error.message);
+      toast.error(error.message);
     } finally {
       setRestoring(false);
     }
@@ -3363,10 +3412,10 @@ const InspectionsScreen = () => {
         notes: inspectionData.notes, 
         inspectionDate: new Date() 
       });
-      Alert.alert('Success', 'Inspection completed!');
+      toast.success('Inspection completed!');
       setActiveChecklist(null);
       fetchData();
-    } catch (err) { Alert.alert('Error', err.message); }
+    } catch (err) { toast.error(err.message); }
     finally { setSubmitting(false); }
   };
 
@@ -3380,8 +3429,8 @@ const InspectionsScreen = () => {
       setNewChecklist({ name: '', description: '', items: [{ itemText: '' }] });
       setShowCreateModal(false);
       fetchData();
-      Alert.alert('Success', 'Checklist created!');
-    } catch (err) { Alert.alert('Error', err.message); }
+      toast.success('Checklist created!');
+    } catch (err) { toast.error(err.message); }
   };
 
   const deleteUserChecklist = async (id) => {
@@ -3391,7 +3440,7 @@ const InspectionsScreen = () => {
         try {
           await api.delete('/user-checklists/' + id);
           fetchData();
-        } catch (err) { Alert.alert('Error', err.message); }
+        } catch (err) { toast.error(err.message); }
       }}
     ]);
   };
@@ -3406,8 +3455,8 @@ const InspectionsScreen = () => {
       });
       setSuggestionText('');
       setShowSuggestModal(false);
-      Alert.alert('Thank You!', 'Your suggestion has been submitted.');
-    } catch (err) { Alert.alert('Error', err.message); }
+      toast.success('Your suggestion has been submitted.');
+    } catch (err) { toast.error(err.message); }
   };
 
   // Show upgrade modal for non-Pro users
@@ -3465,7 +3514,7 @@ const InspectionsScreen = () => {
             <Text style={styles.upgradeModalPricingNote}>Also includes SMS alerts, PDF autofill & multi-city support</Text>
           </View>
 
-          <Button title="Upgrade to Pro" onPress={() => Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
+          <Button title="Upgrade to Pro" onPress={() => toast.info('Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
           <Text style={styles.upgradeModalCancel}>14-day free trial • Cancel anytime</Text>
         </ScrollView>
       </SafeAreaView>
@@ -3854,6 +3903,10 @@ const EventsScreen = () => {
   const [previousEventProofs, setPreviousEventProofs] = useState([]);
   const [selectedPreviousProofs, setSelectedPreviousProofs] = useState([]);
   const [showProofCategoryPicker, setShowProofCategoryPicker] = useState(null);
+  
+  // Cancel event modal state
+  const [showCancelModal, setShowCancelModal] = useState(null); // stores event to cancel
+  const [cancelReason, setCancelReason] = useState('');
 
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
@@ -3911,11 +3964,11 @@ const EventsScreen = () => {
     setApplyingToEvent(true);
     try {
       await api.post(`/events/${showApplyModal._id}/apply`, { notes: applicationNotes });
-      Alert.alert('Success', 'Application submitted!');
+      toast.success('Application submitted!');
       setShowApplyModal(null);
       setApplicationNotes('');
       fetchMyEvents();
-    } catch (error) { Alert.alert('Error', error.message); }
+    } catch (error) { toast.error(error.message); }
     finally { setApplyingToEvent(false); }
   };
 
@@ -3923,9 +3976,9 @@ const EventsScreen = () => {
   const respondToInvitation = async (eventId, accept) => {
     try {
       await api.put(`/events/${eventId}/respond-invitation`, { accept });
-      Alert.alert('Success', accept ? 'Invitation accepted!' : 'Invitation declined');
+      toast.success(accept ? 'Invitation accepted!' : 'Invitation declined');
       fetchMyEvents();
-    } catch (error) { Alert.alert('Error', error.message); }
+    } catch (error) { toast.error(error.message); }
   };
 
   // Withdraw from event state
@@ -3942,9 +3995,9 @@ const EventsScreen = () => {
       setWithdrawReason('');
       fetchMyEvents();
       fetchPublishedEvents();
-      Alert.alert('Success', 'Withdrawn from event. The organizer has been notified.');
+      toast.success('Withdrawn from event. The organizer has been notified.');
     } catch (error) {
-      Alert.alert('Error', error.message);
+      toast.error(error.message);
     } finally {
       setWithdrawing(false);
     }
@@ -3957,7 +4010,7 @@ const EventsScreen = () => {
       setVendorApplications(data.applications || []);
       const event = organizerEvents.find(e => e._id === eventId);
       setSelectedOrgEvent(event);
-    } catch (error) { Alert.alert('Error', error.message); }
+    } catch (error) { toast.error(error.message); }
   };
 
   // Handle vendor application
@@ -3965,8 +4018,8 @@ const EventsScreen = () => {
     try {
       await api.put(`/events/organizer/applications/${applicationId}`, { status });
       fetchEventApplications(selectedOrgEvent._id);
-      Alert.alert('Success', `Application ${status}`);
-    } catch (error) { Alert.alert('Error', error.message); }
+      toast.success(`Application ${status}`);
+    } catch (error) { toast.error(error.message); }
   };
 
   // Invite vendor
@@ -3975,9 +4028,9 @@ const EventsScreen = () => {
     try {
       await api.post(`/events/organizer/${selectedOrgEvent._id}/invite`, { email: inviteEmail });
       setInviteEmail('');
-      Alert.alert('Success', 'Invitation sent');
+      toast.success('Invitation sent');
       fetchEventApplications(selectedOrgEvent._id);
-    } catch (error) { Alert.alert('Error', error.message); }
+    } catch (error) { toast.error(error.message); }
   };
 
   // Edit event functions
@@ -4042,8 +4095,8 @@ const EventsScreen = () => {
       setOrganizerEvents(orgData.events || []);
       setShowEditEventModal(false);
       setEditingEvent(null);
-      Alert.alert('Success', 'Event updated');
-    } catch (err) { Alert.alert('Error', err.message); }
+      toast.success('Event updated');
+    } catch (err) { toast.error(err.message); }
   };
 
   // Fetch permit types by state
@@ -4119,11 +4172,11 @@ const EventsScreen = () => {
         details: `New location request for event: ${locationRequest.city}, ${locationRequest.state}`,
         additionalInfo: locationRequest.reason
       });
-      Alert.alert('Success', 'Location request submitted! Our team will review and add it soon.');
+      toast.success('Location request submitted! Our team will review and add it soon.');
       setShowLocationRequestModal(false);
       setLocationRequest({ city: '', state: '', reason: '' });
     } catch (error) {
-      Alert.alert('Error', error.message || 'Failed to submit request');
+      toast.error(error.message || 'Failed to submit request');
     } finally {
       setLocationRequestSubmitting(false);
     }
@@ -4131,18 +4184,55 @@ const EventsScreen = () => {
 
   // Update event status
   const updateEventStatus = async (eventId, status) => {
+    // For closing events, show a confirmation dialog
+    if (status === 'closed') {
+      const confirmed = await confirm({
+        title: 'Close Event',
+        message: 'Are you sure you want to close this event?\n\n• New applications will stop\n• Event moves to Past Events\n• Vendors can still view details',
+        confirmText: 'Yes, Close Event',
+        cancelText: 'Keep Open',
+        variant: 'primary'
+      });
+      if (!confirmed) return;
+    }
+    
     try {
       await api.put(`/events/organizer/${eventId}/status`, { status });
       fetchOrganizerEvents();
-      Alert.alert('Success', `Event ${status}`);
-    } catch (error) { Alert.alert('Error', error.message); }
+      if (status === 'closed') {
+        toast.success('Event closed successfully.');
+      } else {
+        toast.success(`Event ${status}`);
+      }
+    } catch (error) { toast.error(error.message); }
   };
   
-  // Cancel event with vendor notifications
-  const cancelEvent = async (eventId) => {
+  // Cancel event - opens modal to get reason
+  const initiateCancelEvent = (event) => {
+    // Check if event date has passed
+    const eventDate = new Date(event.startDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (eventDate <= today) {
+      toast.error('Cannot cancel an event that has already started. Use "Close" instead.');
+      return;
+    }
+    
+    setShowCancelModal(event);
+    setCancelReason('');
+  };
+  
+  // Execute cancel event after getting reason
+  const executeCancelEvent = async () => {
+    if (!cancelReason || cancelReason.trim() === '') {
+      toast.error('A cancellation reason is required.');
+      return;
+    }
+    
     const confirmed = await confirm({
-      title: 'Cancel Event',
-      message: 'Are you sure you want to cancel this event? All approved vendors and applicants will be notified.',
+      title: 'Confirm Cancellation',
+      message: `Are you sure you want to cancel this event?\n\nReason: "${cancelReason}"\n\nAll vendors will be notified.`,
       confirmText: 'Yes, Cancel Event',
       cancelText: 'No',
       variant: 'danger'
@@ -4150,7 +4240,9 @@ const EventsScreen = () => {
     if (!confirmed) return;
     
     try {
-      await api.put(`/events/organizer/${eventId}/cancel`);
+      await api.put(`/events/organizer/${showCancelModal._id}/cancel`, { reason: cancelReason.trim() });
+      setShowCancelModal(null);
+      setCancelReason('');
       fetchOrganizerEvents();
       toast.success('Event cancelled. All vendors have been notified.');
     } catch (error) { toast.error(error.message); }
@@ -4196,8 +4288,8 @@ const EventsScreen = () => {
       setSelectedPreviousProofs([]);
       setAvailablePermitTypes([]);
       fetchOrganizerEvents();
-      Alert.alert('Success', 'Event created');
-    } catch (error) { Alert.alert('Error', error.message); }
+      toast.success('Event created');
+    } catch (error) { toast.error(error.message); }
   };
   
   // Fetch previous event proofs for reuse
@@ -4228,7 +4320,7 @@ const EventsScreen = () => {
       
       setEventProofFiles([...eventProofFiles, ...newFiles]);
     } catch (err) {
-      Alert.alert('Error', 'Could not pick document');
+      toast.error('Could not pick document');
     }
   };
 
@@ -4262,7 +4354,7 @@ const EventsScreen = () => {
       });
       setRequestSubmitted(true);
       setTimeout(() => { setShowRequestModal(false); setRequestSubmitted(false); setRequestForm({ eventName: '', organizerName: '', city: '', state: '', startDate: '', additionalInfo: '' }); }, 2000);
-    } catch (err) { Alert.alert('Error', err.message); }
+    } catch (err) { toast.error(err.message); }
     finally { setRequestSubmitting(false); }
   };
 
@@ -4358,7 +4450,7 @@ const EventsScreen = () => {
                     }}
                     onPress={() => {
                       if (item.verificationStatus !== 'approved') {
-                        Alert.alert('Upload Proof', 'Please use the web app to upload proof documents for this event.');
+                        toast.info('Please use the web app to upload proof documents for this event.');
                       }
                     }}
                     disabled={item.verificationStatus === 'approved'}
@@ -4419,7 +4511,7 @@ const EventsScreen = () => {
                   {item.status === 'draft' && <Button title="Publish" size="sm" onPress={() => updateEventStatus(item._id, 'published')} style={{ flex: 1 }} />}
                   {item.status === 'published' && <Button title="Close" variant="outline" size="sm" onPress={() => updateEventStatus(item._id, 'closed')} style={{ flex: 1 }} />}
                   {(item.status === 'draft' || item.status === 'published') && (
-                    <Button title="Cancel" variant="danger" size="sm" onPress={() => cancelEvent(item._id)} style={{ flex: 1 }} />
+                    <Button title="Cancel" variant="danger" size="sm" onPress={() => initiateCancelEvent(item)} style={{ flex: 1 }} />
                   )}
                 </View>
               </Card>
@@ -5046,7 +5138,7 @@ const EventsScreen = () => {
                   <Input label="Start Date *" placeholder="YYYY-MM-DD" value={editingEvent.startDate} onChangeText={v => setEditingEvent(e => ({ ...e, startDate: v }))} />
                   <Input label="End Date" placeholder="YYYY-MM-DD" value={editingEvent.endDate} onChangeText={v => setEditingEvent(e => ({ ...e, endDate: v }))} />
                   
-                  <TouchableOpacity style={styles.pickerButton} onPress={() => Alert.alert('Select State', 'Please enter state abbreviation below')}>
+                  <TouchableOpacity style={styles.pickerButton} onPress={() => toast.info('Please enter state abbreviation below')}>
                     <Text style={styles.label}>State *</Text>
                     <Text style={styles.pickerButtonText}>{editingEvent.state || 'Select State'}</Text>
                   </TouchableOpacity>
@@ -5205,7 +5297,7 @@ const EventsScreen = () => {
             <Text style={styles.upgradeModalPricingNote}>Includes everything in Pro + team accounts & priority support</Text>
           </View>
 
-          <Button title="Upgrade to Elite" onPress={() => Alert.alert('Upgrade', 'Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
+          <Button title="Upgrade to Elite" onPress={() => toast.info('Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
           <Text style={styles.upgradeModalCancel}>14-day free trial • Cancel anytime</Text>
           
           <View style={styles.requestEventSection}>
@@ -5267,8 +5359,17 @@ const EventsScreen = () => {
   };
 
   // Separate events by source
-  const organizerInvitations = events.filter(e => e.eventSource === 'organizer_invitation');
-  const participatingEvents = events.filter(e => e.eventSource === 'admin_added' || e.eventSource === 'vendor_application');
+  const organizerInvitations = events.filter(e => e.eventSource === 'organizer_invitation' && e.status !== 'closed' && e.status !== 'cancelled');
+  const participatingEvents = events.filter(e => (e.eventSource === 'admin_added' || e.eventSource === 'vendor_application') && e.status !== 'closed' && e.status !== 'cancelled');
+  
+  // Past events: closed, cancelled, or date has passed
+  const pastVendorEvents = events.filter(e => {
+    if (e.status === 'closed' || e.status === 'cancelled') return true;
+    const eventDate = new Date(e.endDate || e.startDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return eventDate < today;
+  });
   
   // Available events to apply to (not already applied) - use both local and server flags
   const appliedEventIds = new Set([
@@ -5483,6 +5584,50 @@ const EventsScreen = () => {
             </View>
           )}
         </View>
+        
+        {/* Past Events Section */}
+        {pastVendorEvents.length > 0 && (
+          <View style={[styles.eventSection, { marginTop: 16, borderTopWidth: 1, borderTopColor: COLORS.gray200, paddingTop: 16 }]}>
+            <View style={styles.eventSectionHeader}>
+              <Text style={[styles.eventSectionTitle, { color: COLORS.gray500 }]}>📜 Past Events</Text>
+              <Text style={styles.eventSectionCount}>{pastVendorEvents.length}</Text>
+            </View>
+            <Text style={styles.eventSectionDesc}>Completed, closed, or cancelled events</Text>
+            {pastVendorEvents.map(event => (
+              <Card key={event._id} style={[styles.eventReadinessCard, { opacity: 0.8, backgroundColor: COLORS.gray50 }]}>
+                <View style={styles.eventReadinessHeader}>
+                  <View style={[styles.eventDateBadge, { backgroundColor: COLORS.gray200 }]}>
+                    <Text style={[styles.eventDateMonth, { color: COLORS.gray600 }]}>{new Date(event.startDate).toLocaleDateString('en-US', { month: 'short' })}</Text>
+                    <Text style={[styles.eventDateDay, { color: COLORS.gray600 }]}>{new Date(event.startDate).getDate()}</Text>
+                  </View>
+                  <View style={styles.eventReadinessInfo}>
+                    <Text style={styles.eventReadinessName}>{event.eventName}</Text>
+                    <Text style={styles.eventReadinessOrganizer}>by {event.organizerName}</Text>
+                    <View style={styles.eventReadinessLocation}>
+                      <Icons.MapPin size={12} color={COLORS.gray500} />
+                      <Text style={styles.eventReadinessLocationText}>{event.location?.city}, {event.location?.state}</Text>
+                    </View>
+                    {event.status === 'cancelled' && (
+                      <View style={{ marginTop: 8 }}>
+                        <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, alignSelf: 'flex-start' }}>
+                          <Text style={{ color: '#dc2626', fontSize: 12, fontWeight: '600' }}>Cancelled</Text>
+                        </View>
+                        {event.cancellationReason && (
+                          <Text style={{ fontSize: 12, color: COLORS.gray600, fontStyle: 'italic', marginTop: 4 }}>Reason: {event.cancellationReason}</Text>
+                        )}
+                      </View>
+                    )}
+                    {event.status === 'closed' && (
+                      <View style={{ backgroundColor: '#fef3c7', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, alignSelf: 'flex-start', marginTop: 8 }}>
+                        <Text style={{ color: '#d97706', fontSize: 12, fontWeight: '600' }}>Closed</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </Card>
+            ))}
+          </View>
+        )}
       </ScrollView>
       
       {/* Apply to Event Modal */}
@@ -5543,6 +5688,40 @@ const EventsScreen = () => {
               <View style={[styles.modalFooter, { marginTop: 20 }]}>
                 <Button title="Cancel" variant="outline" onPress={() => { setShowWithdrawModal(null); setWithdrawReason(''); }} style={{ flex: 1 }} />
                 <Button title={withdrawing ? "Withdrawing..." : "Withdraw"} onPress={withdrawFromEvent} disabled={withdrawing} style={{ flex: 1, backgroundColor: COLORS.danger }} />
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Cancel Event Modal - for organizers */}
+      <Modal visible={!!showCancelModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Cancel Event</Text>
+              <TouchableOpacity onPress={() => { setShowCancelModal(null); setCancelReason(''); }}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              <View style={{ padding: 12, backgroundColor: '#fef2f2', borderRadius: 8, marginBottom: 16, flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                <Icons.Alert size={24} color={COLORS.danger} />
+                <Text style={{ flex: 1, color: '#991b1b' }}>You are about to cancel <Text style={{ fontWeight: '600' }}>{showCancelModal?.eventName}</Text>. All vendors will be notified.</Text>
+              </View>
+              <View style={{ backgroundColor: COLORS.gray50, padding: 12, borderRadius: 8, marginBottom: 16 }}>
+                <Text style={{ color: COLORS.gray600 }}>📅 {showCancelModal && formatDate(showCancelModal.startDate)}</Text>
+                <Text style={{ color: COLORS.gray600 }}>📍 {showCancelModal?.location?.city}, {showCancelModal?.location?.state}</Text>
+              </View>
+              <Input 
+                label="Reason for cancellation (required)" 
+                placeholder="e.g., Venue unavailable, weather conditions..." 
+                value={cancelReason} 
+                onChangeText={setCancelReason} 
+                multiline 
+              />
+              <Text style={{ fontSize: 13, color: COLORS.gray500, marginTop: 4 }}>This reason will be shared with all vendors who applied or were invited.</Text>
+              <View style={[styles.modalFooter, { marginTop: 20 }]}>
+                <Button title="Go Back" variant="outline" onPress={() => { setShowCancelModal(null); setCancelReason(''); }} style={{ flex: 1 }} />
+                <Button title="Cancel Event" onPress={executeCancelEvent} disabled={!cancelReason.trim()} style={{ flex: 1, backgroundColor: COLORS.danger }} />
               </View>
             </ScrollView>
           </View>
