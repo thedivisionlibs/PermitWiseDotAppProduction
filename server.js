@@ -578,7 +578,7 @@ const eventSchema = new mongoose.Schema({
   },
   applicationDeadline: { type: Date },
   // Event status
-  status: { type: String, enum: ['draft', 'published', 'closed', 'completed', 'canceled'], default: 'draft' },
+  status: { type: String, enum: ['draft', 'published', 'closed', 'cancelled'], default: 'draft' },
   // Assigned/Invited vendors - vendors invited to this event by organizer
   assignedVendors: [{
     vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness' },
@@ -654,6 +654,10 @@ const eventSchema = new mongoose.Schema({
   verificationNotes: String, // Notes from admin to organizer
   adminNotes: String, // Internal admin notes
   requiresProof: { type: Boolean, default: true }, // Whether this event requires proof documents
+  // Cancellation tracking
+  cancelledAt: Date,
+  cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  cancellationReason: String,
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
@@ -4120,6 +4124,8 @@ app.put('/api/events/organizer/:id/cancel', authMiddleware, async (req, res) => 
       return res.status(403).json({ error: 'Organizer access required' });
     }
     
+    const { reason } = req.body;
+    
     const event = await Event.findOne({ _id: req.params.id, organizerId: req.user._id })
       .populate('vendorApplications.vendorBusinessId')
       .populate('assignedVendors.vendorBusinessId');
@@ -4130,6 +4136,20 @@ app.put('/api/events/organizer/:id/cancel', authMiddleware, async (req, res) => 
     
     if (event.status === 'cancelled') {
       return res.status(400).json({ error: 'Event is already cancelled' });
+    }
+    
+    // Check if event has already started
+    const eventDate = new Date(event.startDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (eventDate <= today) {
+      return res.status(400).json({ error: 'Cannot cancel an event that has already started or passed. Use "Close" to mark it as completed instead.' });
+    }
+    
+    // Require a cancellation reason
+    if (!reason || reason.trim() === '') {
+      return res.status(400).json({ error: 'A cancellation reason is required' });
     }
     
     // Get all vendors to notify (approved vendors and pending applicants)
@@ -4155,16 +4175,16 @@ app.put('/api/events/organizer/:id/cancel', authMiddleware, async (req, res) => 
     event.status = 'cancelled';
     event.cancelledAt = new Date();
     event.cancelledBy = req.user._id;
+    event.cancellationReason = reason.trim();
     event.updatedAt = new Date();
     await event.save();
     
     // Send cancellation emails
     const emailPromises = Array.from(vendorsToNotify).map(email => {
-      return transporter.sendMail({
-        from: process.env.EMAIL_FROM || 'noreply@permitwise.app',
-        to: email,
-        subject: `Event Cancelled: ${event.eventName}`,
-        html: `
+      return sendEmail(
+        email,
+        `Event Cancelled: ${event.eventName}`,
+        `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #dc2626;">Event Cancellation Notice</h2>
             <p>We regret to inform you that the following event has been cancelled by the organizer:</p>
@@ -4173,11 +4193,15 @@ app.put('/api/events/organizer/:id/cancel', authMiddleware, async (req, res) => 
               <p style="margin: 4px 0; color: #666;">📅 Originally scheduled: ${new Date(event.startDate).toLocaleDateString()}</p>
               <p style="margin: 4px 0; color: #666;">📍 Location: ${event.location?.city}, ${event.location?.state}</p>
             </div>
+            <div style="background: #fef2f2; padding: 16px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #dc2626;">
+              <p style="margin: 0; font-weight: bold;">Reason for Cancellation:</p>
+              <p style="margin: 8px 0 0 0;">${reason.trim()}</p>
+            </div>
             <p>If you have any questions, please contact the event organizer directly.</p>
             <p style="color: #666; margin-top: 24px;">— The PermitWise Team</p>
           </div>
         `
-      }).catch(err => console.error('Failed to send cancellation email to', email, err));
+      ).catch(err => console.error('Failed to send cancellation email to', email, err.message || err));
     });
     
     await Promise.all(emailPromises);
@@ -4407,7 +4431,7 @@ app.post('/api/events/:id/apply', authMiddleware, requireWriteAccess, async (req
     
     // Check if already applied
     const alreadyApplied = event.vendorApplications.find(
-      va => va.vendorBusinessId.toString() === req.user.vendorBusinessId.toString()
+      va => va.vendorBusinessId?.toString() === req.user.vendorBusinessId.toString()
     );
     if (alreadyApplied) {
       return res.status(400).json({ error: 'You have already applied to this event' });
@@ -4415,10 +4439,19 @@ app.post('/api/events/:id/apply', authMiddleware, requireWriteAccess, async (req
     
     // Check if already invited
     const alreadyInvited = event.assignedVendors.find(
-      av => av.vendorBusinessId.toString() === req.user.vendorBusinessId.toString()
+      av => av.vendorBusinessId?.toString() === req.user.vendorBusinessId.toString()
     );
     if (alreadyInvited) {
       return res.status(400).json({ error: 'You have already been invited to this event' });
+    }
+    
+    // Check max vendors capacity
+    if (event.maxVendors) {
+      const approvedCount = event.vendorApplications.filter(a => a.status === 'approved').length;
+      const assignedCount = event.assignedVendors.filter(a => a.status === 'accepted').length;
+      if ((approvedCount + assignedCount) >= event.maxVendors) {
+        return res.status(400).json({ error: 'This event has reached maximum vendor capacity' });
+      }
     }
     
     event.vendorApplications.push({
@@ -4511,10 +4544,10 @@ app.delete('/api/events/:id/withdraw', authMiddleware, async (req, res) => {
     
     // Send email notification to organizer
     if (event.organizerId?.email) {
-      const sgMail = require('@sendgrid/mail');
-      if (process.env.SENDGRID_API_KEY) {
-        sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-        try {
+      try {
+        if (process.env.SENDGRID_API_KEY) {
+          const sgMail = require('@sendgrid/mail');
+          sgMail.setApiKey(process.env.SENDGRID_API_KEY);
           await sgMail.send({
             to: event.organizerId.email,
             from: process.env.FROM_EMAIL || 'noreply@permitwise.app',
@@ -4533,9 +4566,29 @@ app.delete('/api/events/:id/withdraw', authMiddleware, async (req, res) => {
               </div>
             `
           });
-        } catch (emailErr) {
-          console.error('Failed to send withdrawal notification email:', emailErr);
+        } else {
+          // Fall back to nodemailer
+          await sendEmail(
+            event.organizerId.email,
+            `Vendor Withdrawal: ${event.eventName}`,
+            `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #dc2626;">Vendor Withdrawal Notice</h2>
+                <p><strong>${vendorName}</strong> has withdrawn from your event <strong>${event.eventName}</strong>.</p>
+                ${reason && reason !== 'No reason provided' ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+                <p style="margin-top: 20px; color: #666;">
+                  <small>Date of Event: ${new Date(event.startDate).toLocaleDateString()}</small><br>
+                  <small>Location: ${event.location?.city}, ${event.location?.state}</small>
+                </p>
+                <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
+                <p style="color: #999; font-size: 12px;">This is an automated notification from PermitWise.</p>
+              </div>
+            `
+          );
         }
+      } catch (emailErr) {
+        console.error('Failed to send withdrawal notification email:', emailErr.message || emailErr);
+        // Don't fail the request if email fails
       }
     }
     
@@ -4707,348 +4760,7 @@ app.post('/api/organizer/register', authMiddleware, async (req, res) => {
   }
 });
 
-// Get organizer profile
-app.get('/api/organizer/profile', authMiddleware, organizerMiddleware, async (req, res) => {
-  try {
-    const user = await User.findById(req.userId).select('-password');
-    res.json({ organizer: user });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get organizer's events
-app.get('/api/organizer/events', authMiddleware, organizerMiddleware, async (req, res) => {
-  try {
-    const { status } = req.query;
-    const query = { organizerId: req.userId };
-    if (status) query.status = status;
-    
-    const events = await Event.find(query)
-      .populate('vendorApplications.vendorBusinessId', 'businessName primaryVendorType')
-      .populate('assignedVendors.vendorBusinessId', 'businessName primaryVendorType')
-      .sort({ startDate: -1 });
-    
-    res.json({ events });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Create event as organizer
-app.post('/api/organizer/events', authMiddleware, organizerMiddleware, async (req, res) => {
-  try {
-    const { 
-      eventName, description, location, startDate, endDate, eventType,
-      requiredPermitTypes, customPermitRequirements, maxVendors, feeStructure,
-      applicationDeadline, status = 'draft'
-    } = req.body;
-    
-    if (!eventName) return res.status(400).json({ error: 'Event name is required' });
-    if (!location?.city || !location?.state) return res.status(400).json({ error: 'Event location (city, state) is required' });
-    if (!startDate || !endDate) return res.status(400).json({ error: 'Start and end dates are required' });
-    
-    const event = new Event({
-      organizerId: req.userId,
-      organizerName: req.organizer.organizerProfile?.companyName || `${req.organizer.firstName} ${req.organizer.lastName}`,
-      organizerContact: {
-        email: req.organizer.email,
-        phone: req.organizer.organizerProfile?.phone || req.organizer.phone,
-        website: req.organizer.organizerProfile?.website
-      },
-      eventName,
-      description,
-      location,
-      startDate,
-      endDate,
-      eventType,
-      requiredPermitTypes,
-      customPermitRequirements,
-      maxVendors,
-      feeStructure,
-      applicationDeadline,
-      status
-    });
-    
-    await event.save();
-    res.status(201).json({ event });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update organizer's event
-app.put('/api/organizer/events/:id', authMiddleware, organizerMiddleware, async (req, res) => {
-  try {
-    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId });
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found or access denied' });
-    }
-    
-    const updates = req.body;
-    delete updates.organizerId; // Can't change organizer
-    
-    Object.assign(event, updates);
-    event.updatedAt = Date.now();
-    await event.save();
-    
-    res.json({ event });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get event details with vendor applications (organizer view)
-app.get('/api/organizer/events/:id', authMiddleware, organizerMiddleware, async (req, res) => {
-  try {
-    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId })
-      .populate('vendorApplications.vendorBusinessId')
-      .populate('vendorApplications.userId', 'firstName lastName email phone')
-      .populate('assignedVendors.vendorBusinessId')
-      .populate('requiredPermitTypes');
-    
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found or access denied' });
-    }
-    
-    res.json({ event });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Invite vendor to event
-app.post('/api/organizer/events/:id/invite', authMiddleware, organizerMiddleware, async (req, res) => {
-  try {
-    const { vendorBusinessId, notes } = req.body;
-    
-    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId });
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found or access denied' });
-    }
-    
-    const business = await VendorBusiness.findById(vendorBusinessId);
-    if (!business) {
-      return res.status(404).json({ error: 'Vendor business not found' });
-    }
-    
-    // Check if already invited
-    const existingInvite = event.assignedVendors.find(
-      v => v.vendorBusinessId.toString() === vendorBusinessId
-    );
-    if (existingInvite) {
-      return res.status(400).json({ error: 'Vendor already invited to this event' });
-    }
-    
-    event.assignedVendors.push({
-      vendorBusinessId,
-      invitedBy: req.userId,
-      notes,
-      status: 'invited'
-    });
-    
-    await event.save();
-    res.json({ event, message: 'Vendor invited successfully' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Review vendor application (approve/reject)
-app.put('/api/organizer/events/:id/applications/:applicationId', authMiddleware, organizerMiddleware, async (req, res) => {
-  try {
-    const { status, organizerNotes, boothAssignment } = req.body;
-    
-    if (!['approved', 'rejected', 'waitlist', 'pending'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
-    }
-    
-    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId });
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found or access denied' });
-    }
-    
-    const application = event.vendorApplications.id(req.params.applicationId);
-    if (!application) {
-      return res.status(404).json({ error: 'Application not found' });
-    }
-    
-    application.status = status;
-    application.reviewedAt = Date.now();
-    application.reviewedBy = req.userId;
-    if (organizerNotes) application.organizerNotes = organizerNotes;
-    if (boothAssignment) application.boothAssignment = boothAssignment;
-    
-    await event.save();
-    res.json({ event, application });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get vendor compliance for event
-app.get('/api/organizer/events/:id/compliance', authMiddleware, organizerMiddleware, async (req, res) => {
-  try {
-    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId })
-      .populate('requiredPermitTypes')
-      .populate('vendorApplications.vendorBusinessId')
-      .populate('assignedVendors.vendorBusinessId');
-    
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found or access denied' });
-    }
-    
-    // Get all participating vendors (approved applications + accepted invites)
-    const participatingVendorIds = [
-      ...event.vendorApplications.filter(a => a.status === 'approved').map(a => a.vendorBusinessId._id),
-      ...event.assignedVendors.filter(a => a.status === 'accepted').map(a => a.vendorBusinessId._id)
-    ];
-    
-    // Get permit compliance for each vendor
-    const compliance = [];
-    for (const vendorId of participatingVendorIds) {
-      const vendor = await VendorBusiness.findById(vendorId);
-      if (!vendor) continue;
-      
-      const permits = await VendorPermit.find({ vendorBusinessId: vendorId })
-        .populate('permitTypeId');
-      
-      const requiredPermitIds = event.requiredPermitTypes.map(p => p._id.toString());
-      const vendorPermitTypeIds = permits.filter(p => p.status === 'active').map(p => p.permitTypeId?._id?.toString());
-      
-      const missingPermits = event.requiredPermitTypes.filter(
-        rp => !vendorPermitTypeIds.includes(rp._id.toString())
-      );
-      
-      compliance.push({
-        vendor: { _id: vendor._id, businessName: vendor.businessName, primaryVendorType: vendor.primaryVendorType },
-        totalRequired: requiredPermitIds.length,
-        totalCompliant: requiredPermitIds.filter(id => vendorPermitTypeIds.includes(id)).length,
-        missingPermits: missingPermits.map(p => ({ _id: p._id, name: p.name })),
-        isCompliant: missingPermits.length === 0
-      });
-    }
-    
-    res.json({ 
-      event: { _id: event._id, eventName: event.eventName },
-      compliance,
-      summary: {
-        totalVendors: compliance.length,
-        compliantVendors: compliance.filter(c => c.isCompliant).length,
-        nonCompliantVendors: compliance.filter(c => !c.isCompliant).length
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Send message to vendor
-app.post('/api/organizer/events/:id/messages', authMiddleware, organizerMiddleware, async (req, res) => {
-  try {
-    const { vendorBusinessId, message } = req.body;
-    
-    const event = await Event.findOne({ _id: req.params.id, organizerId: req.userId });
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found or access denied' });
-    }
-    
-    event.messages.push({
-      fromUserId: req.userId,
-      toVendorBusinessId: vendorBusinessId,
-      message
-    });
-    
-    await event.save();
-    res.json({ message: 'Message sent', event });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===========================================
-// VENDOR EVENT PARTICIPATION ROUTES
-// ===========================================
-
-// Apply to event (for published events that accept applications)
-app.post('/api/events/:id/apply', authMiddleware, requireWriteAccess, async (req, res) => {
-  try {
-    const { applicationNotes } = req.body;
-    
-    const event = await Event.findById(req.params.id);
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-    
-    if (event.status !== 'published') {
-      return res.status(400).json({ error: 'This event is not accepting applications' });
-    }
-    
-    if (event.applicationDeadline && new Date(event.applicationDeadline) < new Date()) {
-      return res.status(400).json({ error: 'Application deadline has passed' });
-    }
-    
-    // Check if already applied
-    const existingApplication = event.vendorApplications.find(
-      a => a.vendorBusinessId?.toString() === req.user.vendorBusinessId?.toString()
-    );
-    if (existingApplication) {
-      return res.status(400).json({ error: 'You have already applied to this event' });
-    }
-    
-    // Check max vendors
-    if (event.maxVendors) {
-      const approvedCount = event.vendorApplications.filter(a => a.status === 'approved').length;
-      if (approvedCount >= event.maxVendors) {
-        return res.status(400).json({ error: 'This event has reached maximum vendor capacity' });
-      }
-    }
-    
-    event.vendorApplications.push({
-      vendorBusinessId: req.user.vendorBusinessId,
-      userId: req.userId,
-      applicationNotes,
-      status: 'pending'
-    });
-    
-    await event.save();
-    res.json({ message: 'Application submitted successfully', event });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Respond to event invitation (accept/decline)
-app.put('/api/events/:id/invitation', authMiddleware, async (req, res) => {
-  try {
-    const { response } = req.body; // 'accepted' or 'declined'
-    
-    if (!['accepted', 'declined'].includes(response)) {
-      return res.status(400).json({ error: 'Response must be accepted or declined' });
-    }
-    
-    const event = await Event.findById(req.params.id);
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-    
-    const invitation = event.assignedVendors.find(
-      v => v.vendorBusinessId?.toString() === req.user.vendorBusinessId?.toString()
-    );
-    
-    if (!invitation) {
-      return res.status(404).json({ error: 'No invitation found for your business' });
-    }
-    
-    invitation.status = response;
-    invitation.respondedAt = Date.now();
-    
-    await event.save();
-    res.json({ message: `Invitation ${response}`, event });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// NOTE: Unused duplicate organizer routes removed. All organizer event operations use /api/events/organizer/* routes
 
 // Upload document for event application
 app.post('/api/events/:id/documents', authMiddleware, requireWriteAccess, upload.single('file'), async (req, res) => {
@@ -5161,6 +4873,48 @@ app.get('/api/subscription', authMiddleware, async (req, res) => {
     });
     
     res.json({ subscription });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get subscription status (for mobile purchase restore)
+app.get('/api/subscription/status', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.vendorBusinessId) {
+      return res.json({ 
+        hasSubscription: false, 
+        status: 'no_business',
+        message: 'No business profile found'
+      });
+    }
+    
+    const subscription = await Subscription.findOne({
+      vendorBusinessId: req.user.vendorBusinessId
+    });
+    
+    if (!subscription) {
+      return res.json({ 
+        hasSubscription: false, 
+        status: 'none',
+        message: 'No subscription found'
+      });
+    }
+    
+    const isActive = isSubscriptionActive(subscription);
+    const status = await getSubscriptionStatus(req.user.vendorBusinessId);
+    
+    res.json({ 
+      hasSubscription: true,
+      isActive,
+      plan: subscription.plan,
+      status: subscription.status,
+      expiresAt: subscription.currentPeriodEnd,
+      features: subscription.features,
+      canWrite: status.canWrite,
+      isExpired: status.isExpired,
+      daysRemaining: status.daysRemaining
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -7071,6 +6825,15 @@ app.get('/reset-password', (req, res) => {
     res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
   } else {
     res.redirect(`http://localhost:3000/reset-password?token=${req.query.token || ''}`);
+  }
+});
+
+// Email verification route (serves React app to handle token)
+app.get('/verify-email', (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+  } else {
+    res.redirect(`http://localhost:3000/verify-email?token=${req.query.token || ''}`);
   }
 });
 
