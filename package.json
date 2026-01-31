@@ -39,6 +39,7 @@
     "pdf-lib": "^1.17.1",
     "stripe": "^14.10.0",
     "twilio": "^4.20.0",
+    "@sendgrid/mail": "^8.1.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
