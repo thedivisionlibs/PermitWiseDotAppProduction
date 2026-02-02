@@ -901,7 +901,7 @@ const PickerModal = ({ visible, onClose, title, options, value, onSelect }) => (
   </Modal>
 );
 
-const CitySearchModal = ({ visible, onClose, state, onSelect }) => {
+const CitySearchModal = ({ visible, onClose, state, onSelect, strictMode = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -946,7 +946,7 @@ const CitySearchModal = ({ visible, onClose, state, onSelect }) => {
   };
 
   const handleUseCustom = () => {
-    if (searchTerm.trim()) {
+    if (searchTerm.trim() && !strictMode) {
       onSelect(searchTerm.trim());
       onClose();
     }
@@ -985,10 +985,16 @@ const CitySearchModal = ({ visible, onClose, state, onSelect }) => {
             ))}
             {!loading && results.length === 0 && searchTerm.length >= 2 && (
               <View style={styles.citySearchEmpty}>
-                <Text style={styles.citySearchEmptyText}>No matches found in our database.</Text>
-                <TouchableOpacity style={styles.useCustomButton} onPress={handleUseCustom}>
-                  <Text style={styles.useCustomButtonText}>Use "{searchTerm}" anyway</Text>
-                </TouchableOpacity>
+                <Text style={styles.citySearchEmptyText}>
+                  {strictMode 
+                    ? 'No cities found. Please select from available options.' 
+                    : 'No matches found in our database.'}
+                </Text>
+                {!strictMode && (
+                  <TouchableOpacity style={styles.useCustomButton} onPress={handleUseCustom}>
+                    <Text style={styles.useCustomButtonText}>Use "{searchTerm}" anyway</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
             {searchTerm.length < 2 && (
@@ -2911,7 +2917,38 @@ const SettingsScreen = ({ navigation }) => {
   const handleNotificationSave = async () => { setLoading(true); try { await api.put('/auth/profile', { notificationPreferences: notificationPrefs }); await fetchUser(); toast.success('Notification preferences updated'); setActiveSection(null); } catch (err) { toast.error(err.message); } finally { setLoading(false); } };
   const addCity = () => setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
-  const removeCity = (i) => { if (businessData.operatingCities.length > 1) setBusinessData(d => ({ ...d, operatingCities: d.operatingCities.filter((_, idx) => idx !== i) })); };
+  
+  const removeCity = async (i) => {
+    if (businessData.operatingCities.length <= 1) return;
+    const cityToRemove = businessData.operatingCities[i];
+    if (!cityToRemove.city) {
+      // If city is empty, just remove it locally
+      setBusinessData(d => ({ ...d, operatingCities: d.operatingCities.filter((_, idx) => idx !== i) }));
+      return;
+    }
+    
+    const confirmed = await confirm({
+      title: 'Remove City',
+      message: `Remove ${cityToRemove.city}, ${cityToRemove.state}?\n\nPermits for this city will be removed, but uploaded documents will be preserved.`,
+      confirmText: 'Remove',
+      variant: 'danger'
+    });
+    if (!confirmed) return;
+    
+    setLoading(true);
+    try {
+      // Call API to remove permits for this city
+      const result = await api.delete(`/permits/by-city?city=${encodeURIComponent(cityToRemove.city)}&state=${encodeURIComponent(cityToRemove.state)}`);
+      // Update local state
+      const newCities = businessData.operatingCities.filter((_, idx) => idx !== i);
+      setBusinessData(d => ({ ...d, operatingCities: newCities }));
+      // Save business with updated cities
+      await api.put('/business', { ...businessData, operatingCities: newCities });
+      updateBusiness({ ...business, operatingCities: newCities });
+      toast.success(`Removed ${cityToRemove.city}. ${result.removedCount || 0} permit(s) removed.`);
+    } catch (err) { toast.error(err.message); } 
+    finally { setLoading(false); }
+  };
   
   const inviteTeamMember = async () => {
     if (!newMemberEmail) return;
@@ -3071,6 +3108,7 @@ const SettingsScreen = ({ navigation }) => {
                   onClose={() => setShowCityPicker(null)} 
                   state={city.state}
                   onSelect={cityName => updateCity(i, 'city', cityName)}
+                  strictMode={true}
                 />
               </React.Fragment>
             ))}
@@ -4100,13 +4138,17 @@ const EventsScreen = () => {
   };
 
   // Fetch permit types by state
-  const fetchPermitTypesByState = async (state) => {
+  const fetchPermitTypesByState = async (state, city = null) => {
     if (!state) {
       setAvailablePermitTypes([]);
       return;
     }
     try {
-      const ptData = await api.get(`/permit-types/by-state?state=${state}`);
+      // If city is provided, filter by specific jurisdiction
+      const url = city 
+        ? `/permit-types/by-state?state=${state}&city=${encodeURIComponent(city)}`
+        : `/permit-types/by-state?state=${state}`;
+      const ptData = await api.get(url);
       setAvailablePermitTypes(ptData.permitTypes || []);
     } catch (err) {
       console.error('Error fetching permit types:', err);
@@ -4118,11 +4160,22 @@ const EventsScreen = () => {
     }
   };
 
-  // Handle state change in event form - clear city and fetch permits when state changes
+  // Handle state change in event form - clear city and permits when state changes
   const handleEventStateChange = (state) => {
     setNewEvent(f => ({ ...f, state, city: '', requiredPermitTypes: [] }));
     setShowStatePicker(false);
-    fetchPermitTypesByState(state);
+    setAvailablePermitTypes([]); // Clear permits until city is selected
+  };
+  
+  // Handle city change in event form - fetch permits for specific city
+  const handleEventCityChange = (city) => {
+    setNewEvent(f => ({ ...f, city, requiredPermitTypes: [] }));
+    setShowCityPicker(false);
+    if (city && newEvent.state) {
+      fetchPermitTypesByState(newEvent.state, city);
+    } else {
+      setAvailablePermitTypes([]);
+    }
   };
 
   // Toggle permit type selection
@@ -4382,8 +4435,14 @@ const EventsScreen = () => {
           {(() => {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            const upcomingCount = organizerEvents.filter(e => new Date(e.endDate || e.startDate) >= today).length;
-            const pastCount = organizerEvents.filter(e => new Date(e.endDate || e.startDate) < today).length;
+            const upcomingCount = organizerEvents.filter(e => {
+              const eventDate = new Date(e.endDate || e.startDate);
+              return eventDate >= today && e.status !== 'closed' && e.status !== 'cancelled';
+            }).length;
+            const pastCount = organizerEvents.filter(e => {
+              const eventDate = new Date(e.endDate || e.startDate);
+              return eventDate < today || e.status === 'closed' || e.status === 'cancelled';
+            }).length;
             return [
               { key: 'my-events', label: `🎪 Upcoming (${upcomingCount})` }, 
               { key: 'past-events', label: `📜 Past (${pastCount})` }, 
@@ -4409,7 +4468,12 @@ const EventsScreen = () => {
         {/* My Events Tab (Upcoming only) */}
         {organizerTab === 'my-events' && !selectedOrgEvent && (
           <FlatList
-            data={organizerEvents.filter(e => new Date(e.endDate || e.startDate) >= new Date(new Date().setHours(0,0,0,0)))}
+            data={organizerEvents.filter(e => {
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const eventDate = new Date(e.endDate || e.startDate);
+              return eventDate >= today && e.status !== 'closed' && e.status !== 'cancelled';
+            })}
             keyExtractor={item => item._id}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchOrganizerEvents(); }} />}
             renderItem={({ item }) => (
@@ -4647,12 +4711,20 @@ const EventsScreen = () => {
         {/* Past Events Tab */}
         {organizerTab === 'past-events' && (
           <FlatList
-            data={organizerEvents.filter(e => new Date(e.endDate || e.startDate) < new Date(new Date().setHours(0,0,0,0)))}
+            data={organizerEvents.filter(e => {
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              const eventDate = new Date(e.endDate || e.startDate);
+              return eventDate < today || e.status === 'closed' || e.status === 'cancelled';
+            })}
             keyExtractor={item => item._id}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchOrganizerEvents(); }} />}
             renderItem={({ item }) => {
               const approvedVendors = item.vendorApplications?.filter(v => v.status === 'approved') || [];
               const totalAttended = item.assignedVendors?.length || approvedVendors.length;
+              const statusLabel = item.status === 'cancelled' ? 'CANCELLED' : item.status === 'closed' ? 'CLOSED' : 'COMPLETED';
+              const statusBgColor = item.status === 'cancelled' ? '#fef2f2' : item.status === 'closed' ? '#fef3c7' : '#f3f4f6';
+              const statusTextColor = item.status === 'cancelled' ? COLORS.danger : item.status === 'closed' ? '#d97706' : '#374151';
               return (
                 <Card style={[styles.organizerEventCard, { opacity: 0.9 }]}>
                   <View style={styles.organizerEventHeader}>
@@ -4667,8 +4739,8 @@ const EventsScreen = () => {
                         <Text style={styles.organizerEventMetaText}>{item.location?.city}, {item.location?.state}</Text>
                       </View>
                     </View>
-                    <View style={[styles.statusBadge, { backgroundColor: '#f3f4f6' }]}>
-                      <Text style={[styles.statusBadgeText, { color: '#374151' }]}>COMPLETED</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: statusBgColor }]}>
+                      <Text style={[styles.statusBadgeText, { color: statusTextColor }]}>{statusLabel}</Text>
                     </View>
                   </View>
                   
@@ -4782,8 +4854,8 @@ const EventsScreen = () => {
                 <View style={{ marginTop: 16 }}>
                   <Text style={[styles.label, { fontWeight: '600' }]}>Required Permits</Text>
                   <Text style={{ color: COLORS.gray500, fontSize: 13, marginBottom: 12 }}>Select permits vendors must have</Text>
-                  {!newEvent.state ? (
-                    <Text style={{ color: COLORS.gray400, fontStyle: 'italic' }}>Select a state above to see available permits</Text>
+                  {!newEvent.city ? (
+                    <Text style={{ color: COLORS.gray400, fontStyle: 'italic' }}>Select a city above to see available permits</Text>
                   ) : availablePermitTypes.length > 0 ? (
                     <View style={{ gap: 8 }}>
                       {availablePermitTypes.map(pt => (
@@ -4803,7 +4875,7 @@ const EventsScreen = () => {
                       ))}
                     </View>
                   ) : (
-                    <Text style={{ color: COLORS.gray400, fontStyle: 'italic' }}>No permits found for {newEvent.state}</Text>
+                    <Text style={{ color: COLORS.gray400, fontStyle: 'italic' }}>No permits found for {newEvent.city}, {newEvent.state}</Text>
                   )}
                 </View>
 
@@ -5045,7 +5117,7 @@ const EventsScreen = () => {
                 <TouchableOpacity onPress={() => setShowCityPicker(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
               </View>
               <FlatList data={getAvailableCities(newEvent.state)} keyExtractor={item => item} renderItem={({ item }) => (
-                <TouchableOpacity style={styles.pickerItem} onPress={() => { setNewEvent(f => ({ ...f, city: item })); setShowCityPicker(false); }}>
+                <TouchableOpacity style={styles.pickerItem} onPress={() => handleEventCityChange(item)}>
                   <Text style={styles.pickerItemText}>{item}</Text>
                   {newEvent.city === item && <Icons.Check size={20} color={COLORS.primary} />}
                 </TouchableOpacity>
