@@ -4121,3 +4121,38 @@ img { max-width: 100%; display: block; }
   color: var(--warning) !important;
   font-size: 12px;
 }
+
+/* City form row */
+.city-form-row {
+  align-items: flex-end;
+}
+.city-form-row .form-group {
+  flex: 1;
+}
+.city-form-row > button {
+  margin-left: 8px;
+}
+
+/* Form textarea */
+.form-textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+}
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Form value display */
+.form-value {
+  font-weight: 500;
+  color: var(--gray-800);
+  padding: 8px 0;
+}
