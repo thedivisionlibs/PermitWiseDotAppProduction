@@ -525,11 +525,12 @@ const Select = ({ label, options, error, ...props }) => (
   </div>
 );
 
-const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for your city...' }) => {
+const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for your city...', strictMode = false }) => {
   const [searchTerm, setSearchTerm] = useState(value || '');
   const [results, setResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isValidSelection, setIsValidSelection] = useState(!!value);
   const searchTimeout = useRef(null);
   const wrapperRef = useRef(null);
 
@@ -538,15 +539,21 @@ const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for y
     const handleClickOutside = (e) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
         setShowDropdown(false);
+        // In strict mode, clear invalid entries when clicking outside
+        if (strictMode && !isValidSelection) {
+          setSearchTerm('');
+          onChange('');
+        }
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [strictMode, isValidSelection, onChange]);
 
   // Update search term when value prop changes
   useEffect(() => {
     setSearchTerm(value || '');
+    setIsValidSelection(!!value);
   }, [value]);
 
   const searchCities = async (term) => {
@@ -568,7 +575,11 @@ const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for y
   const handleInputChange = (e) => {
     const term = e.target.value;
     setSearchTerm(term);
-    onChange(term); // Update parent immediately
+    setIsValidSelection(false);
+    // In strict mode, don't update parent until a valid selection is made
+    if (!strictMode) {
+      onChange(term);
+    }
     setShowDropdown(true);
     
     // Debounce the API call
@@ -579,6 +590,7 @@ const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for y
   const handleSelect = (jurisdiction) => {
     const cityName = jurisdiction.city || jurisdiction.name;
     setSearchTerm(cityName);
+    setIsValidSelection(true);
     onChange(cityName);
     setShowDropdown(false);
     setResults([]);
@@ -588,7 +600,7 @@ const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for y
     <div className="form-group city-search-wrapper" ref={wrapperRef}>
       {label && <label className="form-label">{label}</label>}
       <input
-        className="form-input"
+        className={`form-input ${strictMode && searchTerm && !isValidSelection ? 'input-warning' : ''}`}
         placeholder={state ? placeholder : 'Select a state first'}
         value={searchTerm}
         onChange={handleInputChange}
@@ -606,10 +618,13 @@ const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for y
           ))}
           {!loading && results.length === 0 && searchTerm.length >= 2 && (
             <div className="city-search-empty">
-              No matches found. You can still enter "{searchTerm}" manually.
+              {strictMode ? 'No cities found. Please select from the available options.' : `No matches found. You can still enter "${searchTerm}" manually.`}
             </div>
           )}
         </div>
+      )}
+      {strictMode && searchTerm && !isValidSelection && (
+        <span className="form-hint form-hint-warning">Please select a city from the dropdown</span>
       )}
       {!state && <span className="form-hint">Please select a state first</span>}
     </div>
@@ -1451,8 +1466,9 @@ const Dashboard = ({ onNavigate }) => {
 };
 
 const PermitsPage = () => {
-  const { business, canWrite, isExpired } = useAuth();
+  const { business, canWrite, isExpired, updateBusiness } = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
   const [permits, setPermits] = useState([]); const [summary, setSummary] = useState(null); const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false); const [showCityModal, setShowCityModal] = useState(false); const [selectedPermit, setSelectedPermit] = useState(null);
   const [showSuggestModal, setShowSuggestModal] = useState(false);
@@ -1461,6 +1477,7 @@ const PermitsPage = () => {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [addingSuggestions, setAddingSuggestions] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [removingCity, setRemovingCity] = useState(null);
 
   // Handler for Add Permit button - checks subscription
   const handleAddPermit = () => {
@@ -1469,6 +1486,32 @@ const PermitsPage = () => {
       return;
     }
     setShowAddModal(true);
+  };
+  
+  // Remove city handler
+  const handleRemoveCity = async (city, state) => {
+    const confirmed = await confirm({
+      title: 'Remove City',
+      message: `Are you sure you want to remove ${city}, ${state}? Permits for this city without documents will be deleted. Documents will remain in your vault.`,
+      confirmText: 'Remove City',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+    if (!confirmed) return;
+    
+    setRemovingCity(`${city}-${state}`);
+    try {
+      const result = await api.delete('/permits/remove-city', { city, state });
+      toast.success(result.message);
+      // Refresh business data and permits
+      const businessData = await api.get('/business');
+      updateBusiness(businessData.business);
+      fetchPermits();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setRemovingCity(null);
+    }
   };
 
   const syncAndFetchPermits = async () => {
@@ -1545,6 +1588,32 @@ const PermitsPage = () => {
   return (
     <div className="permits-page">
       <div className="page-header"><div><h1>Permits</h1><p>Track all your permits</p></div><div className="header-actions"><Button variant="outline" onClick={() => setShowCityModal(true)}><Icons.MapPin /> Add City</Button><Button onClick={handleAddPermit}><Icons.Plus /> Add Permit</Button></div></div>
+      
+      {/* Operating Cities Section */}
+      {business?.operatingCities?.length > 0 && (
+        <div className="operating-cities-section">
+          <h3>Operating Cities</h3>
+          <div className="cities-list">
+            {business.operatingCities.map((city, idx) => (
+              <div key={idx} className={`city-tag ${city.isPrimary ? 'primary' : ''}`}>
+                <span>{city.city}, {city.state}</span>
+                {city.isPrimary && <Badge variant="primary" size="sm">Primary</Badge>}
+                {business.operatingCities.length > 1 && (
+                  <button 
+                    className="remove-city-btn" 
+                    onClick={() => handleRemoveCity(city.city, city.state)}
+                    disabled={removingCity === `${city.city}-${city.state}`}
+                    title="Remove city"
+                  >
+                    {removingCity === `${city.city}-${city.state}` ? <LoadingSpinner /> : <Icons.X />}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
       {summary && <div className="permits-summary"><div className="summary-item"><span className="count">{summary.total}</span><span>Total</span></div><div className="summary-item green"><span className="count">{summary.active}</span><span>Active</span></div><div className="summary-item yellow"><span className="count">{summary.pendingRenewal}</span><span>Expiring</span></div><div className="summary-item red"><span className="count">{summary.expired}</span><span>Expired</span></div></div>}
       {permits.length > 0 ? (
         <div className="permits-grid">{permits.map(permit => (<Card key={permit._id} className="permit-card" onClick={() => setSelectedPermit(permit)}><div className="permit-header"><h3>{permit.permitTypeId?.name}</h3><Badge variant={permit.status === 'active' ? 'success' : permit.status === 'expired' ? 'danger' : 'warning'}>{getStatusLabel(permit.status)}</Badge></div><p>{permit.jurisdictionId?.name}, {permit.jurisdictionId?.state}</p>{permit.expiryDate && <div className="expiry-info"><Icons.Clock /><span>Expires {formatDate(permit.expiryDate)}</span></div>}</Card>))}</div>
@@ -1622,9 +1691,75 @@ const PermitsPage = () => {
 };
 
 const AddCityModal = ({ isOpen, onClose, onSuccess, toast }) => {
-  const [city, setCity] = useState(''); const [state, setState] = useState(''); const [loading, setLoading] = useState(false); const [result, setResult] = useState(null);
-  const handleAdd = async () => { setLoading(true); try { const data = await api.post('/permits/add-city', { city, state }); setResult(data); onSuccess(); } catch (err) { toast?.error(err.message); } finally { setLoading(false); } };
-  return (<Modal isOpen={isOpen} onClose={onClose} title="Add Operating City">{result && <Alert type="success">{result.message}</Alert>}<p>Add a city where you operate.</p><div className="form-row"><Input label="City" value={city} onChange={(e) => setCity(e.target.value)} /><Select label="State" value={state} onChange={(e) => setState(e.target.value)} options={[{ value: '', label: 'Select' }, ...US_STATES.map(s => ({ value: s, label: s }))]} /></div><div className="modal-actions"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={handleAdd} loading={loading} disabled={!city || !state}>Add City</Button></div></Modal>);
+  const [state, setState] = useState('');
+  const [city, setCity] = useState('');
+  const [jurisdictions, setJurisdictions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  
+  // Fetch jurisdictions when state changes
+  useEffect(() => {
+    if (!state) {
+      setJurisdictions([]);
+      setCity('');
+      return;
+    }
+    const fetchJurisdictions = async () => {
+      try {
+        const data = await api.get('/jurisdictions');
+        const filtered = (data.jurisdictions || []).filter(j => j.state === state);
+        setJurisdictions(filtered);
+        setCity('');
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchJurisdictions();
+  }, [state]);
+  
+  const handleAdd = async () => {
+    setLoading(true);
+    try {
+      const data = await api.post('/permits/add-city', { city, state });
+      setResult(data);
+      onSuccess();
+    } catch (err) {
+      toast?.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const cityOptions = jurisdictions.map(j => ({ value: j.city || j.name, label: j.city || j.name }));
+  
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Add Operating City">
+      {result && <Alert type="success">{result.message}</Alert>}
+      <p>Add a city where you operate. Only cities with permit data are available.</p>
+      <div className="form-row">
+        <Select 
+          label="State" 
+          value={state} 
+          onChange={(e) => setState(e.target.value)} 
+          options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} 
+        />
+        <Select 
+          label="City" 
+          value={city} 
+          onChange={(e) => setCity(e.target.value)} 
+          options={[{ value: '', label: state ? (cityOptions.length > 0 ? 'Select City' : 'No cities available') : 'Select state first' }, ...cityOptions]}
+          disabled={!state || cityOptions.length === 0}
+        />
+      </div>
+      {state && cityOptions.length === 0 && (
+        <Alert type="info">No cities with permit data in {state} yet. We're constantly adding new coverage.</Alert>
+      )}
+      <div className="modal-actions">
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button onClick={handleAdd} loading={loading} disabled={!city || !state}>Add City</Button>
+      </div>
+    </Modal>
+  );
 };
 
 const AddPermitModal = ({ isOpen, onClose, onSuccess, toast }) => {
@@ -2323,18 +2458,22 @@ const EventsPage = () => {
   if (loading) return <LoadingSpinner />;
 
   // Fetch permit types by state for event creation
-  const fetchPermitTypesByState = async (state) => {
+  const fetchPermitTypesByState = async (state, city = null) => {
     if (!state) {
       setAvailablePermitTypes([]);
       return;
     }
     try {
-      const ptData = await api.get(`/permit-types/by-state?state=${state}`);
+      // If city is provided, filter by specific city, otherwise get all for state
+      const url = city 
+        ? `/permit-types/by-state?state=${state}&city=${encodeURIComponent(city)}`
+        : `/permit-types/by-state?state=${state}`;
+      const ptData = await api.get(url);
       setAvailablePermitTypes(ptData.permitTypes || []);
-      // Clear selected permits when state changes
+      // Clear selected permits when location changes
       setNewOrgEvent(ev => ({ ...ev, requiredPermitTypes: [] }));
     } catch (err) {
-      console.error('Error fetching permit types by state:', err);
+      console.error('Error fetching permit types:', err);
       // Fallback to all permit types
       const ptData = await api.get('/permit-types/all');
       setAvailablePermitTypes(ptData.permitTypes || []);
@@ -2344,7 +2483,17 @@ const EventsPage = () => {
   // Handle state change in event creation form
   const handleEventStateChange = (newState) => {
     setNewOrgEvent(ev => ({ ...ev, state: newState, city: '', requiredPermitTypes: [] })); // Clear city and permits when state changes
-    fetchPermitTypesByState(newState);
+    setAvailablePermitTypes([]); // Clear permit types until city is selected
+  };
+  
+  // Handle city change in event creation form - fetch permits for specific city
+  const handleEventCityChange = (newCity) => {
+    setNewOrgEvent(ev => ({ ...ev, city: newCity, requiredPermitTypes: [] }));
+    if (newCity && newOrgEvent.state) {
+      fetchPermitTypesByState(newOrgEvent.state, newCity);
+    } else {
+      setAvailablePermitTypes([]);
+    }
   };
 
   // Get unique cities for selected state from jurisdictions
@@ -2568,10 +2717,10 @@ const EventsPage = () => {
       requiredPermitTypes: event.requiredPermitTypes?.map(pt => pt._id || pt) || [],
       customPermitRequirements: event.customPermitRequirements || []
     });
-    // Fetch permits for the event's state
-    if (event.location?.state) {
+    // Fetch permits for the event's city (specific jurisdiction)
+    if (event.location?.state && event.location?.city) {
       try {
-        const ptData = await api.get(`/permit-types/by-state?state=${event.location.state}`);
+        const ptData = await api.get(`/permit-types/by-state?state=${event.location.state}&city=${encodeURIComponent(event.location.city)}`);
         setEditPermitTypes(ptData.permitTypes || []);
       } catch (err) { console.error(err); }
     }
@@ -2580,9 +2729,14 @@ const EventsPage = () => {
 
   const handleEditEventStateChange = async (newState) => {
     setEditingEvent(ev => ({ ...ev, state: newState, city: '', requiredPermitTypes: [] }));
-    if (newState) {
+    setEditPermitTypes([]); // Clear permit types until city is selected
+  };
+  
+  const handleEditEventCityChange = async (newCity) => {
+    setEditingEvent(ev => ({ ...ev, city: newCity, requiredPermitTypes: [] }));
+    if (newCity && editingEvent?.state) {
       try {
-        const ptData = await api.get(`/permit-types/by-state?state=${newState}`);
+        const ptData = await api.get(`/permit-types/by-state?state=${editingEvent.state}&city=${encodeURIComponent(newCity)}`);
         setEditPermitTypes(ptData.permitTypes || []);
       } catch (err) { console.error(err); }
     } else {
@@ -2730,8 +2884,14 @@ const EventsPage = () => {
             // Calculate counts for badges
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            const upcomingCount = organizerEvents.filter(e => new Date(e.endDate || e.startDate) >= today).length;
-            const pastCount = organizerEvents.filter(e => new Date(e.endDate || e.startDate) < today).length;
+            const upcomingCount = organizerEvents.filter(e => {
+              const eventDate = new Date(e.endDate || e.startDate);
+              return eventDate >= today && e.status !== 'closed' && e.status !== 'cancelled';
+            }).length;
+            const pastCount = organizerEvents.filter(e => {
+              const eventDate = new Date(e.endDate || e.startDate);
+              return eventDate < today || e.status === 'closed' || e.status === 'cancelled';
+            }).length;
             
             return (
             <button key={tab} className={organizerTab === tab ? 'active' : ''} onClick={() => { 
@@ -2757,7 +2917,8 @@ const EventsPage = () => {
               today.setHours(0, 0, 0, 0);
               const upcomingEvents = organizerEvents.filter(e => {
                 const eventDate = new Date(e.endDate || e.startDate);
-                return eventDate >= today;
+                // Show only future events that are not closed or cancelled
+                return eventDate >= today && e.status !== 'closed' && e.status !== 'cancelled';
               });
               return upcomingEvents.length > 0 ? upcomingEvents.map(event => (
               <Card key={event._id} className="organizer-event-card">
@@ -2859,7 +3020,8 @@ const EventsPage = () => {
               today.setHours(0, 0, 0, 0);
               const pastEvents = organizerEvents.filter(e => {
                 const eventDate = new Date(e.endDate || e.startDate);
-                return eventDate < today;
+                // Include events that are either: past their end date OR closed/cancelled
+                return eventDate < today || e.status === 'closed' || e.status === 'cancelled';
               });
               return pastEvents.length > 0 ? pastEvents.map(event => {
                 const approvedVendors = event.vendorApplications?.filter(v => v.status === 'approved') || [];
@@ -2872,7 +3034,9 @@ const EventsPage = () => {
                         <p className="event-date"><Icons.Calendar /> {formatDate(event.startDate)} {event.endDate && event.endDate !== event.startDate && `- ${formatDate(event.endDate)}`}</p>
                         <p className="event-location"><Icons.MapPin /> {event.location?.city}, {event.location?.state}</p>
                       </div>
-                      <Badge variant="default">Completed</Badge>
+                      <Badge variant={event.status === 'cancelled' ? 'danger' : event.status === 'closed' ? 'warning' : 'default'}>
+                        {event.status === 'cancelled' ? 'Cancelled' : event.status === 'closed' ? 'Closed' : 'Completed'}
+                      </Badge>
                     </div>
                     
                     <div className="past-event-summary">
@@ -3047,7 +3211,7 @@ const EventsPage = () => {
               </div>
               <div className="form-row">
                 <Select label="State *" value={newOrgEvent.state} onChange={(e) => handleEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...[...new Set(jurisdictions.map(j => j.state))].sort().map(s => ({ value: s, label: s }))]} />
-                <Select label="City *" value={newOrgEvent.city} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, city: e.target.value }))} options={[{ value: '', label: newOrgEvent.state ? 'Select City' : 'Select state first' }, ...getAvailableCities(newOrgEvent.state).map(c => ({ value: c, label: c }))]} disabled={!newOrgEvent.state} />
+                <Select label="City *" value={newOrgEvent.city} onChange={(e) => handleEventCityChange(e.target.value)} options={[{ value: '', label: newOrgEvent.state ? 'Select City' : 'Select state first' }, ...getAvailableCities(newOrgEvent.state).map(c => ({ value: c, label: c }))]} disabled={!newOrgEvent.state} />
               </div>
               <div className="location-request-link">
                 <button type="button" className="text-link" onClick={() => setShowLocationRequestModal(true)}>
@@ -3086,8 +3250,8 @@ const EventsPage = () => {
             <div className="form-section">
               <div className="form-section-title">Required Permits</div>
               <p className="form-hint">Select permits vendors must have to participate in your event</p>
-              {!newOrgEvent.state ? (
-                <p className="empty-text">Please select a state above to see available permits for that location.</p>
+              {!newOrgEvent.city ? (
+                <p className="empty-text">Please select a city above to see available permits for that location.</p>
               ) : availablePermitTypes.length > 0 ? (
                 <div className="permit-type-checkboxes">
                   {availablePermitTypes.map(pt => {
@@ -3343,7 +3507,15 @@ const EventsPage = () => {
             
             <div className="modal-actions">
               <Button variant="outline" onClick={() => setShowVerificationModal(false)}>Close</Button>
-              <Button onClick={() => { setShowVerificationModal(false); window.location.hash = 'settings'; }}>
+              <Button onClick={() => { 
+                setShowVerificationModal(false); 
+                setOrganizerTab('settings');
+                // Set a timeout to ensure the page renders before setting the tab
+                setTimeout(() => {
+                  const event = new CustomEvent('setOrganizerSettingsTab', { detail: 'documents' });
+                  window.dispatchEvent(event);
+                }, 100);
+              }}>
                 {verificationStatus === 'pending' ? 'Upload Documents' : 'Go to Settings'}
               </Button>
             </div>
@@ -3473,7 +3645,7 @@ const EventsPage = () => {
                 {editingEvent.status !== 'published' && (
                   <div className="form-row">
                     <Select label="State *" value={editingEvent.state} onChange={(e) => handleEditEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...[...new Set(jurisdictions.map(j => j.state))].sort().map(s => ({ value: s, label: s }))]} />
-                    <Select label="City *" value={editingEvent.city} onChange={(e) => setEditingEvent(ev => ({ ...ev, city: e.target.value }))} options={[{ value: '', label: editingEvent.state ? 'Select City' : 'Select state first' }, ...getAvailableCities(editingEvent.state).map(c => ({ value: c, label: c }))]} disabled={!editingEvent.state} />
+                    <Select label="City *" value={editingEvent.city} onChange={(e) => handleEditEventCityChange(e.target.value)} options={[{ value: '', label: editingEvent.state ? 'Select City' : 'Select state first' }, ...getAvailableCities(editingEvent.state).map(c => ({ value: c, label: c }))]} disabled={!editingEvent.state} />
                   </div>
                 )}
                 <Input label="Venue Address" value={editingEvent.address || ''} onChange={(e) => setEditingEvent(ev => ({ ...ev, address: e.target.value }))} />
@@ -4187,6 +4359,17 @@ const OrganizerSettingsPage = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   
+  // Listen for tab change events from verification modal
+  useEffect(() => {
+    const handleTabChange = (event) => {
+      if (event.detail) {
+        setActiveTab(event.detail);
+      }
+    };
+    window.addEventListener('setOrganizerSettingsTab', handleTabChange);
+    return () => window.removeEventListener('setOrganizerSettingsTab', handleTabChange);
+  }, []);
+  
   const [profileData, setProfileData] = useState({
     firstName: user?.firstName || '',
     lastName: user?.lastName || '',
@@ -4746,7 +4929,35 @@ const SettingsPage = () => {
   };
   const addCity = () => setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
-  const removeCity = (i) => { if (businessData.operatingCities.length > 1) setBusinessData(d => ({ ...d, operatingCities: d.operatingCities.filter((_, idx) => idx !== i) })); };
+  const removeCity = async (i) => { 
+    if (businessData.operatingCities.length <= 1) return;
+    const cityToRemove = businessData.operatingCities[i];
+    if (!cityToRemove.city) {
+      // If city is empty, just remove it locally
+      setBusinessData(d => ({ ...d, operatingCities: d.operatingCities.filter((_, idx) => idx !== i) }));
+      return;
+    }
+    const confirmed = await confirm({ 
+      title: 'Remove City', 
+      message: `Are you sure you want to remove ${cityToRemove.city}, ${cityToRemove.state}? Permits for this city will be removed, but any uploaded documents will be preserved in your Document Vault.`, 
+      confirmText: 'Remove City', 
+      variant: 'danger' 
+    });
+    if (!confirmed) return;
+    setLoading(true);
+    try {
+      // Call API to remove permits for this city
+      const result = await api.delete(`/permits/by-city?city=${encodeURIComponent(cityToRemove.city)}&state=${encodeURIComponent(cityToRemove.state)}`);
+      // Update local state
+      const newCities = businessData.operatingCities.filter((_, idx) => idx !== i);
+      setBusinessData(d => ({ ...d, operatingCities: newCities }));
+      // Save business with updated cities
+      await api.put('/business', { ...businessData, operatingCities: newCities });
+      updateBusiness({ ...business, operatingCities: newCities });
+      toast.success(`Removed ${cityToRemove.city}. ${result.removedCount || 0} permit(s) removed, ${result.documentsPreserved || 0} document(s) preserved.`);
+    } catch (err) { toast.error(err.message); } 
+    finally { setLoading(false); }
+  };
   const inviteMember = async () => { 
     if (!canManageTeam) { toast.error('You do not have permission to invite team members'); return; }
     try { await api.post('/team/invite', newMember); setNewMember({ email: '', role: 'staff' }); const data = await api.get('/team'); setTeamMembers(data.members || []); toast.success('Invitation sent!'); } catch (err) { toast.error(err.message); } 
@@ -4840,6 +5051,7 @@ const SettingsPage = () => {
                       value={city.city}
                       onChange={(cityName) => updateCity(i, 'city', cityName)}
                       placeholder="Search for your city..."
+                      strictMode={true}
                     />
                     {businessData.operatingCities.length > 1 && <button className="remove-btn" onClick={() => removeCity(i)}><Icons.Trash /></button>}
                   </div>
@@ -7065,6 +7277,24 @@ const App = () => {
       setCurrentPage(page);
     }
   };
+
+  // Listen for hash changes for navigation (used by buttons that set window.location.hash)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (hash && ['dashboard', 'permits', 'documents', 'inspections', 'events', 'settings'].includes(hash)) {
+        handleNavigate(hash);
+        // Clear the hash after navigation
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    };
+    
+    // Check hash on mount
+    handleHashChange();
+    
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [isOrganizer]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { 
     const params = new URLSearchParams(window.location.search);
