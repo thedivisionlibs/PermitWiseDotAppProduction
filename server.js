@@ -2712,6 +2712,220 @@ app.put('/api/permits/:id', authMiddleware, requireWriteAccess, async (req, res)
   }
 });
 
+// Remove city and its permits - POST version (more reliable than DELETE with body)
+app.post('/api/permits/remove-city', authMiddleware, requireWriteAccess, async (req, res) => {
+  try {
+    const { city, state } = req.body;
+    
+    if (!city || !state) {
+      return res.status(400).json({ error: 'City and state are required' });
+    }
+    
+    const business = await VendorBusiness.findById(req.user.vendorBusinessId);
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+    
+    // Check if this is the primary/only city
+    const cityIndex = business.operatingCities.findIndex(
+      c => c.city.toLowerCase() === city.toLowerCase() && c.state === state
+    );
+    
+    if (cityIndex === -1) {
+      return res.status(404).json({ error: 'City not found in operating cities' });
+    }
+    
+    if (business.operatingCities.length === 1) {
+      return res.status(400).json({ error: 'Cannot remove the only operating city. Add another city first.' });
+    }
+    
+    const removedCity = business.operatingCities[cityIndex];
+    
+    // Check if trying to remove primary city
+    if (removedCity.isPrimary) {
+      return res.status(400).json({ error: 'Cannot remove your primary city. Please set another city as primary first.' });
+    }
+    
+    // Remove city from business
+    business.operatingCities.splice(cityIndex, 1);
+    await business.save();
+    
+    // Find jurisdiction for this city
+    const jurisdiction = await Jurisdiction.findOne({
+      $or: [
+        { city: new RegExp(`^${city}$`, 'i'), state },
+        { name: new RegExp(`^${city}$`, 'i'), state }
+      ]
+    });
+    
+    let permitsRemoved = 0;
+    let documentsPreserved = 0;
+    
+    if (jurisdiction) {
+      // Find all permits for this jurisdiction
+      const permits = await VendorPermit.find({
+        vendorBusinessId: business._id,
+        jurisdictionId: jurisdiction._id
+      });
+      
+      for (const permit of permits) {
+        // Check if permit has any documents attached
+        const hasDocuments = permit.documentUrl || (permit.documents && permit.documents.length > 0);
+        
+        if (hasDocuments) {
+          documentsPreserved++;
+        }
+        // Delete permit regardless - documents in Document collection are preserved
+        await VendorPermit.findByIdAndDelete(permit._id);
+        permitsRemoved++;
+      }
+    }
+    
+    res.json({ 
+      message: `City removed. ${permitsRemoved} permit(s) removed.${documentsPreserved > 0 ? ` ${documentsPreserved} document(s) preserved in vault.` : ''}`,
+      permitsRemoved,
+      documentsPreserved,
+      business: { operatingCities: business.operatingCities }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove city and its permits (must be before /:id route)
+app.delete('/api/permits/remove-city', authMiddleware, requireWriteAccess, async (req, res) => {
+  try {
+    const { city, state } = req.body;
+    
+    if (!city || !state) {
+      return res.status(400).json({ error: 'City and state are required' });
+    }
+    
+    const business = await VendorBusiness.findById(req.user.vendorBusinessId);
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+    
+    // Check if this is the primary/only city
+    const cityIndex = business.operatingCities.findIndex(
+      c => c.city.toLowerCase() === city.toLowerCase() && c.state === state
+    );
+    
+    if (cityIndex === -1) {
+      return res.status(404).json({ error: 'City not found in operating cities' });
+    }
+    
+    if (business.operatingCities.length === 1) {
+      return res.status(400).json({ error: 'Cannot remove the only operating city. Add another city first.' });
+    }
+    
+    const removedCity = business.operatingCities[cityIndex];
+    
+    // Check if trying to remove primary city
+    if (removedCity.isPrimary) {
+      return res.status(400).json({ error: 'Cannot remove your primary city. Please set another city as primary first.' });
+    }
+    
+    // Remove city from business
+    business.operatingCities.splice(cityIndex, 1);
+    await business.save();
+    
+    // Find jurisdiction for this city
+    const jurisdiction = await Jurisdiction.findOne({
+      $or: [
+        { city: new RegExp(`^${city}$`, 'i'), state },
+        { name: new RegExp(`^${city}$`, 'i'), state }
+      ]
+    });
+    
+    let permitsRemoved = 0;
+    let documentsPreserved = 0;
+    
+    if (jurisdiction) {
+      // Find all permits for this jurisdiction
+      const permits = await VendorPermit.find({
+        vendorBusinessId: business._id,
+        jurisdictionId: jurisdiction._id
+      });
+      
+      for (const permit of permits) {
+        // Check if permit has any documents attached
+        const hasDocuments = permit.documentUrl || (permit.documents && permit.documents.length > 0);
+        
+        if (hasDocuments) {
+          documentsPreserved++;
+        }
+        // Delete permit regardless - documents in Document collection are preserved
+        await VendorPermit.findByIdAndDelete(permit._id);
+        permitsRemoved++;
+      }
+    }
+    
+    res.json({ 
+      message: `City removed. ${permitsRemoved} permit(s) removed.${documentsPreserved > 0 ? ` ${documentsPreserved} document(s) preserved in vault.` : ''}`,
+      permitsRemoved,
+      documentsPreserved,
+      business: { operatingCities: business.operatingCities }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete permits by city using query params (must be before /:id route)
+app.delete('/api/permits/by-city', authMiddleware, requireWriteAccess, async (req, res) => {
+  try {
+    const { city, state } = req.query;
+    
+    if (!city || !state) {
+      return res.status(400).json({ error: 'City and state are required' });
+    }
+    
+    const business = await VendorBusiness.findById(req.user.vendorBusinessId);
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+    
+    // Find jurisdiction for this city
+    const jurisdiction = await Jurisdiction.findOne({
+      $or: [
+        { city: new RegExp(`^${city}$`, 'i'), state },
+        { name: new RegExp(`^${city}$`, 'i'), state }
+      ]
+    });
+    
+    let removedCount = 0;
+    let documentsPreserved = 0;
+    
+    if (jurisdiction) {
+      // Find all permits for this jurisdiction
+      const permits = await VendorPermit.find({
+        vendorBusinessId: business._id,
+        jurisdictionId: jurisdiction._id
+      });
+      
+      for (const permit of permits) {
+        // Check if permit has any documents attached
+        const hasDocuments = permit.documentUrl || (permit.documents && permit.documents.length > 0);
+        
+        if (hasDocuments) {
+          documentsPreserved++;
+        }
+        // Delete permit - documents in Document collection will remain
+        await VendorPermit.findByIdAndDelete(permit._id);
+        removedCount++;
+      }
+    }
+    
+    res.json({ 
+      removedCount,
+      documentsPreserved
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Delete permit from dashboard
 app.delete('/api/permits/:id', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
@@ -2787,148 +3001,6 @@ app.post('/api/permits/add-city', authMiddleware, requireWriteAccess, checkPlanL
     }
     
     res.json({ message: `${added} permits added for ${city}, ${state}`, permitsAdded: added });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Remove operating city and associated permits (documents stay in vault)
-app.delete('/api/permits/remove-city', authMiddleware, requireWriteAccess, async (req, res) => {
-  try {
-    const { city, state } = req.body;
-    
-    if (!city || !state) {
-      return res.status(400).json({ error: 'City and state are required' });
-    }
-    
-    const business = await VendorBusiness.findById(req.user.vendorBusinessId);
-    if (!business) {
-      return res.status(404).json({ error: 'Business not found' });
-    }
-    
-    // Check if this is the primary/only city
-    const cityIndex = business.operatingCities.findIndex(
-      c => c.city.toLowerCase() === city.toLowerCase() && c.state === state
-    );
-    
-    if (cityIndex === -1) {
-      return res.status(404).json({ error: 'City not found in operating cities' });
-    }
-    
-    if (business.operatingCities.length === 1) {
-      return res.status(400).json({ error: 'Cannot remove the only operating city. Add another city first.' });
-    }
-    
-    const removedCity = business.operatingCities[cityIndex];
-    const wasPrimary = removedCity.isPrimary;
-    
-    // Remove city from business
-    business.operatingCities.splice(cityIndex, 1);
-    
-    // If removed city was primary, make first remaining city primary
-    if (wasPrimary && business.operatingCities.length > 0) {
-      business.operatingCities[0].isPrimary = true;
-    }
-    
-    await business.save();
-    
-    // Find jurisdiction for this city
-    const jurisdiction = await Jurisdiction.findOne({
-      $or: [
-        { city: new RegExp(`^${city}$`, 'i'), state },
-        { name: new RegExp(`^${city}$`, 'i'), state }
-      ]
-    });
-    
-    let permitsRemoved = 0;
-    let documentsPreserved = 0;
-    
-    if (jurisdiction) {
-      // Find all permits for this jurisdiction
-      const permits = await VendorPermit.find({
-        vendorBusinessId: business._id,
-        jurisdictionId: jurisdiction._id
-      });
-      
-      for (const permit of permits) {
-        // Check if permit has any documents attached
-        const hasDocuments = permit.documentUrl || (permit.documents && permit.documents.length > 0);
-        
-        if (hasDocuments) {
-          // Keep permit but documents remain in vault
-          documentsPreserved++;
-        } else {
-          // Delete permit if no documents
-          await VendorPermit.findByIdAndDelete(permit._id);
-          permitsRemoved++;
-        }
-      }
-    }
-    
-    res.json({ 
-      message: `City removed. ${permitsRemoved} permit(s) removed.${documentsPreserved > 0 ? ` ${documentsPreserved} permit(s) with documents were kept.` : ''}`,
-      permitsRemoved,
-      documentsPreserved
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Delete permits by city (using query params for better compatibility)
-app.delete('/api/permits/by-city', authMiddleware, requireWriteAccess, async (req, res) => {
-  try {
-    const { city, state } = req.query;
-    
-    if (!city || !state) {
-      return res.status(400).json({ error: 'City and state are required' });
-    }
-    
-    const business = await VendorBusiness.findById(req.user.vendorBusinessId);
-    if (!business) {
-      return res.status(404).json({ error: 'Business not found' });
-    }
-    
-    // Find jurisdiction for this city
-    const jurisdiction = await Jurisdiction.findOne({
-      $or: [
-        { city: new RegExp(`^${city}$`, 'i'), state },
-        { name: new RegExp(`^${city}$`, 'i'), state }
-      ]
-    });
-    
-    let removedCount = 0;
-    let documentsPreserved = 0;
-    
-    if (jurisdiction) {
-      // Find all permits for this jurisdiction
-      const permits = await VendorPermit.find({
-        vendorBusinessId: business._id,
-        jurisdictionId: jurisdiction._id
-      });
-      
-      for (const permit of permits) {
-        // Check if permit has any documents attached
-        const hasDocuments = permit.documentUrl || (permit.documents && permit.documents.length > 0);
-        
-        if (hasDocuments) {
-          // Keep permit but documents remain in vault - delete the permit but keep docs separate
-          documentsPreserved++;
-          // Actually delete the permit - documents in Document collection will remain
-          await VendorPermit.findByIdAndDelete(permit._id);
-          removedCount++;
-        } else {
-          // Delete permit if no documents
-          await VendorPermit.findByIdAndDelete(permit._id);
-          removedCount++;
-        }
-      }
-    }
-    
-    res.json({ 
-      removedCount,
-      documentsPreserved
-    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
