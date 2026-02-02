@@ -1490,9 +1490,16 @@ const PermitsPage = () => {
   
   // Remove city handler
   const handleRemoveCity = async (city, state) => {
+    // Find the city to check if it's primary
+    const cityObj = business?.operatingCities?.find(c => c.city === city && c.state === state);
+    if (cityObj?.isPrimary) {
+      toast.error('Cannot remove your primary city. Please go to Settings → Cities to set another city as primary first.');
+      return;
+    }
+    
     const confirmed = await confirm({
       title: 'Remove City',
-      message: `Are you sure you want to remove ${city}, ${state}? Permits for this city without documents will be deleted. Documents will remain in your vault.`,
+      message: `Are you sure you want to remove ${city}, ${state}? Permits for this city will be deleted. Documents will remain in your vault.`,
       confirmText: 'Remove City',
       cancelText: 'Cancel',
       variant: 'danger'
@@ -1501,7 +1508,8 @@ const PermitsPage = () => {
     
     setRemovingCity(`${city}-${state}`);
     try {
-      const result = await api.delete('/permits/remove-city', { city, state });
+      // Use POST endpoint instead of DELETE with body (more reliable)
+      const result = await api.post('/permits/remove-city', { city, state });
       toast.success(result.message);
       // Refresh business data and permits
       const businessData = await api.get('/business');
@@ -1696,12 +1704,17 @@ const AddCityModal = ({ isOpen, onClose, onSuccess, toast }) => {
   const [jurisdictions, setJurisdictions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [showRequestForm, setShowRequestForm] = useState(false);
+  const [requestCity, setRequestCity] = useState('');
+  const [requestReason, setRequestReason] = useState('');
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
   
   // Fetch jurisdictions when state changes
   useEffect(() => {
     if (!state) {
       setJurisdictions([]);
       setCity('');
+      setShowRequestForm(false);
       return;
     }
     const fetchJurisdictions = async () => {
@@ -1730,34 +1743,101 @@ const AddCityModal = ({ isOpen, onClose, onSuccess, toast }) => {
     }
   };
   
+  const handleRequestCity = async () => {
+    if (!requestCity || !state) return;
+    setRequestSubmitting(true);
+    try {
+      await api.post('/suggestions', {
+        type: 'city_request',
+        details: `New city request: ${requestCity}, ${state}`,
+        additionalInfo: requestReason
+      });
+      toast?.success('City request submitted! Our team will review and add coverage soon.');
+      setShowRequestForm(false);
+      setRequestCity('');
+      setRequestReason('');
+    } catch (err) {
+      toast?.error(err.message || 'Failed to submit request');
+    } finally {
+      setRequestSubmitting(false);
+    }
+  };
+  
   const cityOptions = jurisdictions.map(j => ({ value: j.city || j.name, label: j.city || j.name }));
   
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add Operating City">
-      {result && <Alert type="success">{result.message}</Alert>}
-      <p>Add a city where you operate. Only cities with permit data are available.</p>
-      <div className="form-row">
-        <Select 
-          label="State" 
-          value={state} 
-          onChange={(e) => setState(e.target.value)} 
-          options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} 
-        />
-        <Select 
-          label="City" 
-          value={city} 
-          onChange={(e) => setCity(e.target.value)} 
-          options={[{ value: '', label: state ? (cityOptions.length > 0 ? 'Select City' : 'No cities available') : 'Select state first' }, ...cityOptions]}
-          disabled={!state || cityOptions.length === 0}
-        />
-      </div>
-      {state && cityOptions.length === 0 && (
-        <Alert type="info">No cities with permit data in {state} yet. We're constantly adding new coverage.</Alert>
+    <Modal isOpen={isOpen} onClose={onClose} title={showRequestForm ? "Request City Coverage" : "Add Operating City"}>
+      {showRequestForm ? (
+        <>
+          <p>Request permit coverage for a city not yet in our system. Our team will review your request and add the city's permit data.</p>
+          <div className="form-group">
+            <label className="form-label">State</label>
+            <p className="form-value">{state}</p>
+          </div>
+          <Input 
+            label="City Name *" 
+            value={requestCity} 
+            onChange={(e) => setRequestCity(e.target.value)} 
+            placeholder="Enter city name"
+          />
+          <div className="form-group">
+            <label className="form-label">Additional Information (optional)</label>
+            <textarea 
+              className="form-textarea"
+              value={requestReason}
+              onChange={(e) => setRequestReason(e.target.value)}
+              placeholder="Let us know any specific permits you're looking for..."
+              rows={3}
+            />
+          </div>
+          <div className="modal-actions">
+            <Button variant="outline" onClick={() => setShowRequestForm(false)}>← Back</Button>
+            <Button onClick={handleRequestCity} loading={requestSubmitting} disabled={!requestCity}>
+              Submit Request
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          {result && <Alert type="success">{result.message}</Alert>}
+          <p>Add a city where you operate. Only cities with permit data are available.</p>
+          <div className="form-row">
+            <Select 
+              label="State" 
+              value={state} 
+              onChange={(e) => setState(e.target.value)} 
+              options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} 
+            />
+            <Select 
+              label="City" 
+              value={city} 
+              onChange={(e) => setCity(e.target.value)} 
+              options={[{ value: '', label: state ? (cityOptions.length > 0 ? 'Select City' : 'No cities available') : 'Select state first' }, ...cityOptions]}
+              disabled={!state || cityOptions.length === 0}
+            />
+          </div>
+          {state && cityOptions.length === 0 && (
+            <Alert type="info">
+              No cities with permit data in {state} yet. We're constantly adding new coverage.
+              <div style={{ marginTop: '12px' }}>
+                <Button size="sm" onClick={() => setShowRequestForm(true)}>
+                  <Icons.Plus /> Request City Coverage
+                </Button>
+              </div>
+            </Alert>
+          )}
+          <div className="modal-actions">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            {state && cityOptions.length === 0 ? (
+              <Button onClick={() => setShowRequestForm(true)}>
+                Request City
+              </Button>
+            ) : (
+              <Button onClick={handleAdd} loading={loading} disabled={!city || !state}>Add City</Button>
+            )}
+          </div>
+        </>
       )}
-      <div className="modal-actions">
-        <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={handleAdd} loading={loading} disabled={!city || !state}>Add City</Button>
-      </div>
     </Modal>
   );
 };
@@ -4930,8 +5010,18 @@ const SettingsPage = () => {
   const addCity = () => setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
   const removeCity = async (i) => { 
-    if (businessData.operatingCities.length <= 1) return;
+    if (businessData.operatingCities.length <= 1) {
+      toast.error('Cannot remove the only operating city. Add another city first.');
+      return;
+    }
     const cityToRemove = businessData.operatingCities[i];
+    
+    // Check if trying to remove primary city
+    if (cityToRemove.isPrimary) {
+      toast.error('Cannot remove your primary city. Please set another city as primary first.');
+      return;
+    }
+    
     if (!cityToRemove.city) {
       // If city is empty, just remove it locally
       setBusinessData(d => ({ ...d, operatingCities: d.operatingCities.filter((_, idx) => idx !== i) }));
@@ -4946,15 +5036,19 @@ const SettingsPage = () => {
     if (!confirmed) return;
     setLoading(true);
     try {
-      // Call API to remove permits for this city
-      const result = await api.delete(`/permits/by-city?city=${encodeURIComponent(cityToRemove.city)}&state=${encodeURIComponent(cityToRemove.state)}`);
-      // Update local state
-      const newCities = businessData.operatingCities.filter((_, idx) => idx !== i);
-      setBusinessData(d => ({ ...d, operatingCities: newCities }));
-      // Save business with updated cities
-      await api.put('/business', { ...businessData, operatingCities: newCities });
-      updateBusiness({ ...business, operatingCities: newCities });
-      toast.success(`Removed ${cityToRemove.city}. ${result.removedCount || 0} permit(s) removed, ${result.documentsPreserved || 0} document(s) preserved.`);
+      // Call API to remove city and its permits
+      const result = await api.post('/permits/remove-city', { city: cityToRemove.city, state: cityToRemove.state });
+      // Update local state from API response
+      if (result.business?.operatingCities) {
+        setBusinessData(d => ({ ...d, operatingCities: result.business.operatingCities }));
+        updateBusiness({ ...business, operatingCities: result.business.operatingCities });
+      } else {
+        // Fallback to local update
+        const newCities = businessData.operatingCities.filter((_, idx) => idx !== i);
+        setBusinessData(d => ({ ...d, operatingCities: newCities }));
+        updateBusiness({ ...business, operatingCities: newCities });
+      }
+      toast.success(result.message || `Removed ${cityToRemove.city}.`);
     } catch (err) { toast.error(err.message); } 
     finally { setLoading(false); }
   };
@@ -5043,7 +5137,7 @@ const SettingsPage = () => {
               <p className="section-description">Add all the cities where you operate. We'll track permit requirements for each location.</p>
               {businessData.operatingCities.map((city, i) => (
                 <Card key={i} className="city-card">
-                  <div className="form-row">
+                  <div className="form-row city-form-row">
                     <Select label="State" value={city.state} onChange={(e) => updateCity(i, 'state', e.target.value)} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
                     <CitySearch 
                       label="City" 
@@ -5053,9 +5147,37 @@ const SettingsPage = () => {
                       placeholder="Search for your city..."
                       strictMode={true}
                     />
-                    {businessData.operatingCities.length > 1 && <button className="remove-btn" onClick={() => removeCity(i)}><Icons.Trash /></button>}
+                    {businessData.operatingCities.length > 1 && (
+                      <Button 
+                        variant="danger" 
+                        size="sm" 
+                        onClick={() => removeCity(i)}
+                        style={{ alignSelf: 'flex-end', marginBottom: '4px' }}
+                        title={city.isPrimary ? 'Cannot remove primary city' : 'Remove city'}
+                        disabled={city.isPrimary}
+                      >
+                        <Icons.Trash /> Remove
+                      </Button>
+                    )}
                   </div>
-                  <label className="checkbox-label"><input type="checkbox" checked={city.isPrimary} onChange={(e) => updateCity(i, 'isPrimary', e.target.checked)} /> Primary location</label>
+                  <label className="checkbox-label">
+                    <input 
+                      type="checkbox" 
+                      checked={city.isPrimary} 
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          // Set this city as primary and unset others
+                          const newCities = businessData.operatingCities.map((c, idx) => ({
+                            ...c,
+                            isPrimary: idx === i
+                          }));
+                          setBusinessData(d => ({ ...d, operatingCities: newCities }));
+                        }
+                      }}
+                      disabled={city.isPrimary}
+                    /> 
+                    Primary location {city.isPrimary && <Badge variant="primary" size="sm">Current</Badge>}
+                  </label>
                 </Card>
               ))}
               <Button variant="outline" onClick={addCity}><Icons.Plus /> Add City</Button>
