@@ -1508,7 +1508,7 @@ const DashboardScreen = ({ navigation }) => {
 };
 
 const PermitsScreen = ({ navigation }) => {
-  const { business, canWrite, isExpired } = useAuth();
+  const { business, canWrite, isExpired, updateBusiness } = useAuth();
   const [permits, setPermits] = useState([]); const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false);
   const [showAddCityModal, setShowAddCityModal] = useState(false);
@@ -1517,6 +1517,39 @@ const PermitsScreen = ({ navigation }) => {
   const [selectedSuggestions, setSelectedSuggestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [addingSuggestions, setAddingSuggestions] = useState(false);
+  const [removingCity, setRemovingCity] = useState(null);
+  const confirm = useConfirm();
+
+  const handleRemoveCity = async (city, state) => {
+    // Find the city to check if it's primary
+    const cityObj = business?.operatingCities?.find(c => c.city === city && c.state === state);
+    if (cityObj?.isPrimary) {
+      toast.error('Cannot remove your primary city. Please go to Settings → Cities to set another city as primary first.');
+      return;
+    }
+    
+    const confirmed = await confirm({
+      title: 'Remove City',
+      message: `Remove ${city}, ${state}?\n\nPermits for this city will be deleted. Documents will remain in your vault.`,
+      confirmText: 'Remove',
+      variant: 'danger'
+    });
+    if (!confirmed) return;
+    
+    setRemovingCity(`${city}-${state}`);
+    try {
+      const result = await api.post('/permits/remove-city', { city, state });
+      toast.success(result.message || `Removed ${city}.`);
+      // Refresh business data
+      const businessData = await api.get('/business');
+      updateBusiness(businessData.business);
+      fetchPermits();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setRemovingCity(null);
+    }
+  };
 
   const handleAddPermit = () => {
     if (!canWrite) {
@@ -1624,6 +1657,57 @@ const PermitsScreen = ({ navigation }) => {
           <View style={styles.summaryItem}><Text style={[styles.summaryCount, { color: COLORS.danger }]}>{summary.expired}</Text><Text style={styles.summaryLabel}>Expired</Text></View>
         </View>
       )}
+      
+      {/* Operating Cities Section */}
+      {business?.operatingCities?.length > 0 && (
+        <View style={{ paddingHorizontal: 16, paddingVertical: 12, backgroundColor: COLORS.gray50, borderBottomWidth: 1, borderBottomColor: COLORS.gray200 }}>
+          <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.gray600, marginBottom: 8 }}>Operating Cities</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {business.operatingCities.map((city, idx) => (
+                <View 
+                  key={idx} 
+                  style={{ 
+                    flexDirection: 'row', 
+                    alignItems: 'center', 
+                    backgroundColor: city.isPrimary ? COLORS.primaryLight : COLORS.white, 
+                    borderWidth: 1, 
+                    borderColor: city.isPrimary ? COLORS.primary : COLORS.gray200, 
+                    borderRadius: 20, 
+                    paddingLeft: 12, 
+                    paddingRight: city.isPrimary || business.operatingCities.length <= 1 ? 12 : 4,
+                    paddingVertical: 6,
+                    marginRight: 8
+                  }}
+                >
+                  <Text style={{ fontSize: 13, color: city.isPrimary ? COLORS.primary : COLORS.gray700, fontWeight: city.isPrimary ? '600' : '400' }}>
+                    {city.city}, {city.state}
+                  </Text>
+                  {city.isPrimary && (
+                    <View style={{ marginLeft: 6, backgroundColor: COLORS.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10 }}>
+                      <Text style={{ fontSize: 9, color: COLORS.white, fontWeight: '600' }}>Primary</Text>
+                    </View>
+                  )}
+                  {!city.isPrimary && business.operatingCities.length > 1 && (
+                    <TouchableOpacity 
+                      onPress={() => handleRemoveCity(city.city, city.state)}
+                      disabled={removingCity === `${city.city}-${city.state}`}
+                      style={{ marginLeft: 4, padding: 4 }}
+                    >
+                      {removingCity === `${city.city}-${city.state}` ? (
+                        <ActivityIndicator size="small" color={COLORS.gray500} />
+                      ) : (
+                        <Icons.X size={14} color={COLORS.gray500} />
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      )}
+      
       <FlatList
         data={permits}
         keyExtractor={item => item._id}
@@ -1722,10 +1806,43 @@ const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [showStatePicker, setShowStatePicker] = useState(false);
+  const [showCityPicker, setShowCityPicker] = useState(false);
+  const [jurisdictions, setJurisdictions] = useState([]);
+  const [loadingJurisdictions, setLoadingJurisdictions] = useState(false);
+  
+  // Request city form states
+  const [showRequestForm, setShowRequestForm] = useState(false);
+  const [requestCity, setRequestCity] = useState('');
+  const [requestReason, setRequestReason] = useState('');
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
+
+  // Fetch jurisdictions when state changes
+  useEffect(() => {
+    if (!state) {
+      setJurisdictions([]);
+      setCity('');
+      setShowRequestForm(false);
+      return;
+    }
+    const fetchJurisdictions = async () => {
+      setLoadingJurisdictions(true);
+      try {
+        const data = await api.get('/jurisdictions');
+        const filtered = (data.jurisdictions || []).filter(j => j.state === state);
+        setJurisdictions(filtered);
+        setCity('');
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingJurisdictions(false);
+      }
+    };
+    fetchJurisdictions();
+  }, [state]);
 
   const handleAdd = async () => {
     if (!city || !state) {
-      toast.error('Please enter city and state');
+      toast.error('Please select city and state');
       return;
     }
     setLoading(true);
@@ -1741,46 +1858,176 @@ const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
     }
   };
 
+  const handleRequestCity = async () => {
+    if (!requestCity || !state) return;
+    setRequestSubmitting(true);
+    try {
+      await api.post('/suggestions', {
+        type: 'city_request',
+        details: `New city request: ${requestCity}, ${state}`,
+        additionalInfo: requestReason
+      });
+      toast.success('City request submitted! Our team will review and add coverage soon.');
+      setShowRequestForm(false);
+      setRequestCity('');
+      setRequestReason('');
+    } catch (err) {
+      toast.error(err.message || 'Failed to submit request');
+    } finally {
+      setRequestSubmitting(false);
+    }
+  };
+
   const handleClose = () => {
     setCity('');
     setState('');
     setResult(null);
+    setShowRequestForm(false);
+    setRequestCity('');
+    setRequestReason('');
     onClose();
   };
+
+  const cityOptions = jurisdictions.map(j => ({ value: j.city || j.name, label: j.city || j.name }));
 
   return (
     <Modal visible={visible} transparent animationType="slide">
       <View style={styles.modalOverlay}>
         <View style={styles.addCityModal}>
           <View style={styles.addCityHeader}>
-            <Text style={styles.addCityTitle}>Add Operating City</Text>
+            <Text style={styles.addCityTitle}>{showRequestForm ? 'Request City Coverage' : 'Add Operating City'}</Text>
             <TouchableOpacity onPress={handleClose}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
           </View>
           
           <ScrollView style={styles.addCityContent}>
-            <Text style={styles.addCityDescription}>
-              Add a city where you operate. We'll automatically add all required permits for your business type in that location.
-            </Text>
-            
-            {result && (
-              <View style={styles.successMessage}>
-                <Icons.Check size={20} color={COLORS.success} />
-                <Text style={styles.successText}>{result.message}</Text>
-              </View>
+            {showRequestForm ? (
+              <>
+                <Text style={styles.addCityDescription}>
+                  Request permit coverage for a city not yet in our system. Our team will review and add the city's permit data.
+                </Text>
+                
+                <Text style={[styles.label, { marginTop: 16 }]}>State</Text>
+                <View style={[styles.pickerButton, { backgroundColor: COLORS.gray100 }]}>
+                  <Text style={styles.pickerButtonText}>{state}</Text>
+                </View>
+                
+                <Input 
+                  label="City Name *" 
+                  value={requestCity} 
+                  onChangeText={setRequestCity} 
+                  placeholder="Enter city name"
+                  style={{ marginTop: 12 }}
+                />
+                
+                <Text style={[styles.label, { marginTop: 12 }]}>Additional Information (optional)</Text>
+                <TextInput
+                  style={[styles.input, { height: 80, textAlignVertical: 'top', paddingTop: 12 }]}
+                  value={requestReason}
+                  onChangeText={setRequestReason}
+                  placeholder="Let us know any specific permits you're looking for..."
+                  multiline
+                />
+                
+                <View style={{ flexDirection: 'row', marginTop: 24 }}>
+                  <Button 
+                    title="← Back" 
+                    variant="outline" 
+                    onPress={() => setShowRequestForm(false)} 
+                    style={{ flex: 1, marginRight: 8 }} 
+                  />
+                  <Button 
+                    title={requestSubmitting ? 'Submitting...' : 'Submit Request'} 
+                    onPress={handleRequestCity} 
+                    loading={requestSubmitting} 
+                    disabled={!requestCity}
+                    style={{ flex: 1 }} 
+                  />
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.addCityDescription}>
+                  Add a city where you operate. Only cities with permit data are available.
+                </Text>
+                
+                {result && (
+                  <View style={styles.successMessage}>
+                    <Icons.Check size={20} color={COLORS.success} />
+                    <Text style={styles.successText}>{result.message}</Text>
+                  </View>
+                )}
+                
+                <Text style={[styles.label, { marginTop: 12 }]}>State</Text>
+                <TouchableOpacity style={styles.pickerButton} onPress={() => setShowStatePicker(true)}>
+                  <Text style={state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{state || 'Select state'}</Text>
+                </TouchableOpacity>
+                
+                <Text style={[styles.label, { marginTop: 12 }]}>City</Text>
+                <TouchableOpacity 
+                  style={[styles.pickerButton, (!state || cityOptions.length === 0) && styles.pickerButtonDisabled]} 
+                  onPress={() => state && cityOptions.length > 0 && setShowCityPicker(true)}
+                  disabled={!state || cityOptions.length === 0}
+                >
+                  <Text style={city ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
+                    {city || (state ? (loadingJurisdictions ? 'Loading...' : (cityOptions.length > 0 ? 'Select city' : 'No cities available')) : 'Select state first')}
+                  </Text>
+                </TouchableOpacity>
+                
+                {state && !loadingJurisdictions && cityOptions.length === 0 && (
+                  <View style={{ backgroundColor: COLORS.primaryLight, padding: 16, borderRadius: 12, marginTop: 16 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                      <Icons.Info size={18} color={COLORS.primary} />
+                      <Text style={{ color: COLORS.primary, fontWeight: '600', marginLeft: 8 }}>No Coverage Yet</Text>
+                    </View>
+                    <Text style={{ color: COLORS.gray700, lineHeight: 20 }}>
+                      No cities with permit data in {state} yet. We're constantly adding new coverage.
+                    </Text>
+                    <TouchableOpacity 
+                      style={{ backgroundColor: COLORS.primary, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, marginTop: 12, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center' }}
+                      onPress={() => setShowRequestForm(true)}
+                    >
+                      <Icons.Plus size={16} color={COLORS.white} />
+                      <Text style={{ color: COLORS.white, fontWeight: '600', marginLeft: 6 }}>Request City Coverage</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                
+                {state && cityOptions.length === 0 && !loadingJurisdictions ? (
+                  <Button 
+                    title="Request City" 
+                    onPress={() => setShowRequestForm(true)} 
+                    style={{ marginTop: 24 }} 
+                  />
+                ) : (
+                  <Button 
+                    title={loading ? 'Adding Permits...' : 'Add City'} 
+                    onPress={handleAdd} 
+                    loading={loading} 
+                    disabled={!city || !state} 
+                    style={{ marginTop: 24 }} 
+                  />
+                )}
+                <Button title="Cancel" variant="outline" onPress={handleClose} style={{ marginTop: 12 }} />
+              </>
             )}
-            
-            <Input label="City" value={city} onChangeText={setCity} placeholder="e.g., Austin" />
-            
-            <Text style={[styles.label, { marginTop: 12 }]}>State</Text>
-            <TouchableOpacity style={styles.pickerButton} onPress={() => setShowStatePicker(true)}>
-              <Text style={state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{state || 'Select state'}</Text>
-            </TouchableOpacity>
-            
-            <Button title={loading ? 'Adding Permits...' : 'Add City'} onPress={handleAdd} loading={loading} disabled={!city || !state} style={{ marginTop: 24 }} />
-            <Button title="Cancel" variant="outline" onPress={handleClose} style={{ marginTop: 12 }} />
           </ScrollView>
           
-          <PickerModal visible={showStatePicker} onClose={() => setShowStatePicker(false)} title="State" options={US_STATES.map(s => ({ value: s, label: s }))} value={state} onSelect={setState} />
+          <PickerModal 
+            visible={showStatePicker} 
+            onClose={() => setShowStatePicker(false)} 
+            title="State" 
+            options={US_STATES.map(s => ({ value: s, label: s }))} 
+            value={state} 
+            onSelect={(v) => { setState(v); setCity(''); }} 
+          />
+          <PickerModal 
+            visible={showCityPicker} 
+            onClose={() => setShowCityPicker(false)} 
+            title="City" 
+            options={cityOptions} 
+            value={city} 
+            onSelect={setCity} 
+          />
         </View>
       </View>
     </Modal>
@@ -2919,8 +3166,18 @@ const SettingsScreen = ({ navigation }) => {
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
   
   const removeCity = async (i) => {
-    if (businessData.operatingCities.length <= 1) return;
+    if (businessData.operatingCities.length <= 1) {
+      toast.error('Cannot remove the only operating city. Add another city first.');
+      return;
+    }
     const cityToRemove = businessData.operatingCities[i];
+    
+    // Check if trying to remove primary city
+    if (cityToRemove.isPrimary) {
+      toast.error('Cannot remove your primary city. Please set another city as primary first.');
+      return;
+    }
+    
     if (!cityToRemove.city) {
       // If city is empty, just remove it locally
       setBusinessData(d => ({ ...d, operatingCities: d.operatingCities.filter((_, idx) => idx !== i) }));
@@ -2937,15 +3194,18 @@ const SettingsScreen = ({ navigation }) => {
     
     setLoading(true);
     try {
-      // Call API to remove permits for this city
-      const result = await api.delete(`/permits/by-city?city=${encodeURIComponent(cityToRemove.city)}&state=${encodeURIComponent(cityToRemove.state)}`);
-      // Update local state
-      const newCities = businessData.operatingCities.filter((_, idx) => idx !== i);
-      setBusinessData(d => ({ ...d, operatingCities: newCities }));
-      // Save business with updated cities
-      await api.put('/business', { ...businessData, operatingCities: newCities });
-      updateBusiness({ ...business, operatingCities: newCities });
-      toast.success(`Removed ${cityToRemove.city}. ${result.removedCount || 0} permit(s) removed.`);
+      // Call API to remove city and its permits
+      const result = await api.post('/permits/remove-city', { city: cityToRemove.city, state: cityToRemove.state });
+      // Update local state from API response
+      if (result.business?.operatingCities) {
+        setBusinessData(d => ({ ...d, operatingCities: result.business.operatingCities }));
+        updateBusiness({ ...business, operatingCities: result.business.operatingCities });
+      } else {
+        const newCities = businessData.operatingCities.filter((_, idx) => idx !== i);
+        setBusinessData(d => ({ ...d, operatingCities: newCities }));
+        updateBusiness({ ...business, operatingCities: newCities });
+      }
+      toast.success(result.message || `Removed ${cityToRemove.city}.`);
     } catch (err) { toast.error(err.message); } 
     finally { setLoading(false); }
   };
@@ -3071,7 +3331,7 @@ const SettingsScreen = ({ navigation }) => {
         {activeSection === 'cities' && (
           <Card style={styles.editCard}>
             {businessData.operatingCities.map((city, i) => (
-              <View key={i} style={styles.cityRow}>
+              <View key={i} style={[styles.cityRow, { marginBottom: 16, paddingBottom: 16, borderBottomWidth: i < businessData.operatingCities.length - 1 ? 1 : 0, borderBottomColor: COLORS.gray100 }]}>
                 <View style={styles.row}>
                   <View style={styles.halfInput}>
                     <TouchableOpacity style={styles.pickerButton} onPress={() => setShowStatePicker(i)}>
@@ -3089,7 +3349,40 @@ const SettingsScreen = ({ navigation }) => {
                       </Text>
                     </TouchableOpacity>
                   </View>
-                  {businessData.operatingCities.length > 1 && <TouchableOpacity onPress={() => removeCity(i)} style={styles.removeBtn}><Icons.X size={18} color={COLORS.danger} /></TouchableOpacity>}
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <TouchableOpacity 
+                    style={{ flexDirection: 'row', alignItems: 'center' }} 
+                    onPress={() => {
+                      if (!city.isPrimary) {
+                        // Set this city as primary and unset others
+                        const newCities = businessData.operatingCities.map((c, idx) => ({
+                          ...c,
+                          isPrimary: idx === i
+                        }));
+                        setBusinessData(d => ({ ...d, operatingCities: newCities }));
+                      }
+                    }}
+                  >
+                    <View style={[
+                      { width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: city.isPrimary ? COLORS.primary : COLORS.gray300, marginRight: 8, justifyContent: 'center', alignItems: 'center' },
+                      city.isPrimary && { backgroundColor: COLORS.primary }
+                    ]}>
+                      {city.isPrimary && <Icons.Check size={14} color={COLORS.white} />}
+                    </View>
+                    <Text style={{ color: COLORS.gray700 }}>Primary location</Text>
+                    {city.isPrimary && <View style={{ marginLeft: 8, backgroundColor: COLORS.primaryLight, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}><Text style={{ fontSize: 10, color: COLORS.primary, fontWeight: '600' }}>Current</Text></View>}
+                  </TouchableOpacity>
+                  {businessData.operatingCities.length > 1 && (
+                    <TouchableOpacity 
+                      onPress={() => removeCity(i)} 
+                      style={[styles.removeBtn, city.isPrimary && { opacity: 0.4 }]}
+                      disabled={city.isPrimary}
+                    >
+                      <Icons.Trash size={16} color={COLORS.danger} />
+                      <Text style={{ color: COLORS.danger, fontSize: 12, marginLeft: 4 }}>Remove</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             ))}
