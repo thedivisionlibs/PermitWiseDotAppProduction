@@ -2471,6 +2471,15 @@ const EventsPage = () => {
   const [withdrawReason, setWithdrawReason] = useState('');
   const [withdrawing, setWithdrawing] = useState(false);
   
+  // Attending events state (self-tracked)
+  const [attendingEvents, setAttendingEvents] = useState([]);
+  const [showAddAttendingModal, setShowAddAttendingModal] = useState(false);
+  const [editingAttendingEvent, setEditingAttendingEvent] = useState(null);
+  const [attendingForm, setAttendingForm] = useState({ eventName: '', organizerName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', venueName: '', eventType: 'other', notes: '', requiredPermits: [], complianceChecklist: [] });
+  const [newPermitName, setNewPermitName] = useState('');
+  const [newChecklistItem, setNewChecklistItem] = useState('');
+  const [selectedAttendingEvent, setSelectedAttendingEvent] = useState(null);
+  
   // Registered vendors list (for organizer invites)
   const [registeredVendors, setRegisteredVendors] = useState([]);
   const [selectedVendorId, setSelectedVendorId] = useState('');
@@ -2505,12 +2514,14 @@ const EventsPage = () => {
   // Fetch vendor data
   const fetchVendorData = async () => {
     try {
-      const [myData, pubData] = await Promise.all([
+      const [myData, pubData, attData] = await Promise.all([
         api.get('/events/my-events'),
-        api.get('/events/published')
+        api.get('/events/published'),
+        api.get('/attending-events')
       ]);
       setEvents(myData.events || []);
       setPublishedEvents(pubData.events || []);
+      setAttendingEvents(attData.attendingEvents || []);
     } catch (error) { 
       console.error('Error fetching vendor data:', error); 
     }
@@ -4034,6 +4045,106 @@ const EventsPage = () => {
     return <Icons.Clock />;
   };
 
+  // ====== ATTENDING EVENT FUNCTIONS ======
+  const resetAttendingForm = () => {
+    setAttendingForm({ eventName: '', organizerName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', venueName: '', eventType: 'other', notes: '', requiredPermits: [], complianceChecklist: [] });
+    setNewPermitName('');
+    setNewChecklistItem('');
+    setEditingAttendingEvent(null);
+  };
+
+  const openAddAttendingModal = () => {
+    resetAttendingForm();
+    setShowAddAttendingModal(true);
+  };
+
+  const openEditAttendingModal = (ae) => {
+    setEditingAttendingEvent(ae);
+    setAttendingForm({
+      eventName: ae.eventName || '', organizerName: ae.organizerName || '', description: ae.description || '',
+      startDate: ae.startDate ? new Date(ae.startDate).toISOString().split('T')[0] : '',
+      endDate: ae.endDate ? new Date(ae.endDate).toISOString().split('T')[0] : '',
+      city: ae.location?.city || '', state: ae.location?.state || '', address: ae.location?.address || '',
+      venueName: ae.location?.venueName || '', eventType: ae.eventType || 'other', notes: ae.notes || '',
+      requiredPermits: ae.requiredPermits || [], complianceChecklist: ae.complianceChecklist || []
+    });
+    setShowAddAttendingModal(true);
+  };
+
+  const addPermitToForm = () => {
+    if (!newPermitName.trim()) return;
+    setAttendingForm(f => ({ ...f, requiredPermits: [...f.requiredPermits, { name: newPermitName.trim(), status: 'needed', notes: '' }] }));
+    setNewPermitName('');
+  };
+
+  const removePermitFromForm = (index) => {
+    setAttendingForm(f => ({ ...f, requiredPermits: f.requiredPermits.filter((_, i) => i !== index) }));
+  };
+
+  const addChecklistItemToForm = () => {
+    if (!newChecklistItem.trim()) return;
+    setAttendingForm(f => ({ ...f, complianceChecklist: [...f.complianceChecklist, { item: newChecklistItem.trim(), completed: false }] }));
+    setNewChecklistItem('');
+  };
+
+  const removeChecklistItemFromForm = (index) => {
+    setAttendingForm(f => ({ ...f, complianceChecklist: f.complianceChecklist.filter((_, i) => i !== index) }));
+  };
+
+  const saveAttendingEvent = async () => {
+    try {
+      const payload = {
+        eventName: attendingForm.eventName,
+        organizerName: attendingForm.organizerName,
+        description: attendingForm.description,
+        location: { city: attendingForm.city, state: attendingForm.state, address: attendingForm.address, venueName: attendingForm.venueName },
+        startDate: attendingForm.startDate, endDate: attendingForm.endDate || undefined,
+        eventType: attendingForm.eventType, notes: attendingForm.notes,
+        requiredPermits: attendingForm.requiredPermits,
+        complianceChecklist: attendingForm.complianceChecklist
+      };
+      if (editingAttendingEvent) {
+        await api.put(`/attending-events/${editingAttendingEvent._id}`, payload);
+        toast.success('Event updated');
+      } else {
+        await api.post('/attending-events', payload);
+        toast.success('Event added to your readiness tracker');
+      }
+      setShowAddAttendingModal(false);
+      resetAttendingForm();
+      fetchVendorData();
+    } catch (error) { toast.error(error.response?.data?.error || 'Failed to save event'); }
+  };
+
+  const deleteAttendingEvent = async (id) => {
+    const ok = await confirm('Delete this event from your tracker?');
+    if (!ok) return;
+    try {
+      await api.delete(`/attending-events/${id}`);
+      toast.success('Event removed');
+      fetchVendorData();
+      setSelectedAttendingEvent(null);
+    } catch (error) { toast.error('Failed to delete'); }
+  };
+
+  const updateAttendingPermitStatus = async (eventId, permitIndex, status) => {
+    try {
+      await api.put(`/attending-events/${eventId}/permit/${permitIndex}`, { status });
+      fetchVendorData();
+    } catch (error) { toast.error('Failed to update'); }
+  };
+
+  const updateAttendingChecklistItem = async (eventId, checkIndex, completed) => {
+    try {
+      await api.put(`/attending-events/${eventId}/checklist/${checkIndex}`, { completed });
+      fetchVendorData();
+    } catch (error) { toast.error('Failed to update'); }
+  };
+
+  // Separate attending events by status
+  const upcomingAttendingEvents = attendingEvents.filter(ae => ae.status === 'upcoming' && new Date(ae.endDate || ae.startDate) >= new Date());
+  const pastAttendingEvents = attendingEvents.filter(ae => ae.status !== 'upcoming' || new Date(ae.endDate || ae.startDate) < new Date());
+
   // Separate events by source
   const organizerInvitations = events.filter(e => e.eventSource === 'organizer_invitation' && e.status !== 'closed' && e.status !== 'cancelled');
   const marketplaceEvents = events.filter(e => (e.eventSource === 'admin_added' || e.eventSource === 'vendor_application') && e.status !== 'closed' && e.status !== 'cancelled');
@@ -4119,9 +4230,65 @@ const EventsPage = () => {
           <h1>Event Readiness</h1>
           <p>Your compliance status for events</p>
         </div>
-        <Button variant="outline" onClick={() => setShowRequestModal(true)}>
-          <Icons.Plus /> Request Event
-        </Button>
+        <div className="page-header-actions">
+          <Button variant="primary" onClick={openAddAttendingModal}>
+            <Icons.Plus /> Add Attending Event
+          </Button>
+          <Button variant="outline" onClick={() => setShowRequestModal(true)}>
+            <Icons.Plus /> Request Event
+          </Button>
+        </div>
+      </div>
+      
+      {/* Event Readiness Section - Self-tracked attending events */}
+      <div className="events-section attending-events-section">
+        <div className="events-section-header">
+          <h2>📋 Event Readiness <span className="section-count">{upcomingAttendingEvents.length}</span></h2>
+          <p className="section-description">Events you're attending — track your permit and compliance readiness</p>
+        </div>
+        {upcomingAttendingEvents.length > 0 ? (
+          <div className="events-readiness-list">
+            {upcomingAttendingEvents.map(ae => (
+              <Card key={ae._id} className={`readiness-card attending-card ${ae.readinessStatus}`}>
+                <div className="readiness-header">
+                  <div className="event-date-badge attending">
+                    <span className="month">{new Date(ae.startDate).toLocaleDateString('en-US', { month: 'short' })}</span>
+                    <span className="day">{new Date(ae.startDate).getDate()}</span>
+                  </div>
+                  <div className="readiness-info">
+                    <h3>{ae.eventName}</h3>
+                    {ae.organizerName && <p className="organizer">by {ae.organizerName}</p>}
+                    {ae.location?.city && <p className="location"><Icons.MapPin /> {ae.location.city}{ae.location.state ? `, ${ae.location.state}` : ''}</p>}
+                  </div>
+                  <Badge variant={ae.readinessColor === 'success' ? 'success' : ae.readinessColor === 'warning' ? 'warning' : 'danger'}>
+                    {ae.readinessStatus === 'ready' ? 'Ready' : ae.readinessStatus === 'no_requirements' ? 'No Items' : ae.readinessStatus === 'permits_needed' ? 'Permits Needed' : 'In Progress'}
+                  </Badge>
+                </div>
+                
+                {ae.totalItems > 0 && (
+                  <div className="readiness-progress">
+                    <div className="progress-bar">
+                      <div className="progress-fill" style={{ width: `${(ae.completedItems / ae.totalItems) * 100}%` }}></div>
+                    </div>
+                    <span className="progress-text">{ae.completedItems}/{ae.totalItems} items complete</span>
+                  </div>
+                )}
+                
+                <div className="event-card-actions">
+                  <Button variant="outline" size="sm" onClick={() => setSelectedAttendingEvent(ae)}>View / Manage</Button>
+                  <Button variant="outline" size="sm" onClick={() => openEditAttendingModal(ae)}>Edit</Button>
+                  <Button variant="ghost" size="sm" className="delete-btn" onClick={() => deleteAttendingEvent(ae._id)}>
+                    <Icons.Trash />
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="section-empty">
+            <p>No upcoming events tracked. Click "Add Attending Event" to track an event you'll be attending and monitor your permit readiness.</p>
+          </div>
+        )}
       </div>
       
       {/* Organizer Invitations Section - Always show */}
@@ -4464,6 +4631,115 @@ const EventsPage = () => {
           <Button variant="outline" onClick={() => setShowLocationRequestModal(false)}>Cancel</Button>
           <Button onClick={submitLocationRequest} loading={locationRequestSubmitting} disabled={!locationRequest.city || !locationRequest.state}>Submit Request</Button>
         </div>
+      </Modal>
+      
+      {/* Add/Edit Attending Event Modal */}
+      <Modal isOpen={showAddAttendingModal} onClose={() => { setShowAddAttendingModal(false); resetAttendingForm(); }} title={editingAttendingEvent ? 'Edit Attending Event' : 'Add Attending Event'}>
+        <p className="modal-intro">Track an event you plan to attend and monitor your permit/compliance readiness.</p>
+        <Input label="Event Name *" placeholder="Downtown Food Festival" value={attendingForm.eventName} onChange={(e) => setAttendingForm(f => ({ ...f, eventName: e.target.value }))} />
+        <Input label="Organizer Name" placeholder="City Events Dept" value={attendingForm.organizerName} onChange={(e) => setAttendingForm(f => ({ ...f, organizerName: e.target.value }))} />
+        <Input label="Venue Name" placeholder="Main Street Plaza" value={attendingForm.venueName} onChange={(e) => setAttendingForm(f => ({ ...f, venueName: e.target.value }))} />
+        <div className="form-row">
+          <Input label="City" placeholder="Austin" value={attendingForm.city} onChange={(e) => setAttendingForm(f => ({ ...f, city: e.target.value }))} />
+          <Select label="State" value={attendingForm.state} onChange={(e) => setAttendingForm(f => ({ ...f, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+        </div>
+        <Input label="Address" placeholder="123 Main St" value={attendingForm.address} onChange={(e) => setAttendingForm(f => ({ ...f, address: e.target.value }))} />
+        <div className="form-row">
+          <Input label="Start Date *" type="date" value={attendingForm.startDate} onChange={(e) => setAttendingForm(f => ({ ...f, startDate: e.target.value }))} />
+          <Input label="End Date" type="date" value={attendingForm.endDate} onChange={(e) => setAttendingForm(f => ({ ...f, endDate: e.target.value }))} />
+        </div>
+        <Select label="Event Type" value={attendingForm.eventType} onChange={(e) => setAttendingForm(f => ({ ...f, eventType: e.target.value }))} options={[
+          { value: 'farmers_market', label: "Farmer's Market" }, { value: 'festival', label: 'Festival' }, { value: 'fair', label: 'Fair' }, { value: 'craft_show', label: 'Craft Show' },
+          { value: 'food_event', label: 'Food Event' }, { value: 'night_market', label: 'Night Market' }, { value: 'other', label: 'Other' }
+        ]} />
+        <Input label="Notes" placeholder="Any notes about this event..." value={attendingForm.notes} onChange={(e) => setAttendingForm(f => ({ ...f, notes: e.target.value }))} />
+        
+        <div className="form-section-title" style={{ marginTop: '16px' }}>Required Permits</div>
+        <p className="form-hint">Add permits you need for this event to track your readiness</p>
+        {attendingForm.requiredPermits.map((p, i) => (
+          <div key={i} className="inline-list-item">
+            <span>{p.name}</span>
+            <button className="remove-btn" onClick={() => removePermitFromForm(i)}>×</button>
+          </div>
+        ))}
+        <div className="inline-add-row">
+          <Input placeholder="e.g. Food Handler's Permit" value={newPermitName} onChange={(e) => setNewPermitName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addPermitToForm()} />
+          <Button variant="outline" size="sm" onClick={addPermitToForm} disabled={!newPermitName.trim()}>Add</Button>
+        </div>
+        
+        <div className="form-section-title" style={{ marginTop: '16px' }}>Compliance Checklist</div>
+        <p className="form-hint">Add items you need to complete before this event</p>
+        {attendingForm.complianceChecklist.map((c, i) => (
+          <div key={i} className="inline-list-item">
+            <span>{c.item}</span>
+            <button className="remove-btn" onClick={() => removeChecklistItemFromForm(i)}>×</button>
+          </div>
+        ))}
+        <div className="inline-add-row">
+          <Input placeholder="e.g. Print business license copy" value={newChecklistItem} onChange={(e) => setNewChecklistItem(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addChecklistItemToForm()} />
+          <Button variant="outline" size="sm" onClick={addChecklistItemToForm} disabled={!newChecklistItem.trim()}>Add</Button>
+        </div>
+        
+        <div className="modal-actions">
+          <Button variant="outline" onClick={() => { setShowAddAttendingModal(false); resetAttendingForm(); }}>Cancel</Button>
+          <Button onClick={saveAttendingEvent} disabled={!attendingForm.eventName || !attendingForm.startDate}>{editingAttendingEvent ? 'Save Changes' : 'Add Event'}</Button>
+        </div>
+      </Modal>
+      
+      {/* Attending Event Detail Modal */}
+      <Modal isOpen={!!selectedAttendingEvent} onClose={() => setSelectedAttendingEvent(null)} title={selectedAttendingEvent?.eventName} size="lg">
+        {selectedAttendingEvent && (
+          <div className="attending-event-detail">
+            <div className="event-detail-section">
+              <h4>Event Information</h4>
+              <div className="event-info-grid">
+                <div className="info-item"><span className="info-label">Date</span><span className="info-value">{formatDate(selectedAttendingEvent.startDate)}{selectedAttendingEvent.endDate ? ` - ${formatDate(selectedAttendingEvent.endDate)}` : ''}</span></div>
+                {selectedAttendingEvent.location?.city && <div className="info-item"><span className="info-label">Location</span><span className="info-value">{selectedAttendingEvent.location.venueName ? `${selectedAttendingEvent.location.venueName}, ` : ''}{selectedAttendingEvent.location.city}{selectedAttendingEvent.location.state ? `, ${selectedAttendingEvent.location.state}` : ''}</span></div>}
+                {selectedAttendingEvent.organizerName && <div className="info-item"><span className="info-label">Organizer</span><span className="info-value">{selectedAttendingEvent.organizerName}</span></div>}
+                {selectedAttendingEvent.notes && <div className="info-item full-width"><span className="info-label">Notes</span><span className="info-value">{selectedAttendingEvent.notes}</span></div>}
+              </div>
+            </div>
+            
+            {selectedAttendingEvent.requiredPermits?.length > 0 && (
+              <div className="event-detail-section">
+                <h4>Required Permits ({selectedAttendingEvent.completedPermits}/{selectedAttendingEvent.requiredPermits.length})</h4>
+                <div className="attending-permits-list">
+                  {selectedAttendingEvent.requiredPermits.map((p, i) => (
+                    <div key={i} className={`attending-permit-item ${p.status}`}>
+                      <div className="attending-permit-info">
+                        <span className="attending-permit-name">{p.name}</span>
+                        {p.linkedPermitStatus && <span className="linked-status">System: {p.linkedPermitStatus}</span>}
+                      </div>
+                      <Select value={p.status} onChange={(e) => updateAttendingPermitStatus(selectedAttendingEvent._id, i, e.target.value)} options={[
+                        { value: 'needed', label: '❌ Needed' }, { value: 'in_progress', label: '🔄 In Progress' },
+                        { value: 'obtained', label: '✅ Obtained' }, { value: 'not_applicable', label: '➖ N/A' }
+                      ]} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {selectedAttendingEvent.complianceChecklist?.length > 0 && (
+              <div className="event-detail-section">
+                <h4>Compliance Checklist ({selectedAttendingEvent.completedChecklist}/{selectedAttendingEvent.complianceChecklist.length})</h4>
+                <div className="attending-checklist">
+                  {selectedAttendingEvent.complianceChecklist.map((c, i) => (
+                    <label key={i} className={`checklist-item ${c.completed ? 'completed' : ''}`}>
+                      <input type="checkbox" checked={c.completed} onChange={(e) => updateAttendingChecklistItem(selectedAttendingEvent._id, i, e.target.checked)} />
+                      <span>{c.item}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            <div className="modal-actions">
+              <Button variant="outline" onClick={() => openEditAttendingModal(selectedAttendingEvent)}>Edit Event</Button>
+              <Button variant="ghost" className="delete-btn" onClick={() => deleteAttendingEvent(selectedAttendingEvent._id)}>Delete</Button>
+            </div>
+          </div>
+        )}
       </Modal>
       
       {/* Upgrade Modal for expired subscriptions */}
