@@ -525,12 +525,13 @@ const Select = ({ label, options, error, ...props }) => (
   </div>
 );
 
-const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for your city...', strictMode = false }) => {
+const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for your city...', strictMode = false, allowCustom = false }) => {
   const [searchTerm, setSearchTerm] = useState(value || '');
   const [results, setResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isValidSelection, setIsValidSelection] = useState(!!value);
+  const [isCustomCity, setIsCustomCity] = useState(false);
   const searchTimeout = useRef(null);
   const wrapperRef = useRef(null);
 
@@ -539,8 +540,8 @@ const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for y
     const handleClickOutside = (e) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
         setShowDropdown(false);
-        // In strict mode, clear invalid entries when clicking outside
-        if (strictMode && !isValidSelection) {
+        // In strict mode without allowCustom, clear invalid entries when clicking outside
+        if (strictMode && !allowCustom && !isValidSelection) {
           setSearchTerm('');
           onChange('');
         }
@@ -548,7 +549,7 @@ const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for y
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [strictMode, isValidSelection, onChange]);
+  }, [strictMode, allowCustom, isValidSelection, onChange]);
 
   // Update search term when value prop changes
   useEffect(() => {
@@ -576,6 +577,7 @@ const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for y
     const term = e.target.value;
     setSearchTerm(term);
     setIsValidSelection(false);
+    setIsCustomCity(false);
     // In strict mode, don't update parent until a valid selection is made
     if (!strictMode) {
       onChange(term);
@@ -591,7 +593,16 @@ const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for y
     const cityName = jurisdiction.city || jurisdiction.name;
     setSearchTerm(cityName);
     setIsValidSelection(true);
+    setIsCustomCity(false);
     onChange(cityName);
+    setShowDropdown(false);
+    setResults([]);
+  };
+
+  const handleUseCustomCity = () => {
+    setIsValidSelection(true);
+    setIsCustomCity(true);
+    onChange(searchTerm);
     setShowDropdown(false);
     setResults([]);
   };
@@ -600,14 +611,14 @@ const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for y
     <div className="form-group city-search-wrapper" ref={wrapperRef}>
       {label && <label className="form-label">{label}</label>}
       <input
-        className={`form-input ${strictMode && searchTerm && !isValidSelection ? 'input-warning' : ''}`}
+        className={`form-input ${strictMode && searchTerm && !isValidSelection ? 'input-warning' : ''} ${isCustomCity ? 'input-custom' : ''}`}
         placeholder={state ? placeholder : 'Select a state first'}
         value={searchTerm}
         onChange={handleInputChange}
         onFocus={() => state && searchTerm.length >= 2 && setShowDropdown(true)}
         disabled={!state}
       />
-      {showDropdown && (results.length > 0 || loading) && (
+      {showDropdown && (results.length > 0 || loading || (searchTerm.length >= 2 && allowCustom)) && (
         <div className="city-search-dropdown">
           {loading && <div className="city-search-loading">Searching...</div>}
           {!loading && results.length > 0 && results.map(j => (
@@ -616,14 +627,25 @@ const CitySearch = ({ label, state, value, onChange, placeholder = 'Search for y
               <span className="city-type">{j.type}</span>
             </div>
           ))}
-          {!loading && results.length === 0 && searchTerm.length >= 2 && (
+          {!loading && results.length === 0 && searchTerm.length >= 2 && !allowCustom && (
             <div className="city-search-empty">
               {strictMode ? 'No cities found. Please select from the available options.' : `No matches found. You can still enter "${searchTerm}" manually.`}
             </div>
           )}
+          {!loading && searchTerm.length >= 2 && allowCustom && (
+            <div className="city-search-custom-option" onClick={handleUseCustomCity}>
+              <span className="custom-icon">➕</span>
+              <span>Use "{searchTerm}" (manual tracking)</span>
+            </div>
+          )}
         </div>
       )}
-      {strictMode && searchTerm && !isValidSelection && (
+      {isCustomCity && (
+        <span className="form-hint form-hint-info">
+          <Icons.Info /> This city doesn't have permit data. You can track permits manually.
+        </span>
+      )}
+      {strictMode && !allowCustom && searchTerm && !isValidSelection && (
         <span className="form-hint form-hint-warning">Please select a city from the dropdown</span>
       )}
       {!state && <span className="form-hint">Please select a state first</span>}
@@ -1701,20 +1723,19 @@ const PermitsPage = () => {
 const AddCityModal = ({ isOpen, onClose, onSuccess, toast }) => {
   const [state, setState] = useState('');
   const [city, setCity] = useState('');
+  const [customCity, setCustomCity] = useState('');
   const [jurisdictions, setJurisdictions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
-  const [showRequestForm, setShowRequestForm] = useState(false);
-  const [requestCity, setRequestCity] = useState('');
-  const [requestReason, setRequestReason] = useState('');
-  const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [showCustomEntry, setShowCustomEntry] = useState(false);
   
   // Fetch jurisdictions when state changes
   useEffect(() => {
     if (!state) {
       setJurisdictions([]);
       setCity('');
-      setShowRequestForm(false);
+      setCustomCity('');
+      setShowCustomEntry(false);
       return;
     }
     const fetchJurisdictions = async () => {
@@ -1723,6 +1744,7 @@ const AddCityModal = ({ isOpen, onClose, onSuccess, toast }) => {
         const filtered = (data.jurisdictions || []).filter(j => j.state === state);
         setJurisdictions(filtered);
         setCity('');
+        setCustomCity('');
       } catch (err) {
         console.error(err);
       }
@@ -1731,9 +1753,12 @@ const AddCityModal = ({ isOpen, onClose, onSuccess, toast }) => {
   }, [state]);
   
   const handleAdd = async () => {
+    const cityToAdd = showCustomEntry ? customCity : city;
+    if (!cityToAdd || !state) return;
+    
     setLoading(true);
     try {
-      const data = await api.post('/permits/add-city', { city, state });
+      const data = await api.post('/permits/add-city', { city: cityToAdd, state });
       setResult(data);
       onSuccess();
     } catch (err) {
@@ -1743,101 +1768,83 @@ const AddCityModal = ({ isOpen, onClose, onSuccess, toast }) => {
     }
   };
   
-  const handleRequestCity = async () => {
-    if (!requestCity || !state) return;
-    setRequestSubmitting(true);
-    try {
-      await api.post('/suggestions', {
-        type: 'city_request',
-        details: `New city request: ${requestCity}, ${state}`,
-        additionalInfo: requestReason
-      });
-      toast?.success('City request submitted! Our team will review and add coverage soon.');
-      setShowRequestForm(false);
-      setRequestCity('');
-      setRequestReason('');
-    } catch (err) {
-      toast?.error(err.message || 'Failed to submit request');
-    } finally {
-      setRequestSubmitting(false);
+  const cityOptions = jurisdictions.map(j => ({ value: j.city || j.name, label: j.city || j.name }));
+  
+  const handleCityChange = (e) => {
+    const val = e.target.value;
+    if (val === '__custom__') {
+      setShowCustomEntry(true);
+      setCity('');
+    } else {
+      setCity(val);
+      setShowCustomEntry(false);
+      setCustomCity('');
     }
   };
   
-  const cityOptions = jurisdictions.map(j => ({ value: j.city || j.name, label: j.city || j.name }));
+  const handleClose = () => {
+    setState('');
+    setCity('');
+    setCustomCity('');
+    setShowCustomEntry(false);
+    setResult(null);
+    onClose();
+  };
   
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={showRequestForm ? "Request City Coverage" : "Add Operating City"}>
-      {showRequestForm ? (
-        <>
-          <p>Request permit coverage for a city not yet in our system. Our team will review your request and add the city's permit data.</p>
-          <div className="form-group">
-            <label className="form-label">State</label>
-            <p className="form-value">{state}</p>
-          </div>
+    <Modal isOpen={isOpen} onClose={handleClose} title="Add Operating City">
+      {result && <Alert type="success">{result.message}</Alert>}
+      <p>Add a city where you operate. Select from cities with permit data, or add a custom city for manual tracking.</p>
+      <div className="form-row">
+        <Select 
+          label="State" 
+          value={state} 
+          onChange={(e) => setState(e.target.value)} 
+          options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} 
+        />
+        <Select 
+          label="City" 
+          value={showCustomEntry ? '__custom__' : city} 
+          onChange={handleCityChange} 
+          options={[
+            { value: '', label: state ? 'Select City' : 'Select state first' },
+            ...cityOptions,
+            ...(state ? [{ value: '__custom__', label: '➕ Add Other City...' }] : [])
+          ]}
+          disabled={!state}
+        />
+      </div>
+      
+      {showCustomEntry && (
+        <div className="custom-city-entry">
           <Input 
-            label="City Name *" 
-            value={requestCity} 
-            onChange={(e) => setRequestCity(e.target.value)} 
+            label="City Name" 
+            value={customCity} 
+            onChange={(e) => setCustomCity(e.target.value)} 
             placeholder="Enter city name"
           />
-          <div className="form-group">
-            <label className="form-label">Additional Information (optional)</label>
-            <textarea 
-              className="form-textarea"
-              value={requestReason}
-              onChange={(e) => setRequestReason(e.target.value)}
-              placeholder="Let us know any specific permits you're looking for..."
-              rows={3}
-            />
-          </div>
-          <div className="modal-actions">
-            <Button variant="outline" onClick={() => setShowRequestForm(false)}>← Back</Button>
-            <Button onClick={handleRequestCity} loading={requestSubmitting} disabled={!requestCity}>
-              Submit Request
-            </Button>
-          </div>
-        </>
-      ) : (
-        <>
-          {result && <Alert type="success">{result.message}</Alert>}
-          <p>Add a city where you operate. Only cities with permit data are available.</p>
-          <div className="form-row">
-            <Select 
-              label="State" 
-              value={state} 
-              onChange={(e) => setState(e.target.value)} 
-              options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} 
-            />
-            <Select 
-              label="City" 
-              value={city} 
-              onChange={(e) => setCity(e.target.value)} 
-              options={[{ value: '', label: state ? (cityOptions.length > 0 ? 'Select City' : 'No cities available') : 'Select state first' }, ...cityOptions]}
-              disabled={!state || cityOptions.length === 0}
-            />
-          </div>
-          {state && cityOptions.length === 0 && (
-            <Alert type="info">
-              No cities with permit data in {state} yet. We're constantly adding new coverage.
-              <div style={{ marginTop: '12px' }}>
-                <Button size="sm" onClick={() => setShowRequestForm(true)}>
-                  <Icons.Plus /> Request City Coverage
-                </Button>
-              </div>
-            </Alert>
-          )}
-          <div className="modal-actions">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            {state && cityOptions.length === 0 ? (
-              <Button onClick={() => setShowRequestForm(true)}>
-                Request City
-              </Button>
-            ) : (
-              <Button onClick={handleAdd} loading={loading} disabled={!city || !state}>Add City</Button>
-            )}
-          </div>
-        </>
+          <p className="form-hint">
+            <Icons.Info /> This city doesn't have permit data yet. You can still add it and track permits manually.
+          </p>
+        </div>
       )}
+      
+      {state && cityOptions.length === 0 && !showCustomEntry && (
+        <Alert type="info">
+          No cities with permit data in {state} yet. Select "Add Other City" to add a city for manual tracking.
+        </Alert>
+      )}
+      
+      <div className="modal-actions">
+        <Button variant="outline" onClick={handleClose}>Cancel</Button>
+        <Button 
+          onClick={handleAdd} 
+          loading={loading} 
+          disabled={!state || (!city && !customCity)}
+        >
+          Add City
+        </Button>
+      </div>
     </Modal>
   );
 };
@@ -2631,10 +2638,15 @@ const EventsPage = () => {
   // Organizer functions
   const createOrganizerEvent = async () => {
     try {
+      // Handle custom city
+      const cityToUse = newOrgEvent.city === '__custom__' ? newOrgEvent.customCity : newOrgEvent.city;
+      
       const eventData = {
         ...newOrgEvent,
-        location: { city: newOrgEvent.city, state: newOrgEvent.state, address: newOrgEvent.address }
+        location: { city: cityToUse, state: newOrgEvent.state, address: newOrgEvent.address }
       };
+      delete eventData.customCity; // Remove temporary field
+      
       const response = await api.post('/events/organizer/create', eventData);
       const createdEvent = response.event;
       
@@ -2656,7 +2668,7 @@ const EventsPage = () => {
       
       const orgData = await api.get('/events/organizer/my-events');
       setOrganizerEvents(orgData.events || []);
-      setNewOrgEvent({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', eventType: 'food_event', maxVendors: '', applicationDeadline: '', feeStructure: { applicationFee: 0, boothFee: 0, electricityFee: 0, description: '' }, requiredPermitTypes: [], customPermitRequirements: [], status: 'draft' });
+      setNewOrgEvent({ eventName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', eventType: 'food_event', maxVendors: '', applicationDeadline: '', feeStructure: { applicationFee: 0, boothFee: 0, electricityFee: 0, description: '' }, requiredPermitTypes: [], customPermitRequirements: [], status: 'draft', customCity: '' });
       setEventProofFiles([]);
       setSelectedPreviousProofs([]);
       setOrganizerTab('my-events');
@@ -2827,13 +2839,16 @@ const EventsPage = () => {
   const saveEditedEvent = async () => {
     if (!editingEvent) return;
     try {
+      // Handle custom city
+      const cityToUse = editingEvent.city === '__custom__' ? editingEvent.customCity : editingEvent.city;
+      
       const eventData = {
         eventName: editingEvent.eventName,
         description: editingEvent.description,
         startDate: editingEvent.startDate,
         endDate: editingEvent.endDate,
         applicationDeadline: editingEvent.applicationDeadline,
-        location: { city: editingEvent.city, state: editingEvent.state, address: editingEvent.address },
+        location: { city: cityToUse, state: editingEvent.state, address: editingEvent.address },
         eventType: editingEvent.eventType,
         maxVendors: editingEvent.maxVendors,
         status: editingEvent.status,
@@ -3290,9 +3305,26 @@ const EventsPage = () => {
                 <DateInput label="Application Deadline" value={newOrgEvent.applicationDeadline} onChange={(e) => setNewOrgEvent(ev => ({ ...ev, applicationDeadline: e.target.value }))} />
               </div>
               <div className="form-row">
-                <Select label="State *" value={newOrgEvent.state} onChange={(e) => handleEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...[...new Set(jurisdictions.map(j => j.state))].sort().map(s => ({ value: s, label: s }))]} />
-                <Select label="City *" value={newOrgEvent.city} onChange={(e) => handleEventCityChange(e.target.value)} options={[{ value: '', label: newOrgEvent.state ? 'Select City' : 'Select state first' }, ...getAvailableCities(newOrgEvent.state).map(c => ({ value: c, label: c }))]} disabled={!newOrgEvent.state} />
+                <Select label="State *" value={newOrgEvent.state} onChange={(e) => handleEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+                <Select label="City *" value={newOrgEvent.city} onChange={(e) => handleEventCityChange(e.target.value)} options={[
+                  { value: '', label: newOrgEvent.state ? 'Select City' : 'Select state first' }, 
+                  ...getAvailableCities(newOrgEvent.state).map(c => ({ value: c, label: c })),
+                  ...(newOrgEvent.state ? [{ value: '__custom__', label: '➕ Add Other City...' }] : [])
+                ]} disabled={!newOrgEvent.state} />
               </div>
+              {newOrgEvent.city === '__custom__' && (
+                <div className="custom-city-entry">
+                  <Input 
+                    label="City Name *" 
+                    value={newOrgEvent.customCity || ''} 
+                    onChange={(e) => setNewOrgEvent(ev => ({ ...ev, customCity: e.target.value }))}
+                    placeholder="Enter city name"
+                  />
+                  <p className="form-hint">
+                    <Icons.Info /> This city doesn't have permit data yet. You can still create the event and manage permit requirements manually.
+                  </p>
+                </div>
+              )}
               <div className="location-request-link">
                 <button type="button" className="text-link" onClick={() => setShowLocationRequestModal(true)}>
                   Location not listed? Request a new location
@@ -3503,7 +3535,7 @@ const EventsPage = () => {
             </div>
             
             <div className="form-actions">
-              <Button onClick={createOrganizerEvent} disabled={!newOrgEvent.eventName || !newOrgEvent.startDate || !newOrgEvent.city || !newOrgEvent.state}>
+              <Button onClick={createOrganizerEvent} disabled={!newOrgEvent.eventName || !newOrgEvent.startDate || !newOrgEvent.state || (!newOrgEvent.city || (newOrgEvent.city === '__custom__' && !newOrgEvent.customCity))}>
                 Create Event
               </Button>
             </div>
@@ -3724,8 +3756,25 @@ const EventsPage = () => {
                 )}
                 {editingEvent.status !== 'published' && (
                   <div className="form-row">
-                    <Select label="State *" value={editingEvent.state} onChange={(e) => handleEditEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...[...new Set(jurisdictions.map(j => j.state))].sort().map(s => ({ value: s, label: s }))]} />
-                    <Select label="City *" value={editingEvent.city} onChange={(e) => handleEditEventCityChange(e.target.value)} options={[{ value: '', label: editingEvent.state ? 'Select City' : 'Select state first' }, ...getAvailableCities(editingEvent.state).map(c => ({ value: c, label: c }))]} disabled={!editingEvent.state} />
+                    <Select label="State *" value={editingEvent.state} onChange={(e) => handleEditEventStateChange(e.target.value)} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+                    <Select label="City *" value={editingEvent.city} onChange={(e) => handleEditEventCityChange(e.target.value)} options={[
+                      { value: '', label: editingEvent.state ? 'Select City' : 'Select state first' }, 
+                      ...getAvailableCities(editingEvent.state).map(c => ({ value: c, label: c })),
+                      ...(editingEvent.state ? [{ value: '__custom__', label: '➕ Add Other City...' }] : [])
+                    ]} disabled={!editingEvent.state} />
+                  </div>
+                )}
+                {editingEvent.city === '__custom__' && (
+                  <div className="custom-city-entry">
+                    <Input 
+                      label="City Name *" 
+                      value={editingEvent.customCity || ''} 
+                      onChange={(e) => setEditingEvent(ev => ({ ...ev, customCity: e.target.value }))}
+                      placeholder="Enter city name"
+                    />
+                    <p className="form-hint">
+                      <Icons.Info /> This city doesn't have permit data. Permit requirements can be managed manually.
+                    </p>
                   </div>
                 )}
                 <Input label="Venue Address" value={editingEvent.address || ''} onChange={(e) => setEditingEvent(ev => ({ ...ev, address: e.target.value }))} />
@@ -3881,7 +3930,7 @@ const EventsPage = () => {
               
               <div className="form-actions">
                 <Button variant="outline" onClick={() => { setShowEditEventModal(false); setEditingEvent(null); }}>Cancel</Button>
-                <Button onClick={saveEditedEvent} disabled={!editingEvent.eventName || (editingEvent.status !== 'published' && (!editingEvent.startDate || !editingEvent.city || !editingEvent.state))}>
+                <Button onClick={saveEditedEvent} disabled={!editingEvent.eventName || (editingEvent.status !== 'published' && (!editingEvent.startDate || !editingEvent.state || (!editingEvent.city || (editingEvent.city === '__custom__' && !editingEvent.customCity))))}>
                   Save Changes
                 </Button>
               </div>
@@ -5146,6 +5195,7 @@ const SettingsPage = () => {
                       onChange={(cityName) => updateCity(i, 'city', cityName)}
                       placeholder="Search for your city..."
                       strictMode={true}
+                      allowCustom={true}
                     />
                     {businessData.operatingCities.length > 1 && (
                       <Button 
