@@ -4239,11 +4239,66 @@ img { max-width: 100%; display: block; }
 
 .attending-card {
   border-left: 4px solid var(--primary);
+  padding: 0;
+  overflow: hidden;
 }
 .attending-card.permits_needed { border-left-color: var(--danger); }
 .attending-card.in_progress { border-left-color: var(--warning); }
 .attending-card.ready { border-left-color: var(--success); }
 .attending-card.no_requirements { border-left-color: var(--gray-400); }
+
+.attending-card .readiness-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.25rem;
+}
+.attending-card .readiness-header svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.attending-card .readiness-info {
+  flex: 1;
+  min-width: 0;
+}
+.attending-card .readiness-info h3 {
+  margin: 0 0 0.25rem;
+}
+.attending-card .readiness-info p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--gray-600);
+}
+.attending-card .readiness-progress {
+  padding: 0 1.25rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.attending-card .readiness-progress .progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--gray-200);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.attending-card .readiness-progress .progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.attending-card .readiness-progress .progress-text {
+  font-size: 0.8rem;
+  color: var(--gray-600);
+  white-space: nowrap;
+}
+.attending-card .event-card-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 1.25rem 1.25rem;
+}
 
 .event-date-badge.attending {
   background: var(--primary);
