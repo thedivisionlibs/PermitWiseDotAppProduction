@@ -4711,8 +4711,8 @@ const EventsPage = () => {
           <Input label="End Date" type="date" value={attendingForm.endDate} onChange={(e) => setAttendingForm(f => ({ ...f, endDate: e.target.value }))} />
         </div>
         <Select label="Event Type" value={attendingForm.eventType} onChange={(e) => setAttendingForm(f => ({ ...f, eventType: e.target.value }))} options={[
-          { value: 'farmers_market', label: "Farmer's Market" }, { value: 'festival', label: 'Festival' }, { value: 'fair', label: 'Fair' }, { value: 'craft_show', label: 'Craft Show' },
-          { value: 'food_event', label: 'Food Event' }, { value: 'night_market', label: 'Night Market' }, { value: 'other', label: 'Other' }
+          { value: 'food_event', label: 'Food Event' }, { value: 'farmers_market', label: 'Farmers Market' }, { value: 'festival', label: 'Festival' },
+          { value: 'fair', label: 'Fair' }, { value: 'craft_show', label: 'Craft Show' }, { value: 'night_market', label: 'Night Market' }, { value: 'other', label: 'Other' }
         ]} />
         <Input label="Notes" placeholder="Any notes about this event..." value={attendingForm.notes} onChange={(e) => setAttendingForm(f => ({ ...f, notes: e.target.value }))} />
         
@@ -4816,7 +4816,7 @@ const EventsPage = () => {
             )}
             
             <div className="modal-actions">
-              <Button variant="outline" onClick={() => openEditAttendingModal(selectedAttendingEvent)}>Edit Event</Button>
+              <Button variant="outline" onClick={() => { const ae = selectedAttendingEvent; setSelectedAttendingEvent(null); openEditAttendingModal(ae); }}>Edit Event</Button>
               <Button variant="ghost" className="delete-btn" onClick={() => deleteAttendingEvent(selectedAttendingEvent._id)}>Delete</Button>
             </div>
           </div>
