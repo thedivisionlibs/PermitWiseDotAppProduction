@@ -2479,6 +2479,8 @@ const EventsPage = () => {
   const [newPermitName, setNewPermitName] = useState('');
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [selectedAttendingEvent, setSelectedAttendingEvent] = useState(null);
+  const [vendorPermitsList, setVendorPermitsList] = useState([]);
+  const [selectedExistingPermit, setSelectedExistingPermit] = useState('');
   
   // Registered vendors list (for organizer invites)
   const [registeredVendors, setRegisteredVendors] = useState([]);
@@ -2514,14 +2516,16 @@ const EventsPage = () => {
   // Fetch vendor data
   const fetchVendorData = async () => {
     try {
-      const [myData, pubData, attData] = await Promise.all([
+      const [myData, pubData, attData, permData] = await Promise.all([
         api.get('/events/my-events'),
         api.get('/events/published'),
-        api.get('/attending-events')
+        api.get('/attending-events'),
+        api.get('/permits')
       ]);
       setEvents(myData.events || []);
       setPublishedEvents(pubData.events || []);
       setAttendingEvents(attData.attendingEvents || []);
+      setVendorPermitsList(permData.permits || []);
     } catch (error) { 
       console.error('Error fetching vendor data:', error); 
     }
@@ -4051,6 +4055,7 @@ const EventsPage = () => {
     setNewPermitName('');
     setNewChecklistItem('');
     setEditingAttendingEvent(null);
+    setSelectedExistingPermit('');
   };
 
   const openAddAttendingModal = () => {
@@ -4068,7 +4073,28 @@ const EventsPage = () => {
       venueName: ae.location?.venueName || '', eventType: ae.eventType || 'other', notes: ae.notes || '',
       requiredPermits: ae.requiredPermits || [], complianceChecklist: ae.complianceChecklist || []
     });
+    setSelectedExistingPermit('');
     setShowAddAttendingModal(true);
+  };
+
+  const addExistingPermitToForm = () => {
+    if (!selectedExistingPermit) return;
+    const permit = vendorPermitsList.find(p => p._id === selectedExistingPermit);
+    if (!permit) return;
+    // Avoid duplicates
+    const alreadyAdded = attendingForm.requiredPermits.some(rp => rp.vendorPermitId === permit._id || rp.permitTypeId === permit.permitTypeId?._id);
+    if (alreadyAdded) { setSelectedExistingPermit(''); return; }
+    setAttendingForm(f => ({
+      ...f,
+      requiredPermits: [...f.requiredPermits, {
+        name: permit.permitTypeId?.name || 'Unnamed Permit',
+        status: (permit.status === 'active') ? 'obtained' : (permit.status === 'in_progress') ? 'in_progress' : 'needed',
+        permitTypeId: permit.permitTypeId?._id,
+        vendorPermitId: permit._id,
+        notes: ''
+      }]
+    }));
+    setSelectedExistingPermit('');
   };
 
   const addPermitToForm = () => {
@@ -4143,7 +4169,6 @@ const EventsPage = () => {
 
   // Separate attending events by status
   const upcomingAttendingEvents = attendingEvents.filter(ae => ae.status === 'upcoming' && new Date(ae.endDate || ae.startDate) >= new Date());
-  // eslint-disable-next-line
   const pastAttendingEvents = attendingEvents.filter(ae => ae.status !== 'upcoming' || new Date(ae.endDate || ae.startDate) < new Date());
 
   // Separate events by source
@@ -4441,6 +4466,42 @@ const EventsPage = () => {
           </div>
         </div>
       )}
+      
+      {/* Past Attending Events Section */}
+      {pastAttendingEvents.length > 0 && (
+        <div className="events-section past-events-section">
+          <div className="events-section-header">
+            <h2>📋 Past Tracked Events <span className="section-count">{pastAttendingEvents.length}</span></h2>
+            <p className="section-description">Attending events that have ended or been completed</p>
+          </div>
+          <div className="events-readiness-list">
+            {pastAttendingEvents.map(ae => (
+              <Card key={ae._id} className="readiness-card attending-card past-attending">
+                <div className="readiness-header">
+                  <div className="event-date-badge past">
+                    <span className="month">{new Date(ae.startDate).toLocaleDateString('en-US', { month: 'short' })}</span>
+                    <span className="day">{new Date(ae.startDate).getDate()}</span>
+                  </div>
+                  <div className="readiness-info">
+                    <h3>{ae.eventName}</h3>
+                    {ae.organizerName && <p className="organizer">by {ae.organizerName}</p>}
+                    {ae.location?.city && <p className="location"><Icons.MapPin /> {ae.location.city}{ae.location.state ? `, ${ae.location.state}` : ''}</p>}
+                  </div>
+                  <Badge variant={ae.readinessStatus === 'ready' ? 'success' : 'warning'}>
+                    {ae.completedItems}/{ae.totalItems} done
+                  </Badge>
+                </div>
+                <div className="event-card-actions">
+                  <Button variant="outline" size="sm" onClick={() => setSelectedAttendingEvent(ae)}>View Details</Button>
+                  <Button variant="ghost" size="sm" className="delete-btn" onClick={() => deleteAttendingEvent(ae._id)}>
+                    <Icons.Trash />
+                  </Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Event Details Modal - Enhanced */}
       <Modal isOpen={!!selectedEvent} onClose={() => setSelectedEvent(null)} title={selectedEvent?.eventName}>
@@ -4656,15 +4717,34 @@ const EventsPage = () => {
         <Input label="Notes" placeholder="Any notes about this event..." value={attendingForm.notes} onChange={(e) => setAttendingForm(f => ({ ...f, notes: e.target.value }))} />
         
         <div className="form-section-title" style={{ marginTop: '16px' }}>Required Permits</div>
-        <p className="form-hint">Add permits you need for this event to track your readiness</p>
+        <p className="form-hint">Select from your existing permits or add custom ones</p>
         {attendingForm.requiredPermits.map((p, i) => (
           <div key={i} className="inline-list-item">
-            <span>{p.name}</span>
+            <span>{p.name} {p.vendorPermitId && <small style={{ color: 'var(--gray-500)' }}>(linked)</small>}</span>
             <button className="remove-btn" onClick={() => removePermitFromForm(i)}>×</button>
           </div>
         ))}
+        {vendorPermitsList.length > 0 && (
+          <div className="inline-add-row" style={{ marginBottom: '8px' }}>
+            <Select 
+              value={selectedExistingPermit} 
+              onChange={(e) => setSelectedExistingPermit(e.target.value)} 
+              options={[
+                { value: '', label: '— Select from your permits —' },
+                ...vendorPermitsList
+                  .filter(p => p.permitTypeId?.name)
+                  .filter(p => !attendingForm.requiredPermits.some(rp => rp.vendorPermitId === p._id))
+                  .map(p => ({ 
+                    value: p._id, 
+                    label: `${p.permitTypeId.name} (${p.jurisdictionId?.city || 'Unknown'}) — ${p.status}` 
+                  }))
+              ]} 
+            />
+            <Button variant="outline" size="sm" onClick={addExistingPermitToForm} disabled={!selectedExistingPermit}>Add</Button>
+          </div>
+        )}
         <div className="inline-add-row">
-          <Input placeholder="e.g. Food Handler's Permit" value={newPermitName} onChange={(e) => setNewPermitName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addPermitToForm()} />
+          <Input placeholder="Or type a custom permit name..." value={newPermitName} onChange={(e) => setNewPermitName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addPermitToForm()} />
           <Button variant="outline" size="sm" onClick={addPermitToForm} disabled={!newPermitName.trim()}>Add</Button>
         </div>
         
