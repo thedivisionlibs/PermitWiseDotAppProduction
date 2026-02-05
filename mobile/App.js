@@ -4188,6 +4188,17 @@ const EventsScreen = () => {
   const [showCancelModal, setShowCancelModal] = useState(null); // stores event to cancel
   const [cancelReason, setCancelReason] = useState('');
 
+  // Attending events state (self-tracked)
+  const [attendingEvents, setAttendingEvents] = useState([]);
+  const [showAddAttendingModal, setShowAddAttendingModal] = useState(false);
+  const [editingAttendingEvent, setEditingAttendingEvent] = useState(null);
+  const [attendingForm, setAttendingForm] = useState({ eventName: '', organizerName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', venueName: '', eventType: 'other', notes: '', requiredPermits: [], complianceChecklist: [] });
+  const [newPermitName, setNewPermitName] = useState('');
+  const [newChecklistItem, setNewChecklistItem] = useState('');
+  const [selectedAttendingEvent, setSelectedAttendingEvent] = useState(null);
+  const [showAttendingStatePicker, setShowAttendingStatePicker] = useState(false);
+  const [showAttendingTypePicker, setShowAttendingTypePicker] = useState(false);
+
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
   const organizerVerified = user?.organizerProfile?.verified;
@@ -4228,12 +4239,14 @@ const EventsScreen = () => {
   // Fetch vendor's events and published events for browsing
   const fetchMyEvents = async () => {
     try {
-      const [myData, pubData] = await Promise.all([
+      const [myData, pubData, attData] = await Promise.all([
         api.get('/events/my-events'),
-        api.get('/events/published')
+        api.get('/events/published'),
+        api.get('/attending-events')
       ]);
       setEvents(myData.events || []);
       setPublishedEvents(pubData.events || []);
+      setAttendingEvents(attData.attendingEvents || []);
     } catch (error) { console.error(error); }
     finally { setLoading(false); setRefreshing(false); }
   };
@@ -5695,6 +5708,96 @@ const EventsScreen = () => {
     return !appliedEventIds.has(eventIdStr) && !e.vendorHasApplied && e.status === 'published';
   });
 
+  // ====== ATTENDING EVENT FUNCTIONS ======
+  const resetAttendingForm = () => {
+    setAttendingForm({ eventName: '', organizerName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', venueName: '', eventType: 'other', notes: '', requiredPermits: [], complianceChecklist: [] });
+    setNewPermitName('');
+    setNewChecklistItem('');
+    setEditingAttendingEvent(null);
+  };
+
+  const openAddAttendingModal = () => { resetAttendingForm(); setShowAddAttendingModal(true); };
+  
+  const openEditAttendingModal = (ae) => {
+    setEditingAttendingEvent(ae);
+    setAttendingForm({
+      eventName: ae.eventName || '', organizerName: ae.organizerName || '', description: ae.description || '',
+      startDate: ae.startDate ? new Date(ae.startDate).toISOString().split('T')[0] : '',
+      endDate: ae.endDate ? new Date(ae.endDate).toISOString().split('T')[0] : '',
+      city: ae.location?.city || '', state: ae.location?.state || '', address: ae.location?.address || '',
+      venueName: ae.location?.venueName || '', eventType: ae.eventType || 'other', notes: ae.notes || '',
+      requiredPermits: ae.requiredPermits || [], complianceChecklist: ae.complianceChecklist || []
+    });
+    setShowAddAttendingModal(true);
+  };
+
+  const addPermitToForm = () => {
+    if (!newPermitName.trim()) return;
+    setAttendingForm(f => ({ ...f, requiredPermits: [...f.requiredPermits, { name: newPermitName.trim(), status: 'needed', notes: '' }] }));
+    setNewPermitName('');
+  };
+
+  const addChecklistItemToForm = () => {
+    if (!newChecklistItem.trim()) return;
+    setAttendingForm(f => ({ ...f, complianceChecklist: [...f.complianceChecklist, { item: newChecklistItem.trim(), completed: false }] }));
+    setNewChecklistItem('');
+  };
+
+  const saveAttendingEvent = async () => {
+    try {
+      const payload = {
+        eventName: attendingForm.eventName, organizerName: attendingForm.organizerName, description: attendingForm.description,
+        location: { city: attendingForm.city, state: attendingForm.state, address: attendingForm.address, venueName: attendingForm.venueName },
+        startDate: attendingForm.startDate, endDate: attendingForm.endDate || undefined,
+        eventType: attendingForm.eventType, notes: attendingForm.notes,
+        requiredPermits: attendingForm.requiredPermits, complianceChecklist: attendingForm.complianceChecklist
+      };
+      if (editingAttendingEvent) {
+        await api.put(`/attending-events/${editingAttendingEvent._id}`, payload);
+        toast.success('Event updated');
+      } else {
+        await api.post('/attending-events', payload);
+        toast.success('Event added to your tracker');
+      }
+      setShowAddAttendingModal(false);
+      resetAttendingForm();
+      fetchMyEvents();
+    } catch (error) { toast.error(error.response?.data?.error || 'Failed to save'); }
+  };
+
+  const deleteAttendingEvent = async (id) => {
+    const ok = await confirm('Delete this event from your tracker?');
+    if (!ok) return;
+    try {
+      await api.delete(`/attending-events/${id}`);
+      toast.success('Event removed');
+      setSelectedAttendingEvent(null);
+      fetchMyEvents();
+    } catch (error) { toast.error('Failed to delete'); }
+  };
+
+  const updateAttendingPermitStatus = async (eventId, index, status) => {
+    try {
+      await api.put(`/attending-events/${eventId}/permit/${index}`, { status });
+      fetchMyEvents();
+    } catch (error) { toast.error('Failed to update'); }
+  };
+
+  const updateAttendingChecklistItem = async (eventId, index, completed) => {
+    try {
+      await api.put(`/attending-events/${eventId}/checklist/${index}`, { completed });
+      fetchMyEvents();
+    } catch (error) { toast.error('Failed to update'); }
+  };
+
+  const upcomingAttendingEvents = attendingEvents.filter(ae => ae.status === 'upcoming' && new Date(ae.endDate || ae.startDate) >= new Date());
+  const pastAttendingEvents = attendingEvents.filter(ae => ae.status !== 'upcoming' || new Date(ae.endDate || ae.startDate) < new Date());
+
+  const PERMIT_STATUSES = [
+    { value: 'needed', label: '❌ Needed' }, { value: 'in_progress', label: '🔄 In Progress' },
+    { value: 'obtained', label: '✅ Obtained' }, { value: 'not_applicable', label: '➖ N/A' }
+  ];
+
   const renderEventCard = (item) => (
     <Card key={item._id} style={styles.eventReadinessCard}>
       <View style={styles.eventReadinessHeader}>
@@ -5762,16 +5865,80 @@ const EventsScreen = () => {
           <Text style={styles.pageTitle}>Event Readiness</Text>
           <Text style={styles.pageSubtitle}>Your compliance status for events</Text>
         </View>
-        <TouchableOpacity style={styles.requestEventButtonSmall} onPress={() => setShowRequestModal(true)}>
-          <Icons.Plus size={16} color={COLORS.primary} />
-          <Text style={styles.requestEventButtonSmallText}>Request</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity style={[styles.requestEventButtonSmall, { backgroundColor: COLORS.primary }]} onPress={openAddAttendingModal}>
+            <Icons.Plus size={16} color="#fff" />
+            <Text style={[styles.requestEventButtonSmallText, { color: '#fff' }]}>Add Event</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.requestEventButtonSmall} onPress={() => setShowRequestModal(true)}>
+            <Icons.Plus size={16} color={COLORS.primary} />
+            <Text style={styles.requestEventButtonSmallText}>Request</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       
       <ScrollView 
         style={styles.listContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchMyEvents(); }} />}
       >
+        {/* Event Readiness Section - Self-tracked attending events */}
+        <View style={[styles.eventSection, { backgroundColor: '#f5f7ff', borderRadius: 12, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#e0e7ff' }]}>
+          <View style={styles.eventSectionHeader}>
+            <Text style={styles.eventSectionTitle}>📋 Event Readiness</Text>
+            <Text style={styles.eventSectionCount}>{upcomingAttendingEvents.length}</Text>
+          </View>
+          <Text style={styles.eventSectionDesc}>Events you're attending — track your permit readiness</Text>
+          {upcomingAttendingEvents.length > 0 ? (
+            upcomingAttendingEvents.map(ae => (
+              <Card key={ae._id} style={[styles.eventReadinessCard, { borderLeftWidth: 4, borderLeftColor: ae.readinessColor === 'success' ? COLORS.success : ae.readinessColor === 'warning' ? COLORS.warning : COLORS.danger }]}>
+                <View style={styles.eventReadinessHeader}>
+                  <View style={[styles.eventDateBadge, { backgroundColor: COLORS.primary }]}>
+                    <Text style={[styles.eventDateMonth, { color: '#fff' }]}>{new Date(ae.startDate).toLocaleDateString('en-US', { month: 'short' })}</Text>
+                    <Text style={[styles.eventDateDay, { color: '#fff' }]}>{new Date(ae.startDate).getDate()}</Text>
+                  </View>
+                  <View style={styles.eventReadinessInfo}>
+                    <Text style={styles.eventReadinessName}>{ae.eventName}</Text>
+                    {ae.organizerName ? <Text style={styles.eventReadinessOrganizer}>by {ae.organizerName}</Text> : null}
+                    {ae.location?.city ? (
+                      <View style={styles.eventReadinessLocation}>
+                        <Icons.MapPin size={12} color={COLORS.gray500} />
+                        <Text style={styles.eventReadinessLocationText}>{ae.location.city}{ae.location.state ? `, ${ae.location.state}` : ''}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={[styles.invitationStatusBadge, { backgroundColor: ae.readinessColor === 'success' ? '#dcfce7' : ae.readinessColor === 'warning' ? '#fef3c7' : '#fee2e2' }]}>
+                    <Text style={[styles.invitationStatusText, { color: ae.readinessColor === 'success' ? '#166534' : ae.readinessColor === 'warning' ? '#92400e' : '#dc2626' }]}>
+                      {ae.readinessStatus === 'ready' ? 'Ready' : ae.readinessStatus === 'no_requirements' ? 'No Items' : ae.readinessStatus === 'permits_needed' ? 'Needed' : 'In Progress'}
+                    </Text>
+                  </View>
+                </View>
+                {ae.totalItems > 0 && (
+                  <View style={styles.eventReadinessProgress}>
+                    <View style={styles.progressBarContainer}>
+                      <View style={[styles.progressBarFill, { width: `${(ae.completedItems / ae.totalItems) * 100}%` }]} />
+                    </View>
+                    <Text style={styles.progressText}>{ae.completedItems}/{ae.totalItems} items</Text>
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                  <TouchableOpacity style={[styles.eventCardActionBtn, { flex: 1 }]} onPress={() => setSelectedAttendingEvent(ae)}>
+                    <Text style={styles.eventCardActionBtnText}>View / Manage</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.eventCardActionBtn, { paddingHorizontal: 12 }]} onPress={() => openEditAttendingModal(ae)}>
+                    <Icons.Edit size={14} color={COLORS.primary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.eventCardActionBtn, { paddingHorizontal: 12 }]} onPress={() => deleteAttendingEvent(ae._id)}>
+                    <Icons.Trash size={14} color={COLORS.danger} />
+                  </TouchableOpacity>
+                </View>
+              </Card>
+            ))
+          ) : (
+            <View style={styles.sectionEmpty}>
+              <Text style={styles.sectionEmptyText}>No upcoming events tracked. Tap "Add Event" to track an event you'll attend.</Text>
+            </View>
+          )}
+        </View>
         {/* Organizer Invitations Section - Always show */}
         <View style={styles.eventSection}>
           <View style={styles.eventSectionHeader}>
@@ -6166,6 +6333,128 @@ const EventsScreen = () => {
                 <View style={styles.modalFooter}>
                   <Button title="Cancel" variant="outline" onPress={() => setShowRequestModal(false)} style={{ flex: 1 }} />
                   <Button title={requestSubmitting ? "Submitting..." : "Submit"} onPress={submitEventRequest} disabled={!requestForm.eventName || !requestForm.city || requestSubmitting} style={{ flex: 1 }} />
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Add/Edit Attending Event Modal */}
+      <Modal visible={showAddAttendingModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{editingAttendingEvent ? 'Edit Attending Event' : 'Add Attending Event'}</Text>
+              <TouchableOpacity onPress={() => { setShowAddAttendingModal(false); resetAttendingForm(); }}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              <Text style={[styles.requestIntro, { marginBottom: 12 }]}>Track an event you plan to attend and monitor your compliance readiness.</Text>
+              <Input label="Event Name *" placeholder="Downtown Food Festival" value={attendingForm.eventName} onChangeText={v => setAttendingForm(f => ({ ...f, eventName: v }))} />
+              <Input label="Organizer Name" placeholder="City Events Dept" value={attendingForm.organizerName} onChangeText={v => setAttendingForm(f => ({ ...f, organizerName: v }))} />
+              <Input label="Venue Name" placeholder="Main Street Plaza" value={attendingForm.venueName} onChangeText={v => setAttendingForm(f => ({ ...f, venueName: v }))} />
+              <View style={styles.row}>
+                <View style={styles.halfInput}><Input label="City" placeholder="Austin" value={attendingForm.city} onChangeText={v => setAttendingForm(f => ({ ...f, city: v }))} /></View>
+                <View style={styles.halfInput}><Input label="State" placeholder="TX" value={attendingForm.state} onChangeText={v => setAttendingForm(f => ({ ...f, state: v }))} /></View>
+              </View>
+              <Input label="Address" placeholder="123 Main St" value={attendingForm.address} onChangeText={v => setAttendingForm(f => ({ ...f, address: v }))} />
+              <View style={styles.row}>
+                <View style={styles.halfInput}><Input label="Start Date *" placeholder="YYYY-MM-DD" value={attendingForm.startDate} onChangeText={v => setAttendingForm(f => ({ ...f, startDate: v }))} /></View>
+                <View style={styles.halfInput}><Input label="End Date" placeholder="YYYY-MM-DD" value={attendingForm.endDate} onChangeText={v => setAttendingForm(f => ({ ...f, endDate: v }))} /></View>
+              </View>
+              <Input label="Notes" placeholder="Any notes about this event..." value={attendingForm.notes} onChangeText={v => setAttendingForm(f => ({ ...f, notes: v }))} multiline />
+              
+              <Text style={{ fontWeight: '600', fontSize: 15, marginTop: 16, marginBottom: 4 }}>Required Permits</Text>
+              <Text style={{ fontSize: 13, color: COLORS.gray500, marginBottom: 8 }}>Add permits you need for this event</Text>
+              {attendingForm.requiredPermits.map((p, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.gray50, padding: 10, borderRadius: 8, marginBottom: 6 }}>
+                  <Text style={{ flex: 1, fontSize: 14 }}>{p.name}</Text>
+                  <TouchableOpacity onPress={() => setAttendingForm(f => ({ ...f, requiredPermits: f.requiredPermits.filter((_, idx) => idx !== i) }))}>
+                    <Text style={{ color: COLORS.danger, fontSize: 18, fontWeight: '600' }}>×</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                <View style={{ flex: 1 }}><Input placeholder="e.g. Food Handler's Permit" value={newPermitName} onChangeText={setNewPermitName} /></View>
+                <Button title="Add" variant="outline" size="sm" onPress={addPermitToForm} disabled={!newPermitName.trim()} />
+              </View>
+              
+              <Text style={{ fontWeight: '600', fontSize: 15, marginTop: 16, marginBottom: 4 }}>Compliance Checklist</Text>
+              <Text style={{ fontSize: 13, color: COLORS.gray500, marginBottom: 8 }}>Add items to complete before this event</Text>
+              {attendingForm.complianceChecklist.map((c, i) => (
+                <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.gray50, padding: 10, borderRadius: 8, marginBottom: 6 }}>
+                  <Text style={{ flex: 1, fontSize: 14 }}>{c.item}</Text>
+                  <TouchableOpacity onPress={() => setAttendingForm(f => ({ ...f, complianceChecklist: f.complianceChecklist.filter((_, idx) => idx !== i) }))}>
+                    <Text style={{ color: COLORS.danger, fontSize: 18, fontWeight: '600' }}>×</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                <View style={{ flex: 1 }}><Input placeholder="e.g. Print business license" value={newChecklistItem} onChangeText={setNewChecklistItem} /></View>
+                <Button title="Add" variant="outline" size="sm" onPress={addChecklistItemToForm} disabled={!newChecklistItem.trim()} />
+              </View>
+              
+              <View style={styles.modalFooter}>
+                <Button title="Cancel" variant="outline" onPress={() => { setShowAddAttendingModal(false); resetAttendingForm(); }} style={{ flex: 1 }} />
+                <Button title={editingAttendingEvent ? "Save Changes" : "Add Event"} onPress={saveAttendingEvent} disabled={!attendingForm.eventName || !attendingForm.startDate} style={{ flex: 1 }} />
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Attending Event Detail Modal */}
+      <Modal visible={!!selectedAttendingEvent} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle} numberOfLines={1}>{selectedAttendingEvent?.eventName}</Text>
+              <TouchableOpacity onPress={() => setSelectedAttendingEvent(null)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+            </View>
+            {selectedAttendingEvent && (
+              <ScrollView style={styles.modalBody}>
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={{ fontSize: 13, color: COLORS.gray500, marginBottom: 4 }}>📅 {formatDate(selectedAttendingEvent.startDate)}{selectedAttendingEvent.endDate ? ` - ${formatDate(selectedAttendingEvent.endDate)}` : ''}</Text>
+                  {selectedAttendingEvent.location?.city ? <Text style={{ fontSize: 13, color: COLORS.gray500, marginBottom: 4 }}>📍 {selectedAttendingEvent.location.venueName ? `${selectedAttendingEvent.location.venueName}, ` : ''}{selectedAttendingEvent.location.city}{selectedAttendingEvent.location.state ? `, ${selectedAttendingEvent.location.state}` : ''}</Text> : null}
+                  {selectedAttendingEvent.organizerName ? <Text style={{ fontSize: 13, color: COLORS.gray500, marginBottom: 4 }}>🏢 {selectedAttendingEvent.organizerName}</Text> : null}
+                  {selectedAttendingEvent.notes ? <Text style={{ fontSize: 13, color: COLORS.gray600, marginTop: 8 }}>{selectedAttendingEvent.notes}</Text> : null}
+                </View>
+                
+                {selectedAttendingEvent.requiredPermits?.length > 0 && (
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={{ fontWeight: '600', fontSize: 15, marginBottom: 8 }}>Required Permits ({selectedAttendingEvent.completedPermits}/{selectedAttendingEvent.requiredPermits.length})</Text>
+                    {selectedAttendingEvent.requiredPermits.map((p, i) => (
+                      <View key={i} style={{ padding: 12, backgroundColor: p.status === 'obtained' ? '#f0fdf4' : COLORS.gray50, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3, borderLeftColor: p.status === 'obtained' ? COLORS.success : p.status === 'in_progress' ? COLORS.warning : p.status === 'not_applicable' ? COLORS.gray400 : COLORS.danger }}>
+                        <Text style={{ fontWeight: '500', marginBottom: 6 }}>{p.name}</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                          {PERMIT_STATUSES.map(s => (
+                            <TouchableOpacity key={s.value} onPress={() => updateAttendingPermitStatus(selectedAttendingEvent._id, i, s.value)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: p.status === s.value ? COLORS.primary : COLORS.gray100 }}>
+                              <Text style={{ fontSize: 12, color: p.status === s.value ? '#fff' : COLORS.gray700 }}>{s.label}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                
+                {selectedAttendingEvent.complianceChecklist?.length > 0 && (
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={{ fontWeight: '600', fontSize: 15, marginBottom: 8 }}>Compliance Checklist ({selectedAttendingEvent.completedChecklist}/{selectedAttendingEvent.complianceChecklist.length})</Text>
+                    {selectedAttendingEvent.complianceChecklist.map((c, i) => (
+                      <TouchableOpacity key={i} onPress={() => updateAttendingChecklistItem(selectedAttendingEvent._id, i, !c.completed)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: c.completed ? '#f0fdf4' : COLORS.gray50, borderRadius: 8, marginBottom: 6, borderLeftWidth: 3, borderLeftColor: c.completed ? COLORS.success : COLORS.gray300 }}>
+                        <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: c.completed ? COLORS.success : COLORS.gray400, backgroundColor: c.completed ? COLORS.success : 'transparent', justifyContent: 'center', alignItems: 'center' }}>
+                          {c.completed && <Icons.Check size={14} color="#fff" />}
+                        </View>
+                        <Text style={[{ flex: 1, fontSize: 14 }, c.completed && { textDecorationLine: 'line-through', color: COLORS.gray500 }]}>{c.item}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+                
+                <View style={[styles.modalFooter, { marginTop: 8 }]}>
+                  <Button title="Edit" variant="outline" onPress={() => { setSelectedAttendingEvent(null); openEditAttendingModal(selectedAttendingEvent); }} style={{ flex: 1 }} />
+                  <Button title="Delete" variant="outline" onPress={() => deleteAttendingEvent(selectedAttendingEvent._id)} style={{ flex: 1 }} color={COLORS.danger} />
                 </View>
               </ScrollView>
             )}
