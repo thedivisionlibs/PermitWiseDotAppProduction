@@ -4156,3 +4156,235 @@ img { max-width: 100%; display: block; }
   color: var(--gray-800);
   padding: 8px 0;
 }
+
+/* Custom city entry in CitySearch dropdown */
+.city-search-custom-option {
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary);
+  background-color: var(--primary-light);
+  border-top: 1px solid var(--gray-200);
+  font-weight: 500;
+}
+.city-search-custom-option:hover {
+  background-color: var(--primary);
+  color: white;
+}
+.city-search-custom-option .custom-icon {
+  font-size: 14px;
+}
+
+/* Custom city input styling */
+.form-input.input-custom {
+  border-color: var(--info);
+  background-color: rgba(59, 130, 246, 0.05);
+}
+
+/* Info hint style */
+.form-hint-info {
+  color: var(--info);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.form-hint-info svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Custom city entry section */
+.custom-city-entry {
+  margin-top: 16px;
+  padding: 16px;
+  background-color: var(--gray-50);
+  border-radius: 8px;
+  border: 1px dashed var(--gray-300);
+}
+.custom-city-entry .form-hint {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gray-600);
+}
+.custom-city-entry .form-hint svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* ======================================
+   ATTENDING EVENTS / EVENT READINESS
+   ====================================== */
+
+/* Page header with multiple buttons */
+.page-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Attending events section */
+.attending-events-section {
+  border: 2px solid var(--primary-light, #e0e7ff);
+  border-radius: 12px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f5f7ff 0%, #fff 100%);
+  margin-bottom: 24px;
+}
+
+.attending-card {
+  border-left: 4px solid var(--primary);
+}
+.attending-card.permits_needed { border-left-color: var(--danger); }
+.attending-card.in_progress { border-left-color: var(--warning); }
+.attending-card.ready { border-left-color: var(--success); }
+.attending-card.no_requirements { border-left-color: var(--gray-400); }
+
+.event-date-badge.attending {
+  background: var(--primary);
+}
+
+/* Inline list items (for permits/checklist in form) */
+.inline-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+.inline-list-item .remove-btn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.inline-list-item .remove-btn:hover {
+  background: var(--danger-light, #fee2e2);
+  border-radius: 4px;
+}
+
+.inline-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-bottom: 8px;
+}
+.inline-add-row .form-group {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* Attending event detail modal */
+.attending-event-detail .event-detail-section {
+  margin-bottom: 20px;
+}
+
+.attending-permits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attending-permit-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  gap: 12px;
+}
+.attending-permit-item.needed { border-left: 3px solid var(--danger); }
+.attending-permit-item.in_progress { border-left: 3px solid var(--warning); }
+.attending-permit-item.obtained { border-left: 3px solid var(--success); background: #f0fdf4; }
+.attending-permit-item.not_applicable { border-left: 3px solid var(--gray-400); opacity: 0.7; }
+
+.attending-permit-info {
+  flex: 1;
+  min-width: 0;
+}
+.attending-permit-name {
+  font-weight: 500;
+  display: block;
+}
+.linked-status {
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.attending-permit-item .form-group {
+  margin-bottom: 0;
+  min-width: 150px;
+}
+.attending-permit-item select {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+/* Checklist items */
+.attending-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.checklist-item:hover {
+  background: var(--gray-100);
+}
+.checklist-item.completed {
+  background: #f0fdf4;
+  border-color: var(--success);
+}
+.checklist-item.completed span {
+  text-decoration: line-through;
+  color: var(--gray-500);
+}
+.checklist-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--success);
+  cursor: pointer;
+}
+
+.delete-btn {
+  color: var(--danger) !important;
+}
+.delete-btn:hover {
+  background: var(--danger-light, #fee2e2) !important;
+}
+
+/* Form section title */
+.form-section-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--gray-800);
+  margin-bottom: 4px;
+}
+.form-hint {
+  font-size: 13px;
+  color: var(--gray-500);
+  margin-bottom: 10px;
+}
