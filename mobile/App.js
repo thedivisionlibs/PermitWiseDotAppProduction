@@ -6432,6 +6432,28 @@ const EventsScreen = () => {
               </View>
               <Input label="Notes" placeholder="Any notes about this event..." value={attendingForm.notes} onChangeText={v => setAttendingForm(f => ({ ...f, notes: v }))} multiline />
               
+              <Text style={styles.label}>Event Type</Text>
+              <TouchableOpacity style={styles.pickerButton} onPress={() => setShowAttendingTypePicker(true)}>
+                <Text style={styles.pickerButtonText}>{({ food_event: 'Food Event', farmers_market: 'Farmers Market', festival: 'Festival', fair: 'Fair', craft_show: 'Craft Show', night_market: 'Night Market', other: 'Other' })[attendingForm.eventType] || 'Select Type'}</Text>
+                <Icons.ChevronDown size={20} color={COLORS.gray500} />
+              </TouchableOpacity>
+              <Modal visible={showAttendingTypePicker} animationType="slide" transparent>
+                <View style={styles.modalOverlay}>
+                  <View style={[styles.modalContent, { maxHeight: '50%' }]}>
+                    <View style={styles.modalHeader}>
+                      <Text style={styles.modalTitle}>Event Type</Text>
+                      <TouchableOpacity onPress={() => setShowAttendingTypePicker(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+                    </View>
+                    <FlatList data={[{ value: 'food_event', label: 'Food Event' }, { value: 'farmers_market', label: 'Farmers Market' }, { value: 'festival', label: 'Festival' }, { value: 'fair', label: 'Fair' }, { value: 'craft_show', label: 'Craft Show' }, { value: 'night_market', label: 'Night Market' }, { value: 'other', label: 'Other' }]} keyExtractor={item => item.value} renderItem={({ item }) => (
+                      <TouchableOpacity style={styles.pickerItem} onPress={() => { setAttendingForm(f => ({ ...f, eventType: item.value })); setShowAttendingTypePicker(false); }}>
+                        <Text style={styles.pickerItemText}>{item.label}</Text>
+                        {attendingForm.eventType === item.value && <Icons.Check size={20} color={COLORS.primary} />}
+                      </TouchableOpacity>
+                    )} />
+                  </View>
+                </View>
+              </Modal>
+              
               <Text style={{ fontWeight: '600', fontSize: 15, marginTop: 16, marginBottom: 4 }}>Required Permits</Text>
               <Text style={{ fontSize: 13, color: COLORS.gray500, marginBottom: 8 }}>Select from your existing permits or add custom ones</Text>
               {attendingForm.requiredPermits.map((p, i) => (
@@ -6546,7 +6568,7 @@ const EventsScreen = () => {
                 )}
                 
                 <View style={[styles.modalFooter, { marginTop: 8 }]}>
-                  <Button title="Edit" variant="outline" onPress={() => { setSelectedAttendingEvent(null); openEditAttendingModal(selectedAttendingEvent); }} style={{ flex: 1 }} />
+                  <Button title="Edit" variant="outline" onPress={() => { const ae = selectedAttendingEvent; setSelectedAttendingEvent(null); openEditAttendingModal(ae); }} style={{ flex: 1 }} />
                   <Button title="Delete" variant="outline" onPress={() => deleteAttendingEvent(selectedAttendingEvent._id)} style={{ flex: 1 }} color={COLORS.danger} />
                 </View>
               </ScrollView>
