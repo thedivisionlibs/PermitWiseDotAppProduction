@@ -5732,7 +5732,13 @@ const EventsScreen = () => {
       endDate: ae.endDate ? new Date(ae.endDate).toISOString().split('T')[0] : '',
       city: ae.location?.city || '', state: ae.location?.state || '', address: ae.location?.address || '',
       venueName: ae.location?.venueName || '', eventType: ae.eventType || 'other', notes: ae.notes || '',
-      requiredPermits: ae.requiredPermits || [], complianceChecklist: ae.complianceChecklist || []
+      requiredPermits: (ae.requiredPermits || []).map(p => ({
+        name: p.name || '', status: p.status || 'needed', notes: p.notes || '',
+        permitTypeId: p.permitTypeId || null, vendorPermitId: p.vendorPermitId || null, dueDate: p.dueDate || null
+      })),
+      complianceChecklist: (ae.complianceChecklist || []).map(c => ({
+        item: c.item || '', completed: c.completed || false, notes: c.notes || ''
+      }))
     });
     setSelectedExistingPermit(null);
     setShowAddAttendingModal(true);
@@ -5774,7 +5780,13 @@ const EventsScreen = () => {
         location: { city: attendingForm.city, state: attendingForm.state, address: attendingForm.address, venueName: attendingForm.venueName },
         startDate: attendingForm.startDate, endDate: attendingForm.endDate || undefined,
         eventType: attendingForm.eventType, notes: attendingForm.notes,
-        requiredPermits: attendingForm.requiredPermits, complianceChecklist: attendingForm.complianceChecklist
+        requiredPermits: attendingForm.requiredPermits.map(p => ({
+          name: p.name, status: p.status || 'needed', notes: p.notes || '',
+          permitTypeId: p.permitTypeId || undefined, vendorPermitId: p.vendorPermitId || undefined, dueDate: p.dueDate || undefined
+        })),
+        complianceChecklist: attendingForm.complianceChecklist.map(c => ({
+          item: c.item, completed: c.completed || false, notes: c.notes || ''
+        }))
       };
       if (editingAttendingEvent) {
         await api.put(`/attending-events/${editingAttendingEvent._id}`, payload);
