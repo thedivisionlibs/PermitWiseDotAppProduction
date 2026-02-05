@@ -726,6 +726,46 @@ const userChecklistSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
+// Attending Event Schema - vendor self-tracked events for compliance readiness
+const attendingEventSchema = new mongoose.Schema({
+  vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness', required: true },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  eventName: { type: String, required: true },
+  organizerName: { type: String },
+  description: { type: String },
+  location: {
+    venueName: String,
+    address: String,
+    city: String,
+    state: String,
+    zip: String
+  },
+  startDate: { type: Date, required: true },
+  endDate: { type: Date },
+  eventType: { type: String, enum: ['farmers_market', 'festival', 'fair', 'craft_show', 'food_event', 'night_market', 'other'], default: 'other' },
+  // Permits the vendor needs for this event (self-tracked)
+  requiredPermits: [{
+    name: { type: String, required: true },
+    description: String,
+    status: { type: String, enum: ['needed', 'in_progress', 'obtained', 'not_applicable'], default: 'needed' },
+    permitTypeId: { type: mongoose.Schema.Types.ObjectId, ref: 'PermitType' }, // Optional link to system permit
+    vendorPermitId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorPermit' }, // Optional link to vendor's permit
+    notes: String,
+    dueDate: Date
+  }],
+  // Custom compliance checklist items
+  complianceChecklist: [{
+    item: { type: String, required: true },
+    completed: { type: Boolean, default: false },
+    completedAt: Date,
+    notes: String
+  }],
+  notes: { type: String },
+  status: { type: String, enum: ['upcoming', 'completed', 'cancelled'], default: 'upcoming' },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
 // Models
 const User = mongoose.model('User', userSchema);
 const VendorBusiness = mongoose.model('VendorBusiness', vendorBusinessSchema);
@@ -741,6 +781,7 @@ const VendorInspection = mongoose.model('VendorInspection', vendorInspectionSche
 const Event = mongoose.model('Event', eventSchema);
 const Suggestion = mongoose.model('Suggestion', suggestionSchema);
 const UserChecklist = mongoose.model('UserChecklist', userChecklistSchema);
+const AttendingEvent = mongoose.model('AttendingEvent', attendingEventSchema);
 
 // ===========================================
 // MIDDLEWARE
@@ -4986,6 +5027,223 @@ app.post('/api/organizer/register', authMiddleware, async (req, res) => {
 });
 
 // NOTE: Unused duplicate organizer routes removed. All organizer event operations use /api/events/organizer/* routes
+
+// ===========================================
+// ATTENDING EVENT ROUTES (Self-tracked events)
+// ===========================================
+
+// Get all attending events for vendor
+app.get('/api/attending-events', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.vendorBusinessId) {
+      return res.status(404).json({ error: 'No business found' });
+    }
+    
+    const attendingEvents = await AttendingEvent.find({
+      vendorBusinessId: req.user.vendorBusinessId
+    }).sort({ startDate: 1 });
+    
+    // Calculate readiness for each event
+    const vendorPermits = await VendorPermit.find({
+      vendorBusinessId: req.user.vendorBusinessId
+    }).populate('permitTypeId');
+    
+    const eventsWithReadiness = attendingEvents.map(ae => {
+      const aeObj = ae.toObject();
+      const totalItems = (aeObj.requiredPermits?.length || 0) + (aeObj.complianceChecklist?.length || 0);
+      const completedPermits = (aeObj.requiredPermits || []).filter(p => p.status === 'obtained' || p.status === 'not_applicable').length;
+      const completedChecklist = (aeObj.complianceChecklist || []).filter(c => c.completed).length;
+      const completedItems = completedPermits + completedChecklist;
+      
+      // Auto-link vendor permits if permitTypeId matches
+      aeObj.requiredPermits = (aeObj.requiredPermits || []).map(rp => {
+        if (rp.permitTypeId) {
+          const vp = vendorPermits.find(vp => vp.permitTypeId?._id.toString() === rp.permitTypeId.toString());
+          if (vp) {
+            rp.linkedPermitStatus = vp.status;
+            rp.linkedPermitExpiry = vp.expiryDate;
+          }
+        }
+        return rp;
+      });
+      
+      let readinessStatus = 'ready';
+      let readinessColor = 'success';
+      if (totalItems === 0) {
+        readinessStatus = 'no_requirements';
+        readinessColor = 'warning';
+      } else if (completedItems < totalItems) {
+        const needed = (aeObj.requiredPermits || []).filter(p => p.status === 'needed').length;
+        if (needed > 0) {
+          readinessStatus = 'permits_needed';
+          readinessColor = 'danger';
+        } else {
+          readinessStatus = 'in_progress';
+          readinessColor = 'warning';
+        }
+      }
+      
+      return {
+        ...aeObj,
+        readinessStatus,
+        readinessColor,
+        totalItems,
+        completedItems,
+        completedPermits,
+        completedChecklist
+      };
+    });
+    
+    res.json({ attendingEvents: eventsWithReadiness });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create attending event
+app.post('/api/attending-events', authMiddleware, requireWriteAccess, async (req, res) => {
+  try {
+    if (!req.user.vendorBusinessId) {
+      return res.status(404).json({ error: 'No business found' });
+    }
+    
+    const {
+      eventName, organizerName, description, location,
+      startDate, endDate, eventType, requiredPermits,
+      complianceChecklist, notes
+    } = req.body;
+    
+    if (!eventName || !startDate) {
+      return res.status(400).json({ error: 'Event name and start date are required' });
+    }
+    
+    const attendingEvent = new AttendingEvent({
+      vendorBusinessId: req.user.vendorBusinessId,
+      createdBy: req.userId,
+      eventName,
+      organizerName,
+      description,
+      location,
+      startDate,
+      endDate,
+      eventType: eventType || 'other',
+      requiredPermits: requiredPermits || [],
+      complianceChecklist: complianceChecklist || [],
+      notes
+    });
+    
+    await attendingEvent.save();
+    res.status(201).json({ attendingEvent });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update attending event
+app.put('/api/attending-events/:id', authMiddleware, requireWriteAccess, async (req, res) => {
+  try {
+    const attendingEvent = await AttendingEvent.findOne({
+      _id: req.params.id,
+      vendorBusinessId: req.user.vendorBusinessId
+    });
+    
+    if (!attendingEvent) {
+      return res.status(404).json({ error: 'Attending event not found' });
+    }
+    
+    const updates = req.body;
+    delete updates._id;
+    delete updates.vendorBusinessId;
+    delete updates.createdBy;
+    updates.updatedAt = Date.now();
+    
+    Object.assign(attendingEvent, updates);
+    await attendingEvent.save();
+    
+    res.json({ attendingEvent });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update a specific permit status on attending event
+app.put('/api/attending-events/:id/permit/:permitIndex', authMiddleware, requireWriteAccess, async (req, res) => {
+  try {
+    const attendingEvent = await AttendingEvent.findOne({
+      _id: req.params.id,
+      vendorBusinessId: req.user.vendorBusinessId
+    });
+    
+    if (!attendingEvent) {
+      return res.status(404).json({ error: 'Attending event not found' });
+    }
+    
+    const index = parseInt(req.params.permitIndex);
+    if (index < 0 || index >= attendingEvent.requiredPermits.length) {
+      return res.status(400).json({ error: 'Invalid permit index' });
+    }
+    
+    const { status, notes } = req.body;
+    if (status) attendingEvent.requiredPermits[index].status = status;
+    if (notes !== undefined) attendingEvent.requiredPermits[index].notes = notes;
+    attendingEvent.updatedAt = Date.now();
+    
+    await attendingEvent.save();
+    res.json({ attendingEvent });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update a specific checklist item on attending event
+app.put('/api/attending-events/:id/checklist/:checkIndex', authMiddleware, requireWriteAccess, async (req, res) => {
+  try {
+    const attendingEvent = await AttendingEvent.findOne({
+      _id: req.params.id,
+      vendorBusinessId: req.user.vendorBusinessId
+    });
+    
+    if (!attendingEvent) {
+      return res.status(404).json({ error: 'Attending event not found' });
+    }
+    
+    const index = parseInt(req.params.checkIndex);
+    if (index < 0 || index >= attendingEvent.complianceChecklist.length) {
+      return res.status(400).json({ error: 'Invalid checklist index' });
+    }
+    
+    const { completed, notes } = req.body;
+    if (completed !== undefined) {
+      attendingEvent.complianceChecklist[index].completed = completed;
+      attendingEvent.complianceChecklist[index].completedAt = completed ? new Date() : null;
+    }
+    if (notes !== undefined) attendingEvent.complianceChecklist[index].notes = notes;
+    attendingEvent.updatedAt = Date.now();
+    
+    await attendingEvent.save();
+    res.json({ attendingEvent });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete attending event
+app.delete('/api/attending-events/:id', authMiddleware, async (req, res) => {
+  try {
+    const attendingEvent = await AttendingEvent.findOneAndDelete({
+      _id: req.params.id,
+      vendorBusinessId: req.user.vendorBusinessId
+    });
+    
+    if (!attendingEvent) {
+      return res.status(404).json({ error: 'Attending event not found' });
+    }
+    
+    res.json({ message: 'Attending event deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Upload document for event application
 app.post('/api/events/:id/documents', authMiddleware, requireWriteAccess, upload.single('file'), async (req, res) => {
