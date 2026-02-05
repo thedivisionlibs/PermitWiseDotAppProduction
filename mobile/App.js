@@ -946,7 +946,7 @@ const CitySearchModal = ({ visible, onClose, state, onSelect, strictMode = false
   };
 
   const handleUseCustom = () => {
-    if (searchTerm.trim() && !strictMode) {
+    if (searchTerm.trim()) {
       onSelect(searchTerm.trim());
       onClose();
     }
@@ -983,18 +983,23 @@ const CitySearchModal = ({ visible, onClose, state, onSelect, strictMode = false
                 <View style={styles.citySearchTypeBadge}><Text style={styles.citySearchTypeText}>{j.type}</Text></View>
               </TouchableOpacity>
             ))}
-            {!loading && results.length === 0 && searchTerm.length >= 2 && (
+            {!loading && searchTerm.length >= 2 && !strictMode && (
+              <TouchableOpacity 
+                style={[styles.citySearchOption, { backgroundColor: COLORS.primaryLight, borderTopWidth: 1, borderTopColor: COLORS.gray200 }]} 
+                onPress={handleUseCustom}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={{ color: COLORS.primary, fontSize: 16, marginRight: 8 }}>➕</Text>
+                  <View>
+                    <Text style={[styles.citySearchName, { color: COLORS.primary }]}>Use "{searchTerm}"</Text>
+                    <Text style={{ color: COLORS.gray500, fontSize: 12 }}>Add for manual tracking</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            )}
+            {!loading && results.length === 0 && searchTerm.length >= 2 && strictMode && (
               <View style={styles.citySearchEmpty}>
-                <Text style={styles.citySearchEmptyText}>
-                  {strictMode 
-                    ? 'No cities found. Please select from available options.' 
-                    : 'No matches found in our database.'}
-                </Text>
-                {!strictMode && (
-                  <TouchableOpacity style={styles.useCustomButton} onPress={handleUseCustom}>
-                    <Text style={styles.useCustomButtonText}>Use "{searchTerm}" anyway</Text>
-                  </TouchableOpacity>
-                )}
+                <Text style={styles.citySearchEmptyText}>No cities found. Please select from available options.</Text>
               </View>
             )}
             {searchTerm.length < 2 && (
@@ -1802,6 +1807,7 @@ const PermitsScreen = ({ navigation }) => {
 const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
   const { business } = useAuth();
   const [city, setCity] = useState('');
+  const [customCity, setCustomCity] = useState('');
   const [state, setState] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -1809,19 +1815,15 @@ const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
   const [showCityPicker, setShowCityPicker] = useState(false);
   const [jurisdictions, setJurisdictions] = useState([]);
   const [loadingJurisdictions, setLoadingJurisdictions] = useState(false);
-  
-  // Request city form states
-  const [showRequestForm, setShowRequestForm] = useState(false);
-  const [requestCity, setRequestCity] = useState('');
-  const [requestReason, setRequestReason] = useState('');
-  const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [showCustomEntry, setShowCustomEntry] = useState(false);
 
   // Fetch jurisdictions when state changes
   useEffect(() => {
     if (!state) {
       setJurisdictions([]);
       setCity('');
-      setShowRequestForm(false);
+      setCustomCity('');
+      setShowCustomEntry(false);
       return;
     }
     const fetchJurisdictions = async () => {
@@ -1831,6 +1833,7 @@ const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
         const filtered = (data.jurisdictions || []).filter(j => j.state === state);
         setJurisdictions(filtered);
         setCity('');
+        setCustomCity('');
       } catch (err) {
         console.error(err);
       } finally {
@@ -1841,15 +1844,16 @@ const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
   }, [state]);
 
   const handleAdd = async () => {
-    if (!city || !state) {
-      toast.error('Please select city and state');
+    const cityToAdd = showCustomEntry ? customCity : city;
+    if (!cityToAdd || !state) {
+      toast.error('Please enter city and state');
       return;
     }
     setLoading(true);
     try {
-      const data = await api.post('/permits/add-city', { city, state });
+      const data = await api.post('/permits/add-city', { city: cityToAdd, state });
       setResult(data);
-      toast.success(data.message || 'Permits added for ' + city);
+      toast.success(data.message || 'City added: ' + cityToAdd);
       onSuccess();
     } catch (err) {
       toast.error(err.message);
@@ -1858,158 +1862,103 @@ const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
     }
   };
 
-  const handleRequestCity = async () => {
-    if (!requestCity || !state) return;
-    setRequestSubmitting(true);
-    try {
-      await api.post('/suggestions', {
-        type: 'city_request',
-        details: `New city request: ${requestCity}, ${state}`,
-        additionalInfo: requestReason
-      });
-      toast.success('City request submitted! Our team will review and add coverage soon.');
-      setShowRequestForm(false);
-      setRequestCity('');
-      setRequestReason('');
-    } catch (err) {
-      toast.error(err.message || 'Failed to submit request');
-    } finally {
-      setRequestSubmitting(false);
-    }
-  };
-
   const handleClose = () => {
     setCity('');
+    setCustomCity('');
     setState('');
     setResult(null);
-    setShowRequestForm(false);
-    setRequestCity('');
-    setRequestReason('');
+    setShowCustomEntry(false);
     onClose();
   };
 
-  const cityOptions = jurisdictions.map(j => ({ value: j.city || j.name, label: j.city || j.name }));
+  const cityOptions = [
+    ...jurisdictions.map(j => ({ value: j.city || j.name, label: j.city || j.name })),
+    { value: '__custom__', label: '➕ Add Other City...' }
+  ];
+
+  const handleCitySelect = (val) => {
+    if (val === '__custom__') {
+      setShowCustomEntry(true);
+      setCity('');
+      setShowCityPicker(false);
+    } else {
+      setCity(val);
+      setShowCustomEntry(false);
+      setCustomCity('');
+    }
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide">
       <View style={styles.modalOverlay}>
         <View style={styles.addCityModal}>
           <View style={styles.addCityHeader}>
-            <Text style={styles.addCityTitle}>{showRequestForm ? 'Request City Coverage' : 'Add Operating City'}</Text>
+            <Text style={styles.addCityTitle}>Add Operating City</Text>
             <TouchableOpacity onPress={handleClose}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
           </View>
           
           <ScrollView style={styles.addCityContent}>
-            {showRequestForm ? (
+            <Text style={styles.addCityDescription}>
+              Add a city where you operate. Select from cities with permit data, or add a custom city for manual tracking.
+            </Text>
+            
+            {result && (
+              <View style={styles.successMessage}>
+                <Icons.Check size={20} color={COLORS.success} />
+                <Text style={styles.successText}>{result.message}</Text>
+              </View>
+            )}
+            
+            <Text style={[styles.label, { marginTop: 12 }]}>State</Text>
+            <TouchableOpacity style={styles.pickerButton} onPress={() => setShowStatePicker(true)}>
+              <Text style={state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{state || 'Select state'}</Text>
+            </TouchableOpacity>
+            
+            {!showCustomEntry ? (
               <>
-                <Text style={styles.addCityDescription}>
-                  Request permit coverage for a city not yet in our system. Our team will review and add the city's permit data.
-                </Text>
-                
-                <Text style={[styles.label, { marginTop: 16 }]}>State</Text>
-                <View style={[styles.pickerButton, { backgroundColor: COLORS.gray100 }]}>
-                  <Text style={styles.pickerButtonText}>{state}</Text>
-                </View>
-                
-                <Input 
-                  label="City Name *" 
-                  value={requestCity} 
-                  onChangeText={setRequestCity} 
-                  placeholder="Enter city name"
-                  style={{ marginTop: 12 }}
-                />
-                
-                <Text style={[styles.label, { marginTop: 12 }]}>Additional Information (optional)</Text>
-                <TextInput
-                  style={[styles.input, { height: 80, textAlignVertical: 'top', paddingTop: 12 }]}
-                  value={requestReason}
-                  onChangeText={setRequestReason}
-                  placeholder="Let us know any specific permits you're looking for..."
-                  multiline
-                />
-                
-                <View style={{ flexDirection: 'row', marginTop: 24 }}>
-                  <Button 
-                    title="← Back" 
-                    variant="outline" 
-                    onPress={() => setShowRequestForm(false)} 
-                    style={{ flex: 1, marginRight: 8 }} 
-                  />
-                  <Button 
-                    title={requestSubmitting ? 'Submitting...' : 'Submit Request'} 
-                    onPress={handleRequestCity} 
-                    loading={requestSubmitting} 
-                    disabled={!requestCity}
-                    style={{ flex: 1 }} 
-                  />
-                </View>
+                <Text style={[styles.label, { marginTop: 12 }]}>City</Text>
+                <TouchableOpacity 
+                  style={[styles.pickerButton, !state && styles.pickerButtonDisabled]} 
+                  onPress={() => state && setShowCityPicker(true)}
+                  disabled={!state}
+                >
+                  <Text style={city ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
+                    {city || (state ? (loadingJurisdictions ? 'Loading...' : 'Select city') : 'Select state first')}
+                  </Text>
+                </TouchableOpacity>
               </>
             ) : (
               <>
-                <Text style={styles.addCityDescription}>
-                  Add a city where you operate. Only cities with permit data are available.
-                </Text>
-                
-                {result && (
-                  <View style={styles.successMessage}>
-                    <Icons.Check size={20} color={COLORS.success} />
-                    <Text style={styles.successText}>{result.message}</Text>
-                  </View>
-                )}
-                
-                <Text style={[styles.label, { marginTop: 12 }]}>State</Text>
-                <TouchableOpacity style={styles.pickerButton} onPress={() => setShowStatePicker(true)}>
-                  <Text style={state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{state || 'Select state'}</Text>
-                </TouchableOpacity>
-                
-                <Text style={[styles.label, { marginTop: 12 }]}>City</Text>
-                <TouchableOpacity 
-                  style={[styles.pickerButton, (!state || cityOptions.length === 0) && styles.pickerButtonDisabled]} 
-                  onPress={() => state && cityOptions.length > 0 && setShowCityPicker(true)}
-                  disabled={!state || cityOptions.length === 0}
-                >
-                  <Text style={city ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
-                    {city || (state ? (loadingJurisdictions ? 'Loading...' : (cityOptions.length > 0 ? 'Select city' : 'No cities available')) : 'Select state first')}
+                <Text style={[styles.label, { marginTop: 12 }]}>City Name</Text>
+                <TextInput
+                  style={styles.input}
+                  value={customCity}
+                  onChangeText={setCustomCity}
+                  placeholder="Enter city name"
+                />
+                <View style={{ backgroundColor: COLORS.primaryLight, padding: 12, borderRadius: 8, marginTop: 12, flexDirection: 'row', alignItems: 'center' }}>
+                  <Icons.Info size={16} color={COLORS.primary} />
+                  <Text style={{ color: COLORS.gray700, marginLeft: 8, flex: 1, fontSize: 13 }}>
+                    This city doesn't have permit data. You can track permits manually.
                   </Text>
+                </View>
+                <TouchableOpacity 
+                  onPress={() => { setShowCustomEntry(false); setCustomCity(''); }}
+                  style={{ marginTop: 12, alignSelf: 'flex-start' }}
+                >
+                  <Text style={{ color: COLORS.primary, fontWeight: '500' }}>← Back to city selection</Text>
                 </TouchableOpacity>
-                
-                {state && !loadingJurisdictions && cityOptions.length === 0 && (
-                  <View style={{ backgroundColor: COLORS.primaryLight, padding: 16, borderRadius: 12, marginTop: 16 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                      <Icons.Info size={18} color={COLORS.primary} />
-                      <Text style={{ color: COLORS.primary, fontWeight: '600', marginLeft: 8 }}>No Coverage Yet</Text>
-                    </View>
-                    <Text style={{ color: COLORS.gray700, lineHeight: 20 }}>
-                      No cities with permit data in {state} yet. We're constantly adding new coverage.
-                    </Text>
-                    <TouchableOpacity 
-                      style={{ backgroundColor: COLORS.primary, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, marginTop: 12, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center' }}
-                      onPress={() => setShowRequestForm(true)}
-                    >
-                      <Icons.Plus size={16} color={COLORS.white} />
-                      <Text style={{ color: COLORS.white, fontWeight: '600', marginLeft: 6 }}>Request City Coverage</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-                
-                {state && cityOptions.length === 0 && !loadingJurisdictions ? (
-                  <Button 
-                    title="Request City" 
-                    onPress={() => setShowRequestForm(true)} 
-                    style={{ marginTop: 24 }} 
-                  />
-                ) : (
-                  <Button 
-                    title={loading ? 'Adding Permits...' : 'Add City'} 
-                    onPress={handleAdd} 
-                    loading={loading} 
-                    disabled={!city || !state} 
-                    style={{ marginTop: 24 }} 
-                  />
-                )}
-                <Button title="Cancel" variant="outline" onPress={handleClose} style={{ marginTop: 12 }} />
               </>
             )}
+            
+            <Button 
+              title={loading ? 'Adding...' : 'Add City'} 
+              onPress={handleAdd} 
+              loading={loading} 
+              disabled={!state || (!city && !customCity)} 
+              style={{ marginTop: 24 }} 
+            />
+            <Button title="Cancel" variant="outline" onPress={handleClose} style={{ marginTop: 12 }} />
           </ScrollView>
           
           <PickerModal 
@@ -2018,15 +1967,15 @@ const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
             title="State" 
             options={US_STATES.map(s => ({ value: s, label: s }))} 
             value={state} 
-            onSelect={(v) => { setState(v); setCity(''); }} 
+            onSelect={(v) => { setState(v); setCity(''); setCustomCity(''); setShowCustomEntry(false); }} 
           />
           <PickerModal 
             visible={showCityPicker} 
             onClose={() => setShowCityPicker(false)} 
             title="City" 
-            options={cityOptions} 
+            options={state ? cityOptions : []} 
             value={city} 
-            onSelect={setCity} 
+            onSelect={handleCitySelect} 
           />
         </View>
       </View>
@@ -3401,7 +3350,7 @@ const SettingsScreen = ({ navigation }) => {
                   onClose={() => setShowCityPicker(null)} 
                   state={city.state}
                   onSelect={cityName => updateCity(i, 'city', cityName)}
-                  strictMode={true}
+                  strictMode={false}
                 />
               </React.Fragment>
             ))}
@@ -4858,17 +4807,17 @@ const EventsScreen = () => {
                 </View>
                 <View style={styles.organizerEventActions}>
                   {item.status === 'closed' || item.status === 'cancelled' ? (
-                    <Button title="View" variant="outline" size="sm" onPress={() => fetchEventApplications(item._id)} style={{ flex: 1 }} />
+                    <Button title="View" variant="outline" size="sm" onPress={() => fetchEventApplications(item._id)} style={{ minWidth: 80 }} />
                   ) : (
                     <>
-                      <Button title={item.status === 'published' ? 'Edit Name' : 'Edit'} variant="outline" size="sm" onPress={() => openEditEventModal(item)} style={{ flex: 1 }} />
-                      <Button title="Manage" variant="outline" size="sm" onPress={() => fetchEventApplications(item._id)} style={{ flex: 1 }} />
+                      <Button title={item.status === 'published' ? 'Edit Name' : 'Edit'} variant="outline" size="sm" onPress={() => openEditEventModal(item)} style={{ minWidth: 80 }} />
+                      <Button title="Manage" variant="outline" size="sm" onPress={() => fetchEventApplications(item._id)} style={{ minWidth: 80 }} />
                     </>
                   )}
-                  {item.status === 'draft' && <Button title="Publish" size="sm" onPress={() => updateEventStatus(item._id, 'published')} style={{ flex: 1 }} />}
-                  {item.status === 'published' && <Button title="Close" variant="outline" size="sm" onPress={() => updateEventStatus(item._id, 'closed')} style={{ flex: 1 }} />}
+                  {item.status === 'draft' && <Button title="Publish" size="sm" onPress={() => updateEventStatus(item._id, 'published')} style={{ minWidth: 80 }} />}
+                  {item.status === 'published' && <Button title="Close" variant="outline" size="sm" onPress={() => updateEventStatus(item._id, 'closed')} style={{ minWidth: 70 }} />}
                   {(item.status === 'draft' || item.status === 'published') && (
-                    <Button title="Cancel" variant="danger" size="sm" onPress={() => initiateCancelEvent(item)} style={{ flex: 1 }} />
+                    <Button title="Cancel" variant="danger" size="sm" onPress={() => initiateCancelEvent(item)} style={{ minWidth: 70 }} />
                   )}
                 </View>
               </Card>
@@ -6937,7 +6886,7 @@ const styles = StyleSheet.create({
   organizerEventMetaText: { fontSize: 13, color: COLORS.gray500 },
   organizerEventStats: { flexDirection: 'row', gap: 16, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.gray100 },
   organizerEventStat: { fontSize: 13, color: COLORS.gray500 },
-  organizerEventActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  organizerEventActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   backButton: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 16 },
   backButtonText: { fontSize: 15, color: COLORS.primary, fontWeight: '500' },
   eventManagementCard: { marginBottom: 16 },
