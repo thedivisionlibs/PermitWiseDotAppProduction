@@ -4143,6 +4143,7 @@ const EventsPage = () => {
 
   // Separate attending events by status
   const upcomingAttendingEvents = attendingEvents.filter(ae => ae.status === 'upcoming' && new Date(ae.endDate || ae.startDate) >= new Date());
+  // eslint-disable-next-line
   const pastAttendingEvents = attendingEvents.filter(ae => ae.status !== 'upcoming' || new Date(ae.endDate || ae.startDate) < new Date());
 
   // Separate events by source
