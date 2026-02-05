@@ -4198,6 +4198,9 @@ const EventsScreen = () => {
   const [selectedAttendingEvent, setSelectedAttendingEvent] = useState(null);
   const [showAttendingStatePicker, setShowAttendingStatePicker] = useState(false);
   const [showAttendingTypePicker, setShowAttendingTypePicker] = useState(false);
+  const [vendorPermitsList, setVendorPermitsList] = useState([]);
+  const [selectedExistingPermit, setSelectedExistingPermit] = useState(null);
+  const [showPermitPicker, setShowPermitPicker] = useState(false);
 
   // Check if user is an organizer
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
@@ -4239,14 +4242,16 @@ const EventsScreen = () => {
   // Fetch vendor's events and published events for browsing
   const fetchMyEvents = async () => {
     try {
-      const [myData, pubData, attData] = await Promise.all([
+      const [myData, pubData, attData, permData] = await Promise.all([
         api.get('/events/my-events'),
         api.get('/events/published'),
-        api.get('/attending-events')
+        api.get('/attending-events'),
+        api.get('/permits')
       ]);
       setEvents(myData.events || []);
       setPublishedEvents(pubData.events || []);
       setAttendingEvents(attData.attendingEvents || []);
+      setVendorPermitsList(permData.permits || []);
     } catch (error) { console.error(error); }
     finally { setLoading(false); setRefreshing(false); }
   };
@@ -5714,6 +5719,7 @@ const EventsScreen = () => {
     setNewPermitName('');
     setNewChecklistItem('');
     setEditingAttendingEvent(null);
+    setSelectedExistingPermit(null);
   };
 
   const openAddAttendingModal = () => { resetAttendingForm(); setShowAddAttendingModal(true); };
@@ -5728,7 +5734,25 @@ const EventsScreen = () => {
       venueName: ae.location?.venueName || '', eventType: ae.eventType || 'other', notes: ae.notes || '',
       requiredPermits: ae.requiredPermits || [], complianceChecklist: ae.complianceChecklist || []
     });
+    setSelectedExistingPermit(null);
     setShowAddAttendingModal(true);
+  };
+
+  const addExistingPermitToForm = (permit) => {
+    if (!permit) return;
+    const alreadyAdded = attendingForm.requiredPermits.some(rp => rp.vendorPermitId === permit._id || rp.permitTypeId === permit.permitTypeId?._id);
+    if (alreadyAdded) return;
+    setAttendingForm(f => ({
+      ...f,
+      requiredPermits: [...f.requiredPermits, {
+        name: permit.permitTypeId?.name || 'Unnamed Permit',
+        status: (permit.status === 'active') ? 'obtained' : (permit.status === 'in_progress') ? 'in_progress' : 'needed',
+        permitTypeId: permit.permitTypeId?._id,
+        vendorPermitId: permit._id,
+        notes: ''
+      }]
+    }));
+    setShowPermitPicker(false);
   };
 
   const addPermitToForm = () => {
@@ -6109,6 +6133,50 @@ const EventsScreen = () => {
             ))}
           </View>
         )}
+        
+        {/* Past Attending Events Section */}
+        {pastAttendingEvents.length > 0 && (
+          <View style={[styles.eventSection, { marginTop: 16, borderTopWidth: 1, borderTopColor: COLORS.gray200, paddingTop: 16 }]}>
+            <View style={styles.eventSectionHeader}>
+              <Text style={[styles.eventSectionTitle, { color: COLORS.gray500 }]}>📋 Past Tracked Events</Text>
+              <Text style={styles.eventSectionCount}>{pastAttendingEvents.length}</Text>
+            </View>
+            <Text style={styles.eventSectionDesc}>Attending events that have ended or been completed</Text>
+            {pastAttendingEvents.map(ae => (
+              <Card key={ae._id} style={[styles.eventReadinessCard, { opacity: 0.8, backgroundColor: COLORS.gray50, borderLeftWidth: 4, borderLeftColor: COLORS.gray300 }]}>
+                <View style={styles.eventReadinessHeader}>
+                  <View style={[styles.eventDateBadge, { backgroundColor: COLORS.gray200 }]}>
+                    <Text style={[styles.eventDateMonth, { color: COLORS.gray600 }]}>{new Date(ae.startDate).toLocaleDateString('en-US', { month: 'short' })}</Text>
+                    <Text style={[styles.eventDateDay, { color: COLORS.gray600 }]}>{new Date(ae.startDate).getDate()}</Text>
+                  </View>
+                  <View style={styles.eventReadinessInfo}>
+                    <Text style={styles.eventReadinessName}>{ae.eventName}</Text>
+                    {ae.organizerName ? <Text style={styles.eventReadinessOrganizer}>by {ae.organizerName}</Text> : null}
+                    {ae.location?.city ? (
+                      <View style={styles.eventReadinessLocation}>
+                        <Icons.MapPin size={12} color={COLORS.gray500} />
+                        <Text style={styles.eventReadinessLocationText}>{ae.location.city}{ae.location.state ? `, ${ae.location.state}` : ''}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={[styles.invitationStatusBadge, { backgroundColor: ae.readinessStatus === 'ready' ? '#dcfce7' : '#fef3c7' }]}>
+                    <Text style={[styles.invitationStatusText, { color: ae.readinessStatus === 'ready' ? '#166534' : '#92400e' }]}>
+                      {ae.completedItems}/{ae.totalItems} done
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                  <TouchableOpacity style={[styles.eventCardActionBtn, { flex: 1 }]} onPress={() => setSelectedAttendingEvent(ae)}>
+                    <Text style={styles.eventCardActionBtnText}>View Details</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.eventCardActionBtn, { paddingHorizontal: 12 }]} onPress={() => deleteAttendingEvent(ae._id)}>
+                    <Icons.Trash size={14} color={COLORS.danger} />
+                  </TouchableOpacity>
+                </View>
+              </Card>
+            ))}
+          </View>
+        )}
       </ScrollView>
       
       {/* Apply to Event Modal */}
@@ -6365,17 +6433,42 @@ const EventsScreen = () => {
               <Input label="Notes" placeholder="Any notes about this event..." value={attendingForm.notes} onChangeText={v => setAttendingForm(f => ({ ...f, notes: v }))} multiline />
               
               <Text style={{ fontWeight: '600', fontSize: 15, marginTop: 16, marginBottom: 4 }}>Required Permits</Text>
-              <Text style={{ fontSize: 13, color: COLORS.gray500, marginBottom: 8 }}>Add permits you need for this event</Text>
+              <Text style={{ fontSize: 13, color: COLORS.gray500, marginBottom: 8 }}>Select from your existing permits or add custom ones</Text>
               {attendingForm.requiredPermits.map((p, i) => (
                 <View key={i} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.gray50, padding: 10, borderRadius: 8, marginBottom: 6 }}>
-                  <Text style={{ flex: 1, fontSize: 14 }}>{p.name}</Text>
+                  <Text style={{ flex: 1, fontSize: 14 }}>{p.name} {p.vendorPermitId ? <Text style={{ color: COLORS.gray500, fontSize: 12 }}>(linked)</Text> : null}</Text>
                   <TouchableOpacity onPress={() => setAttendingForm(f => ({ ...f, requiredPermits: f.requiredPermits.filter((_, idx) => idx !== i) }))}>
                     <Text style={{ color: COLORS.danger, fontSize: 18, fontWeight: '600' }}>×</Text>
                   </TouchableOpacity>
                 </View>
               ))}
+              {vendorPermitsList.filter(p => p.permitTypeId?.name && !attendingForm.requiredPermits.some(rp => rp.vendorPermitId === p._id)).length > 0 && (
+                <>
+                  <TouchableOpacity onPress={() => setShowPermitPicker(true)} style={{ padding: 12, borderRadius: 8, borderWidth: 1, borderColor: COLORS.gray300, borderStyle: 'dashed', alignItems: 'center', marginBottom: 8, backgroundColor: '#f9fafb' }}>
+                    <Text style={{ color: COLORS.primary, fontWeight: '500' }}>📋 Select from Your Permits</Text>
+                  </TouchableOpacity>
+                  <Modal visible={showPermitPicker} animationType="slide" transparent>
+                    <View style={styles.modalOverlay}>
+                      <View style={[styles.modalContent, { maxHeight: '70%' }]}>
+                        <View style={styles.modalHeader}>
+                          <Text style={styles.modalTitle}>Select a Permit</Text>
+                          <TouchableOpacity onPress={() => setShowPermitPicker(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+                        </View>
+                        <ScrollView style={styles.modalBody}>
+                          {vendorPermitsList.filter(p => p.permitTypeId?.name && !attendingForm.requiredPermits.some(rp => rp.vendorPermitId === p._id)).map(p => (
+                            <TouchableOpacity key={p._id} onPress={() => addExistingPermitToForm(p)} style={{ padding: 14, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 }}>
+                              <Text style={{ fontWeight: '500', fontSize: 15 }}>{p.permitTypeId?.name}</Text>
+                              <Text style={{ fontSize: 13, color: COLORS.gray500, marginTop: 2 }}>{p.jurisdictionId?.city || 'Unknown city'} — {p.status}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    </View>
+                  </Modal>
+                </>
+              )}
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                <View style={{ flex: 1 }}><Input placeholder="e.g. Food Handler's Permit" value={newPermitName} onChangeText={setNewPermitName} /></View>
+                <View style={{ flex: 1 }}><Input placeholder="Or type custom permit name..." value={newPermitName} onChangeText={setNewPermitName} /></View>
                 <Button title="Add" variant="outline" size="sm" onPress={addPermitToForm} disabled={!newPermitName.trim()} />
               </View>
               
