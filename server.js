@@ -5157,7 +5157,24 @@ app.put('/api/attending-events/:id', authMiddleware, requireWriteAccess, async (
     delete updates.createdBy;
     updates.updatedAt = Date.now();
     
+    // Explicitly set arrays so Mongoose detects changes on subdocument arrays
+    if (updates.requiredPermits !== undefined) {
+      attendingEvent.requiredPermits = updates.requiredPermits;
+      delete updates.requiredPermits;
+    }
+    if (updates.complianceChecklist !== undefined) {
+      attendingEvent.complianceChecklist = updates.complianceChecklist;
+      delete updates.complianceChecklist;
+    }
+    if (updates.location !== undefined) {
+      attendingEvent.location = updates.location;
+      delete updates.location;
+    }
+    
     Object.assign(attendingEvent, updates);
+    attendingEvent.markModified('requiredPermits');
+    attendingEvent.markModified('complianceChecklist');
+    attendingEvent.markModified('location');
     await attendingEvent.save();
     
     res.json({ attendingEvent });
