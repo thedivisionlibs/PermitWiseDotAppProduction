@@ -180,7 +180,11 @@ const api = {
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Request failed');
+    if (!response.ok) {
+      const err = new Error(data.message || data.error || 'Request failed');
+      err.data = data;
+      throw err;
+    }
     return data;
   },
   get: (endpoint) => api.request(endpoint),
@@ -192,7 +196,11 @@ const api = {
     const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
     const response = await fetch(`${API_URL}${endpoint}`, { method: 'POST', headers, body: formData });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Upload failed');
+    if (!response.ok) {
+      const err = new Error(data.message || data.error || 'Upload failed');
+      err.data = data;
+      throw err;
+    }
     return data;
   },
 };
@@ -1653,7 +1661,7 @@ const PermitsPage = () => {
           <EmptyState icon={Icons.Permit} title="No permits yet" description="Add the permits you need to track or let us suggest them based on your city." action={<div className="empty-actions"><Button onClick={() => canWrite ? fetchSuggestedPermits() : setShowUpgradeModal(true)}><Icons.Search /> Get Suggestions</Button><Button variant="outline" onClick={() => setShowCityModal(true)}><Icons.MapPin /> Add City</Button></div>} />
         </div>
       )}
-      <AddCityModal isOpen={showCityModal} onClose={() => setShowCityModal(false)} onSuccess={fetchPermits} toast={toast} />
+      <AddCityModal isOpen={showCityModal} onClose={() => setShowCityModal(false)} onSuccess={fetchPermits} updateBusiness={updateBusiness} toast={toast} />
       <AddPermitModal isOpen={showAddModal} onClose={() => setShowAddModal(false)} onSuccess={fetchPermits} toast={toast} />
       <PermitDetailModal permit={selectedPermit} onClose={() => setSelectedPermit(null)} onUpdate={fetchPermits} />
       
@@ -1721,7 +1729,7 @@ const PermitsPage = () => {
   );
 };
 
-const AddCityModal = ({ isOpen, onClose, onSuccess, toast }) => {
+const AddCityModal = ({ isOpen, onClose, onSuccess, updateBusiness, toast }) => {
   const [state, setState] = useState('');
   const [city, setCity] = useState('');
   const [customCity, setCustomCity] = useState('');
@@ -1760,8 +1768,10 @@ const AddCityModal = ({ isOpen, onClose, onSuccess, toast }) => {
     setLoading(true);
     try {
       const data = await api.post('/permits/add-city', { city: cityToAdd, state });
-      setResult(data);
+      if (data.business) updateBusiness?.(data.business);
+      toast?.success(data.message || `${cityToAdd}, ${state} added successfully!`);
       onSuccess();
+      handleClose();
     } catch (err) {
       toast?.error(err.message);
     } finally {
@@ -4151,7 +4161,7 @@ const EventsPage = () => {
       setShowAddAttendingModal(false);
       resetAttendingForm();
       fetchVendorData();
-    } catch (error) { toast.error(error.response?.data?.error || 'Failed to save event'); }
+    } catch (error) { toast.error(error.message || 'Failed to save event'); }
   };
 
   const deleteAttendingEvent = async (id) => {
@@ -5425,7 +5435,15 @@ const SettingsPage = () => {
     if (!canManageSubscription) { toast.error('Only the business owner can manage subscriptions'); return; }
     try { const data = await api.post('/subscription/checkout', { plan }); if (data.url) window.location.href = data.url; } catch (err) { toast.error(err.message); } 
   };
-  const addCity = () => setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
+  const addCity = () => {
+    const maxCities = subscription?.features?.maxCities || 1;
+    const currentCities = businessData.operatingCities.filter(c => c.city && c.state).length;
+    if (currentCities >= maxCities) {
+      toast.error(`You've reached your plan limit of ${maxCities} operating ${maxCities === 1 ? 'city' : 'cities'}. Please upgrade for more.`);
+      return;
+    }
+    setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
+  };
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
   const removeCity = async (i) => { 
     if (businessData.operatingCities.length <= 1) {
