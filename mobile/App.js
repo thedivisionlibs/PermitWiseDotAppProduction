@@ -202,7 +202,9 @@ const api = {
         console.log('Subscription expired - operation blocked');
         return { _subscriptionExpired: true };
       }
-      throw new Error(data.error || 'Request failed');
+      const err = new Error(data.message || data.error || 'Request failed');
+      err.data = data;
+      throw err;
     }
     return data;
   },
@@ -226,7 +228,9 @@ const api = {
         console.log('Subscription expired - upload blocked');
         return { _subscriptionExpired: true };
       }
-      throw new Error(data.error || 'Upload failed');
+      const err = new Error(data.message || data.error || 'Upload failed');
+      err.data = data;
+      throw err;
     }
     return data;
   }
@@ -1749,7 +1753,7 @@ const PermitsScreen = ({ navigation }) => {
         }
         contentContainerStyle={styles.listContent}
       />
-      <AddCityPermitsModal visible={showAddCityModal} onClose={() => setShowAddCityModal(false)} onSuccess={() => { setShowAddCityModal(false); fetchPermits(); }} />
+      <AddCityPermitsModal visible={showAddCityModal} onClose={() => setShowAddCityModal(false)} onSuccess={() => { setShowAddCityModal(false); fetchPermits(); }} updateBusiness={updateBusiness} />
       
       {/* Suggested Permits Modal */}
       <Modal visible={showSuggestModal} animationType="slide" transparent>
@@ -1814,7 +1818,7 @@ const PermitsScreen = ({ navigation }) => {
 };
 
 // Add City Permits Modal
-const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
+const AddCityPermitsModal = ({ visible, onClose, onSuccess, updateBusiness }) => {
   const { business } = useAuth();
   const [city, setCity] = useState('');
   const [customCity, setCustomCity] = useState('');
@@ -1862,9 +1866,10 @@ const AddCityPermitsModal = ({ visible, onClose, onSuccess }) => {
     setLoading(true);
     try {
       const data = await api.post('/permits/add-city', { city: cityToAdd, state });
-      setResult(data);
-      toast.success(data.message || 'City added: ' + cityToAdd);
+      if (data.business) updateBusiness?.(data.business);
+      toast.success(data.message || `${cityToAdd}, ${state} added successfully!`);
       onSuccess();
+      handleClose();
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -3121,7 +3126,15 @@ const SettingsScreen = ({ navigation }) => {
   };
   
   const handleNotificationSave = async () => { setLoading(true); try { await api.put('/auth/profile', { notificationPreferences: notificationPrefs }); await fetchUser(); toast.success('Notification preferences updated'); setActiveSection(null); } catch (err) { toast.error(err.message); } finally { setLoading(false); } };
-  const addCity = () => setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
+  const addCity = () => {
+    const maxCities = subscription?.features?.maxCities || 1;
+    const currentCities = businessData.operatingCities.filter(c => c.city && c.state).length;
+    if (currentCities >= maxCities) {
+      toast.error(`You've reached your plan limit of ${maxCities} operating ${maxCities === 1 ? 'city' : 'cities'}. Please upgrade for more.`);
+      return;
+    }
+    setBusinessData(d => ({ ...d, operatingCities: [...d.operatingCities, { city: '', state: '', isPrimary: false }] }));
+  };
   const updateCity = (i, field, value) => { const cities = [...businessData.operatingCities]; cities[i] = { ...cities[i], [field]: value }; setBusinessData(d => ({ ...d, operatingCities: cities })); };
   
   const removeCity = async (i) => {
@@ -5808,7 +5821,7 @@ const EventsScreen = () => {
       setShowAddAttendingModal(false);
       resetAttendingForm();
       fetchMyEvents();
-    } catch (error) { toast.error(error.response?.data?.error || 'Failed to save'); }
+    } catch (error) { toast.error(error.message || 'Failed to save event'); }
   };
 
   const deleteAttendingEvent = async (id) => {
