@@ -152,6 +152,16 @@ const Icons = {
       <Polyline points="3,6 5,6 21,6" /><Path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
     </Svg>
   ),
+  Info: ({ size = 24, color = '#64748b' }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <Circle cx="12" cy="12" r="10" /><Line x1="12" y1="16" x2="12" y2="12" /><Line x1="12" y1="8" x2="12.01" y2="8" />
+    </Svg>
+  ),
+  Download: ({ size = 24, color = '#64748b' }) => (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+      <Path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><Polyline points="7,10 12,15 17,10" /><Line x1="12" y1="15" x2="12" y2="3" />
+    </Svg>
+  ),
 };
 
 // ===========================================
