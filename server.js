@@ -3002,9 +3002,14 @@ app.post('/api/permits/add-city', authMiddleware, requireWriteAccess, checkPlanL
     
     if (!jurisdiction) {
       // Add city anyway, just no auto permits
-      business.operatingCities.push({ city, state, isPrimary: false });
-      await business.save();
-      return res.json({ message: 'City added but no permit templates found yet', permitsAdded: 0 });
+      const cityExists = business.operatingCities.find(
+        c => c.city.toLowerCase() === city.toLowerCase() && c.state === state
+      );
+      if (!cityExists) {
+        business.operatingCities.push({ city, state, isPrimary: false });
+        await business.save();
+      }
+      return res.json({ message: `${city}, ${state} added. No permit templates found yet — you can track permits manually.`, permitsAdded: 0, business });
     }
     
     const permitTypes = await PermitType.find({
@@ -3041,7 +3046,7 @@ app.post('/api/permits/add-city', authMiddleware, requireWriteAccess, checkPlanL
       await business.save();
     }
     
-    res.json({ message: `${added} permits added for ${city}, ${state}`, permitsAdded: added });
+    res.json({ message: `${city}, ${state} added with ${added} permit${added !== 1 ? 's' : ''}.`, permitsAdded: added, business });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
