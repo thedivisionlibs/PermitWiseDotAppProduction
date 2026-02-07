@@ -280,15 +280,16 @@ const vendorBusinessSchema = new mongoose.Schema({
     isPrimary: { type: Boolean, default: false }
   }],
   vehicleDetails: {
+    type: { type: String },
     make: String,
     model: String,
     year: String,
-    plateNumber: String,
+    licensePlate: String,
     vin: String,
     color: String
   },
   insurance: {
-    carrier: String,
+    provider: String,
     policyNumber: String,
     expiryDate: Date,
     coverageAmount: String,
@@ -1079,7 +1080,7 @@ const checkPlanLimit = (limitType) => async (req, res, next) => {
     
     switch (limitType) {
       case 'cities':
-        currentCount = business?.operatingCities?.length || 0;
+        currentCount = (business?.operatingCities || []).filter(c => c.city && c.state).length;
         maxAllowed = limits.maxCities || 1;
         itemName = 'operating cities';
         break;
@@ -1839,6 +1840,11 @@ app.put('/api/business', authMiddleware, requireRole('owner', 'manager'), async 
     const updates = { ...req.body, updatedAt: Date.now() };
     delete updates._id;
     delete updates.ownerId;
+    
+    // Clean up empty city entries (from Settings UI adding empty rows)
+    if (updates.operatingCities) {
+      updates.operatingCities = updates.operatingCities.filter(c => c.city && c.state);
+    }
     
     const business = await VendorBusiness.findByIdAndUpdate(
       req.user.vendorBusinessId,
@@ -2811,7 +2817,7 @@ app.post('/api/permits/remove-city', authMiddleware, requireWriteAccess, async (
       
       for (const permit of permits) {
         // Check if permit has any documents attached
-        const hasDocuments = permit.documentUrl || (permit.documents && permit.documents.length > 0);
+        const hasDocuments = permit.documentId || (permit.documents && permit.documents.length > 0);
         
         if (hasDocuments) {
           documentsPreserved++;
@@ -2826,7 +2832,7 @@ app.post('/api/permits/remove-city', authMiddleware, requireWriteAccess, async (
       message: `City removed. ${permitsRemoved} permit(s) removed.${documentsPreserved > 0 ? ` ${documentsPreserved} document(s) preserved in vault.` : ''}`,
       permitsRemoved,
       documentsPreserved,
-      business: { operatingCities: business.operatingCities }
+      business
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2891,7 +2897,7 @@ app.delete('/api/permits/remove-city', authMiddleware, requireWriteAccess, async
       
       for (const permit of permits) {
         // Check if permit has any documents attached
-        const hasDocuments = permit.documentUrl || (permit.documents && permit.documents.length > 0);
+        const hasDocuments = permit.documentId || (permit.documents && permit.documents.length > 0);
         
         if (hasDocuments) {
           documentsPreserved++;
@@ -2906,7 +2912,7 @@ app.delete('/api/permits/remove-city', authMiddleware, requireWriteAccess, async
       message: `City removed. ${permitsRemoved} permit(s) removed.${documentsPreserved > 0 ? ` ${documentsPreserved} document(s) preserved in vault.` : ''}`,
       permitsRemoved,
       documentsPreserved,
-      business: { operatingCities: business.operatingCities }
+      business
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2947,7 +2953,7 @@ app.delete('/api/permits/by-city', authMiddleware, requireWriteAccess, async (re
       
       for (const permit of permits) {
         // Check if permit has any documents attached
-        const hasDocuments = permit.documentUrl || (permit.documents && permit.documents.length > 0);
+        const hasDocuments = permit.documentId || (permit.documents && permit.documents.length > 0);
         
         if (hasDocuments) {
           documentsPreserved++;
@@ -3285,7 +3291,7 @@ app.post('/api/autofill/generate', authMiddleware, checkFeature('autofill'), asy
       const vehicleFields = [
         { label: 'Make/Model:', value: `${business.vehicleDetails.make || ''} ${business.vehicleDetails.model || ''}` },
         { label: 'Year:', value: business.vehicleDetails.year || 'N/A' },
-        { label: 'License Plate:', value: business.vehicleDetails.plateNumber || 'N/A' },
+        { label: 'License Plate:', value: business.vehicleDetails.licensePlate || 'N/A' },
         { label: 'VIN:', value: business.vehicleDetails.vin || 'N/A' }
       ];
       
@@ -3309,7 +3315,7 @@ app.post('/api/autofill/generate', authMiddleware, checkFeature('autofill'), asy
       y -= lineHeight;
       
       const insuranceFields = [
-        { label: 'Insurance Carrier:', value: business.insurance.carrier || 'N/A' },
+        { label: 'Insurance Provider:', value: business.insurance.provider || 'N/A' },
         { label: 'Policy Number:', value: business.insurance.policyNumber || 'N/A' },
         { label: 'Coverage Amount:', value: business.insurance.coverageAmount || 'N/A' },
         { label: 'Expiry Date:', value: business.insurance.expiryDate ? new Date(business.insurance.expiryDate).toLocaleDateString() : 'N/A' }
@@ -5210,6 +5216,7 @@ app.put('/api/attending-events/:id/permit/:permitIndex', authMiddleware, require
     if (notes !== undefined) attendingEvent.requiredPermits[index].notes = notes;
     attendingEvent.updatedAt = Date.now();
     
+    attendingEvent.markModified('requiredPermits');
     await attendingEvent.save();
     res.json({ attendingEvent });
   } catch (error) {
@@ -5242,6 +5249,7 @@ app.put('/api/attending-events/:id/checklist/:checkIndex', authMiddleware, requi
     if (notes !== undefined) attendingEvent.complianceChecklist[index].notes = notes;
     attendingEvent.updatedAt = Date.now();
     
+    attendingEvent.markModified('complianceChecklist');
     await attendingEvent.save();
     res.json({ attendingEvent });
   } catch (error) {
