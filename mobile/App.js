@@ -4284,7 +4284,7 @@ const EventsScreen = () => {
     if (!showApplyModal) return;
     setApplyingToEvent(true);
     try {
-      await api.post(`/events/${showApplyModal._id}/apply`, { notes: applicationNotes });
+      await api.post(`/events/${showApplyModal._id}/apply`, { applicationNotes });
       toast.success('Application submitted!');
       setShowApplyModal(null);
       setApplicationNotes('');
@@ -5825,7 +5825,7 @@ const EventsScreen = () => {
   };
 
   const deleteAttendingEvent = async (id) => {
-    const ok = await confirm('Delete this event from your tracker?');
+    const ok = await confirm({ title: 'Delete Event', message: 'Delete this event from your tracker?', confirmText: 'Delete', variant: 'danger' });
     if (!ok) return;
     try {
       await api.delete(`/attending-events/${id}`);
