@@ -727,7 +727,7 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
     pro: ['Everything in Basic', 'Multi-city support (up to 3)', 'SMS alerts', 'Inspection checklists', 'PDF autofill'],
     elite: ['Everything in Pro', 'Unlimited cities', 'Event integration', 'Team accounts', 'Priority support', 'API access']
   };
-  const vendorPlanPrices = { basic: 29, pro: 49, elite: 99 };
+  const vendorPlanPrices = { basic: 19, pro: 49, elite: 99 };
   
   const organizerFeatures = [
     'Unlimited event listings', 'Vendor compliance tracking', 'Automated permit verification',
