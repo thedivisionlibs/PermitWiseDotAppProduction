@@ -6,6 +6,8 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const path = require('path');
 const nodemailer = require('nodemailer');
@@ -13,7 +15,9 @@ const cron = require('node-cron');
 const Stripe = require('stripe');
 const twilio = require('twilio');
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const crypto = require('crypto');
 const fs = require('fs');
+const { google } = require('googleapis');
 
 const app = express();
 
@@ -21,9 +25,11 @@ const app = express();
 // CONFIGURATION
 // ===========================================
 
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const IS_PRODUCTION = NODE_ENV === 'production';
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/permitwise';
-const JWT_SECRET = process.env.JWT_SECRET || 'permitwise-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || (IS_PRODUCTION ? undefined : 'permitwise-dev-secret-key');
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -35,6 +41,42 @@ const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5000';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
+// Google Play receipt validation
+const GOOGLE_PLAY_PACKAGE_NAME = process.env.GOOGLE_PLAY_PACKAGE_NAME || 'com.permitwise.app';
+// Google service account credentials - supports JSON string in env var or file path
+const GOOGLE_SERVICE_ACCOUNT_KEY = process.env.GOOGLE_SERVICE_ACCOUNT_KEY; // JSON string
+const GOOGLE_SERVICE_ACCOUNT_KEY_FILE = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE; // or file path
+// Apple App Store shared secret for receipt validation (legacy verifyReceipt)
+const APPLE_SHARED_SECRET = process.env.APPLE_SHARED_SECRET;
+// Apple App Store Server Notifications v2 (optional, for real-time subscription updates)
+const APPLE_BUNDLE_ID = process.env.APPLE_BUNDLE_ID || 'com.permitwise.app';
+// Toggle server-to-server IAP validation on/off
+// Set to 'false' during testing to skip Google/Apple API calls and trust client receipts
+// MUST be 'true' in production to prevent fraud
+const IAP_VALIDATION_ENABLED = (process.env.IAP_VALIDATION_ENABLED || 'false').toLowerCase() === 'true';
+// Toggle Stripe payments on/off
+// Set to 'false' during testing to skip Stripe env var requirements and mock checkout
+// MUST be 'true' in production to process real payments
+const STRIPE_ENABLED = (process.env.STRIPE_ENABLED || 'false').toLowerCase() === 'true';
+
+// ===========================================
+// PRODUCTION ENVIRONMENT VALIDATION
+// ===========================================
+if (IS_PRODUCTION) {
+  const requiredEnvVars = ['JWT_SECRET', 'MONGODB_URI'];
+  if (STRIPE_ENABLED) {
+    requiredEnvVars.push('STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET');
+  }
+  const missing = requiredEnvVars.filter(v => !process.env[v]);
+  if (missing.length > 0) {
+    console.error(`FATAL: Missing required environment variables: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+  if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+    console.error('FATAL: JWT_SECRET must be at least 32 characters in production');
+    process.exit(1);
+  }
+}
 
 // Initialize Stripe
 const stripe = STRIPE_SECRET_KEY ? new Stripe(STRIPE_SECRET_KEY) : null;
@@ -44,28 +86,129 @@ const twilioClient = (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN)
   ? twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) 
   : null;
 
+// Initialize Google Play Android Publisher API (for receipt validation)
+let androidPublisher = null;
+(() => {
+  try {
+    let credentials = null;
+    if (GOOGLE_SERVICE_ACCOUNT_KEY) {
+      // Parse JSON string from env var (preferred for Railway/Heroku/Render)
+      credentials = JSON.parse(GOOGLE_SERVICE_ACCOUNT_KEY);
+    } else if (GOOGLE_SERVICE_ACCOUNT_KEY_FILE && fs.existsSync(GOOGLE_SERVICE_ACCOUNT_KEY_FILE)) {
+      // Load from file path
+      credentials = JSON.parse(fs.readFileSync(GOOGLE_SERVICE_ACCOUNT_KEY_FILE, 'utf-8'));
+    }
+    if (credentials) {
+      const auth = new google.auth.GoogleAuth({
+        credentials,
+        scopes: ['https://www.googleapis.com/auth/androidpublisher']
+      });
+      androidPublisher = google.androidpublisher({ version: 'v3', auth });
+      console.log('Google Play Android Publisher API initialized');
+    }
+  } catch (err) {
+    console.warn('Google Play API initialization failed:', err.message);
+  }
+})();
+
+// Log IAP validation status on startup
+if (IAP_VALIDATION_ENABLED) {
+  console.log('IAP server-to-server validation: ENABLED');
+} else {
+  console.warn('⚠️  IAP server-to-server validation: DISABLED (IAP_VALIDATION_ENABLED != true) — client receipts will be trusted without verification');
+  if (IS_PRODUCTION) {
+    console.error('🚨 WARNING: IAP validation is DISABLED in PRODUCTION. Set IAP_VALIDATION_ENABLED=true to prevent purchase fraud.');
+  }
+}
+
+// Log Stripe status on startup
+if (STRIPE_ENABLED && stripe) {
+  console.log('Stripe payments: ENABLED');
+} else if (STRIPE_ENABLED && !stripe) {
+  console.error('🚨 STRIPE_ENABLED=true but STRIPE_SECRET_KEY is missing — payments will fail!');
+} else {
+  console.warn('⚠️  Stripe payments: DISABLED (STRIPE_ENABLED != true) — checkout/billing routes will return test URLs');
+  if (IS_PRODUCTION) {
+    console.error('🚨 WARNING: Stripe is DISABLED in PRODUCTION. Set STRIPE_ENABLED=true to process real payments.');
+  }
+}
+
 // Initialize Nodemailer
 const transporter = nodemailer.createTransport({
   host: EMAIL_HOST,
   port: EMAIL_PORT,
-  secure: false,
+  secure: EMAIL_PORT === '465',
   auth: {
     user: EMAIL_USER,
     pass: EMAIL_PASS
   }
 });
 
-// Middleware
-app.use(cors());
+// ===========================================
+// SECURITY MIDDLEWARE
+// ===========================================
+
+// Trust proxy (Railway, Heroku, Render, etc.)
+app.set('trust proxy', 1);
+
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable CSP for serving React SPA
+  crossOriginEmbedderPolicy: false
+}));
+
+// CORS - restrict to known origins in production
+const allowedOrigins = IS_PRODUCTION
+  ? [CLIENT_URL, BASE_URL].filter(Boolean)
+  : ['http://localhost:3000', 'http://localhost:5000', 'http://localhost:19006', 'exp://localhost:19000'];
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true
+}));
+
+// Rate limiting
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: IS_PRODUCTION ? 500 : 5000, // requests per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please try again later.' }
+});
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: IS_PRODUCTION ? 20 : 200, // strict limit for auth routes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again in 15 minutes.' }
+});
+app.use('/api/', globalLimiter);
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
+
+// Body parsing - Webhook MUST come before json parser
 app.use('/webhook', express.raw({ type: 'application/json' }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Secure file serving - requires authentication and ownership verification
 // Supports both Authorization header and ?token= query parameter for img/iframe compatibility
 app.get('/uploads/:filename', async (req, res) => {
   try {
     const { filename } = req.params;
+    
+    // Path traversal protection
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+    
     const filePath = path.join(__dirname, 'uploads', filename);
     
     // Check if file exists
@@ -191,7 +334,7 @@ const upload = multer({
   storage,
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB limit
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx/;
+    const allowedTypes = /jpeg|jpg|png|gif|webp|pdf|doc|docx/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
     if (extname && mimetype) {
@@ -435,6 +578,11 @@ const subscriptionSchema = new mongoose.Schema({
   promoGrantedAt: { type: Date },
   promoNote: { type: String }, // Reason for promo (e.g., "Beta tester", "Influencer deal")
   promoExpiresAt: { type: Date }, // For time-limited promos, null for lifetime
+  // In-App Purchase tracking (Google Play / Apple App Store)
+  iapPlatform: { type: String, enum: ['google_play', 'apple', null], default: null },
+  iapProductId: { type: String },
+  iapPurchaseToken: { type: String }, // Google Play purchase token
+  iapOriginalTransactionId: { type: String }, // Apple original transaction ID
   features: {
     maxCities: { type: Number, default: 1 },
     smsAlerts: { type: Boolean, default: false },
@@ -766,6 +914,27 @@ const attendingEventSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
+
+// ===========================================
+// DATABASE INDEXES (for production query performance)
+// ===========================================
+userSchema.index({ email: 1 });
+userSchema.index({ vendorBusinessId: 1 });
+vendorBusinessSchema.index({ ownerId: 1 });
+vendorPermitSchema.index({ vendorBusinessId: 1 });
+vendorPermitSchema.index({ vendorBusinessId: 1, status: 1 });
+vendorPermitSchema.index({ expiryDate: 1, status: 1 });
+documentSchema.index({ vendorBusinessId: 1 });
+subscriptionSchema.index({ vendorBusinessId: 1 });
+subscriptionSchema.index({ stripeCustomerId: 1 });
+subscriptionSchema.index({ stripeSubscriptionId: 1 });
+subscriptionSchema.index({ iapPurchaseToken: 1 });
+subscriptionSchema.index({ iapOriginalTransactionId: 1 });
+notificationSchema.index({ userId: 1 });
+notificationSchema.index({ status: 1, sendAt: 1 });
+attendingEventSchema.index({ vendorBusinessId: 1 });
+eventSchema.index({ status: 1, startDate: 1 });
+eventSchema.index({ organizerId: 1 });
 
 // Models
 const User = mongoose.model('User', userSchema);
@@ -1320,6 +1489,16 @@ const STRIPE_PRICES = {
 
 // Plan features
 const PLAN_FEATURES = {
+  free: {
+    maxCities: 1,
+    smsAlerts: false,
+    autofill: false,
+    inspectionChecklists: false,
+    teamAccounts: false,
+    maxTeamMembers: 1,
+    eventIntegration: false,
+    prioritySupport: false
+  },
   basic: {
     maxCities: 1,
     smsAlerts: false,
@@ -2153,22 +2332,57 @@ app.post('/api/organizer/subscription/checkout', authMiddleware, async (req, res
       return res.status(403).json({ error: 'Organizer access required' });
     }
     
-    // Create Stripe checkout session for organizer plan
-    const session = await stripe.checkout.sessions.create({
-      customer_email: req.user.email,
-      payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: 'usd',
-          product_data: {
-            name: 'PermitWise Organizer Plan',
-            description: 'Unlimited events, vendor management, compliance tracking'
+    if (!STRIPE_ENABLED || !stripe) {
+      if (!STRIPE_ENABLED) {
+        // Test mode — activate organizer subscription directly without payment
+        console.warn('[STRIPE BYPASS] Organizer checkout skipped — activating directly');
+        await OrganizerSubscription.findOneAndUpdate(
+          { userId: req.userId },
+          { userId: req.userId, plan: 'organizer', status: 'active', currentPeriodStart: new Date(), currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), updatedAt: new Date() },
+          { upsert: true, new: true }
+        );
+        return res.json({ url: `${CLIENT_URL}/app?success=true` });
+      }
+      return res.status(400).json({ error: 'Stripe not configured' });
+    }
+    let subscription = await OrganizerSubscription.findOne({ userId: req.userId });
+    let customerId = subscription?.stripeCustomerId;
+    
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: req.user.email,
+        name: `${req.user.firstName} ${req.user.lastName}`,
+        metadata: { userId: req.userId.toString(), type: 'organizer' }
+      });
+      customerId = customer.id;
+      
+      if (subscription) {
+        subscription.stripeCustomerId = customerId;
+        await subscription.save();
+      }
+    }
+    
+    // Use configured price ID or fall back to inline price
+    const organizerPriceId = process.env.STRIPE_PRICE_ORGANIZER;
+    const lineItems = organizerPriceId 
+      ? [{ price: organizerPriceId, quantity: 1 }]
+      : [{
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: 'PermitWise Organizer Plan',
+              description: 'Unlimited events, vendor management, compliance tracking'
+            },
+            unit_amount: 7900,
+            recurring: { interval: 'month' }
           },
-          unit_amount: 7900, // $79.00
-          recurring: { interval: 'month' }
-        },
-        quantity: 1
-      }],
+          quantity: 1
+        }];
+    
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      payment_method_types: ['card'],
+      line_items: lineItems,
       mode: 'subscription',
       success_url: `${CLIENT_URL}/app?success=true`,
       cancel_url: `${CLIENT_URL}/app?canceled=true`,
@@ -2189,6 +2403,14 @@ app.post('/api/organizer/subscription/portal', authMiddleware, async (req, res) 
   try {
     if (!req.user.isOrganizer) {
       return res.status(403).json({ error: 'Organizer access required' });
+    }
+    
+    if (!STRIPE_ENABLED || !stripe) {
+      if (!STRIPE_ENABLED) {
+        console.warn('[STRIPE BYPASS] Organizer billing portal skipped — Stripe disabled');
+        return res.json({ url: null, message: 'Stripe is in test mode. Manage subscriptions via the admin panel.' });
+      }
+      return res.status(400).json({ error: 'Stripe not configured' });
     }
     
     const subscription = await OrganizerSubscription.findOne({ userId: req.userId });
@@ -5438,13 +5660,28 @@ app.post('/api/subscription/checkout', authMiddleware, requireRole('owner'), asy
   try {
     const { plan } = req.body;
     
-    if (!stripe) {
+    if (!STRIPE_ENABLED || !stripe) {
+      if (!STRIPE_ENABLED) {
+        // Test mode — activate vendor subscription directly without payment
+        console.warn(`[STRIPE BYPASS] Vendor checkout skipped — activating plan=${plan} directly`);
+        await Subscription.findOneAndUpdate(
+          { vendorBusinessId: req.user.vendorBusinessId },
+          {
+            vendorBusinessId: req.user.vendorBusinessId, userId: req.userId, plan,
+            status: 'active', features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
+            currentPeriodStart: new Date(), currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            gracePeriodEndsAt: null, lastPaymentFailedAt: null, paymentFailureCount: 0, updatedAt: new Date()
+          },
+          { upsert: true, new: true }
+        );
+        return res.json({ url: `${CLIENT_URL}/settings/billing?success=true` });
+      }
       return res.status(400).json({ error: 'Stripe not configured' });
     }
     
     const priceId = STRIPE_PRICES[plan];
     if (!priceId) {
-      return res.status(400).json({ error: 'Invalid plan' });
+      return res.status(400).json({ error: 'Invalid plan — set STRIPE_PRICE_BASIC, STRIPE_PRICE_PRO, STRIPE_PRICE_ELITE env vars' });
     }
     
     const user = await User.findById(req.userId);
@@ -5500,7 +5737,11 @@ app.post('/api/subscription/checkout', authMiddleware, requireRole('owner'), asy
 // Create billing portal session
 app.post('/api/subscription/portal', authMiddleware, requireRole('owner'), async (req, res) => {
   try {
-    if (!stripe) {
+    if (!STRIPE_ENABLED || !stripe) {
+      if (!STRIPE_ENABLED) {
+        console.warn('[STRIPE BYPASS] Billing portal skipped — Stripe disabled');
+        return res.json({ url: null, message: 'Stripe is in test mode. Manage subscriptions via the admin panel.' });
+      }
       return res.status(400).json({ error: 'Stripe not configured' });
     }
     
@@ -5523,10 +5764,566 @@ app.post('/api/subscription/portal', authMiddleware, requireRole('owner'), async
   }
 });
 
+// ===========================================
+// MOBILE IN-APP PURCHASE VALIDATION
+// ===========================================
+
+// Plan mapping from store product IDs to our plan names
+const STORE_PLAN_MAP = {
+  // Google Play
+  'permitwise_basic_monthly': 'basic',
+  'permitwise_pro_monthly': 'pro',
+  'permitwise_elite_monthly': 'elite',
+  // Apple App Store
+  'com.permitwise.basic.monthly': 'basic',
+  'com.permitwise.pro.monthly': 'pro',
+  'com.permitwise.elite.monthly': 'elite',
+};
+
+// Helper: activate subscription after a verified IAP purchase
+const activateIAPSubscription = async (vendorBusinessId, userId, plan, platformData = {}) => {
+  return await Subscription.findOneAndUpdate(
+    { vendorBusinessId },
+    {
+      vendorBusinessId,
+      userId,
+      plan,
+      status: 'active',
+      features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
+      currentPeriodStart: platformData.startDate || new Date(),
+      currentPeriodEnd: platformData.expiryDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      iapPlatform: platformData.platform || null,
+      iapProductId: platformData.productId || null,
+      iapPurchaseToken: platformData.purchaseToken || null,
+      iapOriginalTransactionId: platformData.originalTransactionId || null,
+      gracePeriodEndsAt: null,
+      lastPaymentFailedAt: null,
+      paymentFailureCount: 0,
+      updatedAt: new Date()
+    },
+    { upsert: true, new: true }
+  );
+};
+
+// -----------------------------------------------
+// GOOGLE PLAY — Server-to-Server Verification
+// -----------------------------------------------
+app.post('/api/subscription/verify-google', authMiddleware, requireRole('owner'), async (req, res) => {
+  try {
+    const { purchaseToken, productId, packageName } = req.body;
+
+    if (!purchaseToken || !productId) {
+      return res.status(400).json({ error: 'Purchase token and product ID are required' });
+    }
+
+    const plan = STORE_PLAN_MAP[productId];
+    if (!plan) {
+      return res.status(400).json({ error: 'Unknown product ID' });
+    }
+
+    // --- IAP validation toggle ---
+    if (!IAP_VALIDATION_ENABLED) {
+      console.warn(`[IAP BYPASS] Google Play validation SKIPPED (IAP_VALIDATION_ENABLED=false). Trusting client for product=${productId}`);
+      const subscription = await activateIAPSubscription(
+        req.user.vendorBusinessId, req.userId, plan,
+        { platform: 'google_play', productId, purchaseToken, startDate: new Date(), expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) }
+      );
+      return res.json({ subscription, message: 'Subscription activated (validation bypassed)' });
+    }
+
+    if (!androidPublisher) {
+      return res.status(503).json({
+        error: 'Google Play validation not configured. Set GOOGLE_SERVICE_ACCOUNT_KEY or GOOGLE_SERVICE_ACCOUNT_KEY_FILE env var.'
+      });
+    }
+
+    // Call Google Play Developer API to verify the subscription
+    const result = await androidPublisher.purchases.subscriptionsv2.get({
+      packageName: packageName || GOOGLE_PLAY_PACKAGE_NAME,
+      token: purchaseToken
+    });
+
+    const purchaseData = result.data;
+
+    // Only activate for valid states
+    const activeStates = [
+      'SUBSCRIPTION_STATE_ACTIVE',
+      'SUBSCRIPTION_STATE_IN_GRACE_PERIOD'
+    ];
+
+    if (!activeStates.includes(purchaseData.subscriptionState)) {
+      console.warn(`Google Play verify: not active, state=${purchaseData.subscriptionState}, product=${productId}`);
+      return res.status(400).json({
+        error: 'Subscription is not active',
+        state: purchaseData.subscriptionState
+      });
+    }
+
+    // Extract expiry from line item
+    const lineItem = purchaseData.lineItems?.[0];
+    const expiryDate = lineItem?.expiryTime
+      ? new Date(lineItem.expiryTime)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // Validate product ID matches
+    if (lineItem?.productId && lineItem.productId !== productId) {
+      return res.status(400).json({ error: 'Product ID mismatch' });
+    }
+
+    const subscription = await activateIAPSubscription(
+      req.user.vendorBusinessId,
+      req.userId,
+      plan,
+      {
+        platform: 'google_play',
+        productId,
+        purchaseToken,
+        startDate: new Date(),
+        expiryDate
+      }
+    );
+
+    console.log(`Google Play verified: biz=${req.user.vendorBusinessId}, plan=${plan}, state=${purchaseData.subscriptionState}, expires=${expiryDate.toISOString()}`);
+    res.json({ subscription, message: 'Subscription activated successfully' });
+  } catch (error) {
+    console.error('Google Play verification error:', error.message || error);
+    if (error.code === 410) {
+      return res.status(400).json({ error: 'Purchase token expired or already consumed' });
+    }
+    if (error.code === 404) {
+      return res.status(400).json({ error: 'Purchase not found — it may have been refunded' });
+    }
+    res.status(500).json({ error: 'Failed to verify Google Play purchase' });
+  }
+});
+
+// -----------------------------------------------
+// APPLE APP STORE — Server-to-Server Verification
+// -----------------------------------------------
+// Helper: call Apple verifyReceipt endpoint
+const verifyAppleReceipt = async (url, receiptData) => {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      'receipt-data': receiptData,
+      'password': APPLE_SHARED_SECRET,
+      'exclude-old-transactions': true
+    })
+  });
+  return await response.json();
+};
+
+// Apple status code descriptions
+const APPLE_STATUS_MESSAGES = {
+  21000: 'App Store could not read the receipt',
+  21002: 'Receipt data was malformed',
+  21003: 'Receipt could not be authenticated',
+  21004: 'Shared secret does not match',
+  21005: 'Apple receipt server temporarily unavailable — retry',
+  21006: 'Receipt is valid but subscription has expired',
+  21007: 'Sandbox receipt sent to production (auto-retried)',
+  21008: 'Production receipt sent to sandbox',
+  21010: 'This receipt could not be authorized'
+};
+
+app.post('/api/subscription/verify-apple', authMiddleware, requireRole('owner'), async (req, res) => {
+  try {
+    const { receiptData, productId } = req.body;
+
+    if (!receiptData || !productId) {
+      return res.status(400).json({ error: 'Receipt data and product ID are required' });
+    }
+
+    const plan = STORE_PLAN_MAP[productId];
+    if (!plan) {
+      return res.status(400).json({ error: 'Unknown product ID' });
+    }
+
+    // --- IAP validation toggle ---
+    if (!IAP_VALIDATION_ENABLED) {
+      console.warn(`[IAP BYPASS] Apple validation SKIPPED (IAP_VALIDATION_ENABLED=false). Trusting client for product=${productId}`);
+      const subscription = await activateIAPSubscription(
+        req.user.vendorBusinessId, req.userId, plan,
+        { platform: 'apple', productId, startDate: new Date(), expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) }
+      );
+      return res.json({ subscription, message: 'Subscription activated (validation bypassed)' });
+    }
+
+    if (!APPLE_SHARED_SECRET) {
+      return res.status(503).json({ error: 'Apple receipt validation not configured. Set APPLE_SHARED_SECRET env var.' });
+    }
+
+    // Try production first, fall back to sandbox (status 21007)
+    let appleData = await verifyAppleReceipt('https://buy.itunes.apple.com/verifyReceipt', receiptData);
+    if (appleData.status === 21007) {
+      appleData = await verifyAppleReceipt('https://sandbox.itunes.apple.com/verifyReceipt', receiptData);
+    }
+
+    if (appleData.status !== 0) {
+      const msg = APPLE_STATUS_MESSAGES[appleData.status] || `Unknown Apple status: ${appleData.status}`;
+      console.warn(`Apple verify failed: status=${appleData.status} — ${msg}`);
+      return res.status(400).json({ error: msg });
+    }
+
+    // Find the most recent receipt matching our product IDs
+    const latestReceipts = (appleData.latest_receipt_info || [])
+      .filter(r => STORE_PLAN_MAP[r.product_id])
+      .sort((a, b) => parseInt(b.expires_date_ms || 0) - parseInt(a.expires_date_ms || 0));
+
+    if (latestReceipts.length === 0) {
+      return res.status(400).json({ error: 'No PermitWise subscription found in receipt' });
+    }
+
+    const latest = latestReceipts[0];
+    const expiresMs = parseInt(latest.expires_date_ms || 0);
+    const purchaseMs = parseInt(latest.purchase_date_ms || Date.now());
+    const expiryDate = new Date(expiresMs);
+    const now = new Date();
+
+    // Check expiry, allowing for grace period / billing retry
+    if (expiryDate < now) {
+      const pendingRenewal = (appleData.pending_renewal_info || [])
+        .find(p => p.product_id === latest.product_id);
+      if (!pendingRenewal || pendingRenewal.expiration_intent === '1') {
+        return res.status(400).json({ error: 'Subscription has expired' });
+      }
+      // Still in billing retry — activate but log it
+      console.log(`Apple verify: billing retry in progress for product=${latest.product_id}`);
+    }
+
+    // Use the plan from the receipt (handles upgrade/downgrade)
+    const receiptPlan = STORE_PLAN_MAP[latest.product_id] || plan;
+
+    const subscription = await activateIAPSubscription(
+      req.user.vendorBusinessId,
+      req.userId,
+      receiptPlan,
+      {
+        platform: 'apple',
+        productId: latest.product_id,
+        originalTransactionId: latest.original_transaction_id,
+        startDate: new Date(purchaseMs),
+        expiryDate
+      }
+    );
+
+    console.log(`Apple verified: biz=${req.user.vendorBusinessId}, plan=${receiptPlan}, expires=${expiryDate.toISOString()}, txn=${latest.original_transaction_id}`);
+    res.json({ subscription, message: 'Subscription activated successfully' });
+  } catch (error) {
+    console.error('Apple verification error:', error.message || error);
+    res.status(500).json({ error: 'Failed to verify Apple receipt' });
+  }
+});
+
+// -----------------------------------------------
+// RESTORE PURCHASES — Re-verifies with the stores
+// -----------------------------------------------
+app.post('/api/subscription/restore', authMiddleware, async (req, res) => {
+  try {
+    const { platform, purchaseToken, productId, packageName, receiptData } = req.body;
+
+    // ---- Google Play restore ----
+    if (platform === 'android' && purchaseToken && productId && androidPublisher) {
+      try {
+        const result = await androidPublisher.purchases.subscriptionsv2.get({
+          packageName: packageName || GOOGLE_PLAY_PACKAGE_NAME,
+          token: purchaseToken
+        });
+        const activeStates = ['SUBSCRIPTION_STATE_ACTIVE', 'SUBSCRIPTION_STATE_IN_GRACE_PERIOD'];
+
+        if (activeStates.includes(result.data.subscriptionState)) {
+          const plan = STORE_PLAN_MAP[productId] || 'basic';
+          const lineItem = result.data.lineItems?.[0];
+          const expiryDate = lineItem?.expiryTime
+            ? new Date(lineItem.expiryTime)
+            : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+          const subscription = await activateIAPSubscription(
+            req.user.vendorBusinessId, req.userId, plan,
+            { platform: 'google_play', productId, purchaseToken, expiryDate }
+          );
+          return res.json({
+            restored: true,
+            subscription: { plan: subscription.plan, status: subscription.status, isActive: true, features: subscription.features }
+          });
+        }
+      } catch (err) {
+        console.warn('Google restore verify failed:', err.message);
+      }
+    }
+
+    // ---- Apple restore ----
+    if (platform === 'ios' && receiptData && APPLE_SHARED_SECRET) {
+      try {
+        let appleData = await verifyAppleReceipt('https://buy.itunes.apple.com/verifyReceipt', receiptData);
+        if (appleData.status === 21007) {
+          appleData = await verifyAppleReceipt('https://sandbox.itunes.apple.com/verifyReceipt', receiptData);
+        }
+
+        if (appleData.status === 0 && appleData.latest_receipt_info?.length > 0) {
+          const latest = [...appleData.latest_receipt_info]
+            .filter(r => STORE_PLAN_MAP[r.product_id])
+            .sort((a, b) => parseInt(b.expires_date_ms || 0) - parseInt(a.expires_date_ms || 0))[0];
+
+          if (latest && parseInt(latest.expires_date_ms) > Date.now()) {
+            const plan = STORE_PLAN_MAP[latest.product_id] || 'basic';
+            const subscription = await activateIAPSubscription(
+              req.user.vendorBusinessId, req.userId, plan,
+              { platform: 'apple', productId: latest.product_id, originalTransactionId: latest.original_transaction_id, expiryDate: new Date(parseInt(latest.expires_date_ms)) }
+            );
+            return res.json({
+              restored: true,
+              subscription: { plan: subscription.plan, status: subscription.status, isActive: true, features: subscription.features }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Apple restore verify failed:', err.message);
+      }
+    }
+
+    // ---- Fallback: return current server-side subscription state ----
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.user.vendorBusinessId });
+    if (!subscription) {
+      return res.status(404).json({ error: 'No subscription found', restored: false });
+    }
+    const isActive = isSubscriptionActive(subscription);
+    res.json({
+      restored: isActive,
+      subscription: { plan: subscription.plan, status: subscription.status, isActive, features: subscription.features }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// -----------------------------------------------
+// GOOGLE PLAY REAL-TIME DEVELOPER NOTIFICATIONS (RTDN)
+// -----------------------------------------------
+// Setup: Google Play Console → Monetize → Monetization setup → Real-time developer notifications
+// Topic: your Cloud Pub/Sub topic → push subscription → URL: https://your-domain.com/webhooks/google-play
+app.post('/webhooks/google-play', express.json(), async (req, res) => {
+  try {
+    const message = req.body.message;
+    if (!message?.data) {
+      return res.status(400).json({ error: 'Invalid notification format' });
+    }
+
+    // Decode base64 Pub/Sub payload
+    const decoded = JSON.parse(Buffer.from(message.data, 'base64').toString('utf-8'));
+    const notification = decoded.subscriptionNotification;
+
+    if (!notification) {
+      console.log('Google RTDN (non-subscription):', JSON.stringify(decoded));
+      return res.json({ received: true });
+    }
+
+    const { purchaseToken, subscriptionId, notificationType } = notification;
+    const pkg = decoded.packageName || GOOGLE_PLAY_PACKAGE_NAME;
+
+    // https://developer.android.com/google/play/billing/rtdn-reference#sub
+    // 1=RECOVERED, 2=RENEWED, 3=CANCELED, 4=PURCHASED, 5=ON_HOLD,
+    // 6=IN_GRACE_PERIOD, 7=RESTARTED, 12=REVOKED, 13=EXPIRED
+    const typeNames = { 1:'RECOVERED',2:'RENEWED',3:'CANCELED',4:'PURCHASED',5:'ON_HOLD',6:'IN_GRACE_PERIOD',7:'RESTARTED',12:'REVOKED',13:'EXPIRED' };
+    console.log(`Google RTDN: ${typeNames[notificationType] || notificationType}, product=${subscriptionId}`);
+
+    const plan = STORE_PLAN_MAP[subscriptionId];
+    if (!plan) {
+      console.warn(`Google RTDN: unknown product ${subscriptionId}`);
+      return res.json({ received: true });
+    }
+
+    // Find existing subscription by purchase token
+    const sub = await Subscription.findOne({ iapPurchaseToken: purchaseToken });
+    if (!sub) {
+      console.warn(`Google RTDN: no subscription found for token (type=${notificationType})`);
+      return res.json({ received: true });
+    }
+
+    // For active/renewed events, fetch latest status from Google Play
+    if (androidPublisher && [1, 2, 4, 5, 6, 7].includes(notificationType)) {
+      try {
+        const result = await androidPublisher.purchases.subscriptionsv2.get({ packageName: pkg, token: purchaseToken });
+        const pd = result.data;
+        const lineItem = pd.lineItems?.[0];
+        const expiryDate = lineItem?.expiryTime ? new Date(lineItem.expiryTime) : null;
+
+        const stateMap = {
+          'SUBSCRIPTION_STATE_ACTIVE': 'active',
+          'SUBSCRIPTION_STATE_IN_GRACE_PERIOD': 'grace_period',
+          'SUBSCRIPTION_STATE_ON_HOLD': 'grace_period',
+          'SUBSCRIPTION_STATE_PAUSED': 'paused',
+          'SUBSCRIPTION_STATE_CANCELED': 'canceled',
+          'SUBSCRIPTION_STATE_EXPIRED': 'expired',
+        };
+        const newStatus = stateMap[pd.subscriptionState] || 'active';
+
+        await Subscription.findByIdAndUpdate(sub._id, {
+          status: newStatus,
+          plan,
+          features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
+          ...(expiryDate && { currentPeriodEnd: expiryDate }),
+          ...(newStatus === 'active' && { gracePeriodEndsAt: null, lastPaymentFailedAt: null, paymentFailureCount: 0 }),
+          updatedAt: new Date()
+        });
+        console.log(`Google RTDN processed → status=${newStatus}, expires=${expiryDate?.toISOString()}`);
+      } catch (err) {
+        console.error('Google RTDN API call failed:', err.message);
+      }
+    } else if ([3, 12, 13].includes(notificationType)) {
+      // Canceled / Revoked / Expired — no API call needed
+      const statusMap = { 3: 'canceled', 12: 'canceled', 13: 'expired' };
+      await Subscription.findByIdAndUpdate(sub._id, {
+        status: statusMap[notificationType],
+        ...(notificationType === 3 && { canceledAt: new Date() }),
+        updatedAt: new Date()
+      });
+      console.log(`Google RTDN → ${statusMap[notificationType]}`);
+    }
+
+    // Always 200 so Google stops retrying
+    res.json({ received: true });
+  } catch (error) {
+    console.error('Google RTDN error:', error.message);
+    res.json({ received: true });
+  }
+});
+
+// -----------------------------------------------
+// APPLE APP STORE SERVER NOTIFICATIONS v2
+// -----------------------------------------------
+// Setup: App Store Connect → Your App → General → App Store Server Notifications
+// Production URL: https://your-domain.com/webhooks/apple
+// Sandbox URL:    https://your-domain.com/webhooks/apple
+app.post('/webhooks/apple', express.json(), async (req, res) => {
+  try {
+    const { signedPayload } = req.body;
+    if (!signedPayload) {
+      return res.status(400).json({ error: 'Missing signedPayload' });
+    }
+
+    // Decode the JWS payload (header.payload.signature)
+    // Apple signs the payload with their private key. In production you should
+    // verify the signature against Apple's root certificate chain. For now we
+    // decode and trust — Apple only sends to your registered URL.
+    const parts = signedPayload.split('.');
+    if (parts.length !== 3) {
+      return res.status(400).json({ error: 'Invalid JWS format' });
+    }
+
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+    const { notificationType, subtype, data } = payload;
+    console.log(`Apple Notification: type=${notificationType}, subtype=${subtype || 'none'}`);
+
+    // Decode signedTransactionInfo
+    let txnInfo = null;
+    if (data?.signedTransactionInfo) {
+      const txnParts = data.signedTransactionInfo.split('.');
+      if (txnParts.length === 3) {
+        txnInfo = JSON.parse(Buffer.from(txnParts[1], 'base64url').toString('utf-8'));
+      }
+    }
+
+    // Decode signedRenewalInfo
+    let renewalInfo = null;
+    if (data?.signedRenewalInfo) {
+      const rParts = data.signedRenewalInfo.split('.');
+      if (rParts.length === 3) {
+        renewalInfo = JSON.parse(Buffer.from(rParts[1], 'base64url').toString('utf-8'));
+      }
+    }
+
+    if (!txnInfo) {
+      console.warn('Apple notification: no transactionInfo');
+      return res.json({ received: true });
+    }
+
+    const originalTxnId = txnInfo.originalTransactionId;
+    const productId = txnInfo.productId;
+    const plan = STORE_PLAN_MAP[productId];
+
+    if (!plan) {
+      console.warn(`Apple notification: unknown product ${productId}`);
+      return res.json({ received: true });
+    }
+
+    const sub = await Subscription.findOne({ iapOriginalTransactionId: originalTxnId });
+    if (!sub) {
+      console.warn(`Apple notification: no subscription for txn=${originalTxnId}`);
+      return res.json({ received: true });
+    }
+
+    const expiresDate = txnInfo.expiresDate ? new Date(txnInfo.expiresDate) : null;
+
+    // https://developer.apple.com/documentation/appstoreservernotifications/notificationtype
+    switch (notificationType) {
+      case 'DID_RENEW':
+      case 'SUBSCRIBED': {
+        await Subscription.findByIdAndUpdate(sub._id, {
+          status: 'active', plan, features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
+          ...(expiresDate && { currentPeriodEnd: expiresDate }),
+          gracePeriodEndsAt: null, lastPaymentFailedAt: null, paymentFailureCount: 0,
+          updatedAt: new Date()
+        });
+        console.log(`Apple → renewed/subscribed, plan=${plan}, expires=${expiresDate?.toISOString()}`);
+        break;
+      }
+      case 'DID_CHANGE_RENEWAL_STATUS': {
+        // User toggled auto-renew — subscription stays active until period end
+        console.log(`Apple → auto_renew ${subtype === 'AUTO_RENEW_DISABLED' ? 'OFF' : 'ON'}`);
+        break;
+      }
+      case 'DID_FAIL_TO_RENEW': {
+        const isGrace = subtype === 'GRACE_PERIOD';
+        await Subscription.findByIdAndUpdate(sub._id, {
+          status: 'grace_period',
+          ...(isGrace && { gracePeriodEndsAt: expiresDate || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000) }),
+          lastPaymentFailedAt: new Date(),
+          paymentFailureCount: (sub.paymentFailureCount || 0) + 1,
+          updatedAt: new Date()
+        });
+        console.log(`Apple → renewal failed${isGrace ? ' (grace period)' : ' (billing retry)'}`);
+        break;
+      }
+      case 'EXPIRED': {
+        await Subscription.findByIdAndUpdate(sub._id, { status: 'expired', updatedAt: new Date() });
+        console.log('Apple → expired');
+        break;
+      }
+      case 'GRACE_PERIOD_EXPIRED': {
+        await Subscription.findByIdAndUpdate(sub._id, { status: 'expired', gracePeriodEndsAt: null, updatedAt: new Date() });
+        console.log('Apple → grace period expired');
+        break;
+      }
+      case 'REVOKE': {
+        // Refund — immediately deactivate
+        await Subscription.findByIdAndUpdate(sub._id, { status: 'canceled', canceledAt: new Date(), updatedAt: new Date() });
+        console.log('Apple → revoked (refund)');
+        break;
+      }
+      case 'DID_CHANGE_RENEWAL_PREF': {
+        const newPid = renewalInfo?.autoRenewProductId || productId;
+        const newPlan = STORE_PLAN_MAP[newPid] || plan;
+        console.log(`Apple → plan change pending → ${newPlan} (effective next renewal)`);
+        break;
+      }
+      default:
+        console.log(`Apple notification (unhandled): ${notificationType}/${subtype}`);
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    console.error('Apple webhook error:', error.message);
+    // Always 200 so Apple stops retrying
+    res.json({ received: true });
+  }
+});
+
 // Stripe webhook
 app.post('/webhook', async (req, res) => {
-  if (!stripe) {
-    return res.status(400).json({ error: 'Stripe not configured' });
+  if (!STRIPE_ENABLED || !stripe) {
+    return res.json({ received: true, message: 'Stripe disabled' });
   }
   
   const sig = req.headers['stripe-signature'];
@@ -5543,41 +6340,60 @@ app.post('/webhook', async (req, res) => {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object;
-        const { plan, vendorBusinessId, userId } = session.metadata;
-        
-        // Get subscription from Stripe
         const stripeSubscription = await stripe.subscriptions.retrieve(session.subscription);
         
-        // Update or create subscription - clear any grace period/failure data
-        await Subscription.findOneAndUpdate(
-          { vendorBusinessId },
-          {
-            vendorBusinessId,
-            userId,
-            plan,
-            status: 'active',
-            stripeCustomerId: session.customer,
-            stripeSubscriptionId: session.subscription,
-            stripePriceId: stripeSubscription.items.data[0].price.id,
-            currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-            currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
-            features: PLAN_FEATURES[plan],
-            // Clear grace period data on successful payment
-            gracePeriodEndsAt: null,
-            lastPaymentFailedAt: null,
-            paymentFailureCount: 0,
-            updatedAt: new Date()
-          },
-          { upsert: true, new: true }
-        );
-        console.log(`Subscription activated for business ${vendorBusinessId}, plan: ${plan}`);
+        // Check if this is an organizer or vendor checkout
+        if (session.metadata.type === 'organizer') {
+          // ORGANIZER checkout
+          const { userId } = session.metadata;
+          await OrganizerSubscription.findOneAndUpdate(
+            { userId },
+            {
+              userId,
+              plan: 'organizer',
+              status: 'active',
+              stripeCustomerId: session.customer,
+              stripeSubscriptionId: session.subscription,
+              currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
+              currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+              updatedAt: new Date()
+            },
+            { upsert: true, new: true }
+          );
+          console.log(`Organizer subscription activated for user ${userId}`);
+        } else {
+          // VENDOR checkout
+          const { plan, vendorBusinessId, userId } = session.metadata;
+          await Subscription.findOneAndUpdate(
+            { vendorBusinessId },
+            {
+              vendorBusinessId,
+              userId,
+              plan,
+              status: 'active',
+              stripeCustomerId: session.customer,
+              stripeSubscriptionId: session.subscription,
+              stripePriceId: stripeSubscription.items.data[0].price.id,
+              currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
+              currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+              features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
+              gracePeriodEndsAt: null,
+              lastPaymentFailedAt: null,
+              paymentFailureCount: 0,
+              updatedAt: new Date()
+            },
+            { upsert: true, new: true }
+          );
+          console.log(`Vendor subscription activated for business ${vendorBusinessId}, plan: ${plan}`);
+        }
         break;
       }
       
       case 'invoice.paid': {
         const invoice = event.data.object;
         // Payment successful - restore to active, clear grace period
-        await Subscription.findOneAndUpdate(
+        // Try vendor subscription first, then organizer
+        const vendorSub = await Subscription.findOneAndUpdate(
           { stripeCustomerId: invoice.customer },
           { 
             status: 'active',
@@ -5587,6 +6403,13 @@ app.post('/webhook', async (req, res) => {
             updatedAt: new Date()
           }
         );
+        if (!vendorSub) {
+          // Try organizer subscription
+          await OrganizerSubscription.findOneAndUpdate(
+            { stripeCustomerId: invoice.customer },
+            { status: 'active', updatedAt: new Date() }
+          );
+        }
         console.log(`Invoice paid for customer ${invoice.customer}`);
         break;
       }
@@ -5599,15 +6422,13 @@ app.post('/webhook', async (req, res) => {
           const failureCount = (subscription.paymentFailureCount || 0) + 1;
           const now = new Date();
           
-          // Set 3-day grace period on first failure
           let gracePeriodEndsAt = subscription.gracePeriodEndsAt;
           let newStatus = 'grace_period';
           
           if (!gracePeriodEndsAt) {
-            gracePeriodEndsAt = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000); // 3 days
+            gracePeriodEndsAt = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
           }
           
-          // If grace period has ended, expire the subscription
           if (gracePeriodEndsAt < now) {
             newStatus = 'expired';
           }
@@ -5622,7 +6443,17 @@ app.post('/webhook', async (req, res) => {
               updatedAt: new Date()
             }
           );
-          console.log(`Payment failed for customer ${invoice.customer}, status: ${newStatus}, failures: ${failureCount}`);
+          console.log(`Payment failed for vendor customer ${invoice.customer}, status: ${newStatus}`);
+        } else {
+          // Check organizer subscription
+          const orgSub = await OrganizerSubscription.findOne({ stripeCustomerId: invoice.customer });
+          if (orgSub) {
+            await OrganizerSubscription.findOneAndUpdate(
+              { stripeCustomerId: invoice.customer },
+              { status: 'past_due', updatedAt: new Date() }
+            );
+            console.log(`Payment failed for organizer customer ${invoice.customer}`);
+          }
         }
         break;
       }
@@ -5639,30 +6470,47 @@ app.post('/webhook', async (req, res) => {
         else if (stripeSubscription.status === 'paused') ourStatus = 'paused';
         else if (stripeSubscription.status === 'active') ourStatus = 'active';
         
-        await Subscription.findOneAndUpdate(
+        // Try vendor subscription first
+        const vendorSub = await Subscription.findOneAndUpdate(
           { stripeSubscriptionId: stripeSubscription.id },
           {
             status: ourStatus,
             currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
             currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
-            features: PLAN_FEATURES[plan],
+            features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
             updatedAt: new Date()
           }
         );
+        if (!vendorSub) {
+          // Try organizer subscription
+          await OrganizerSubscription.findOneAndUpdate(
+            { stripeSubscriptionId: stripeSubscription.id },
+            {
+              status: ourStatus,
+              currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
+              currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+              updatedAt: new Date()
+            }
+          );
+        }
         console.log(`Subscription updated for ${stripeSubscription.id}, status: ${ourStatus}`);
         break;
       }
       
       case 'customer.subscription.deleted': {
         const stripeSubscription = event.data.object;
-        await Subscription.findOneAndUpdate(
+        // Try vendor subscription first
+        const vendorSub = await Subscription.findOneAndUpdate(
           { stripeSubscriptionId: stripeSubscription.id },
-          { 
-            status: 'canceled', 
-            canceledAt: new Date(),
-            updatedAt: new Date()
-          }
+          { status: 'canceled', canceledAt: new Date(), updatedAt: new Date() }
         );
+        if (!vendorSub) {
+          // Try organizer subscription
+          await OrganizerSubscription.findOneAndUpdate(
+            { stripeSubscriptionId: stripeSubscription.id },
+            { status: 'canceled', canceledAt: new Date(), updatedAt: new Date() }
+          );
+        }
         console.log(`Subscription deleted/canceled for ${stripeSubscription.id}`);
         break;
       }
@@ -7328,7 +8176,7 @@ app.get('/app', (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
   } else {
-    res.redirect('http://localhost:3000');
+    res.redirect(CLIENT_URL);
   }
 });
 
@@ -7337,7 +8185,7 @@ app.get('/reset-password', (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
   } else {
-    res.redirect(`http://localhost:3000/reset-password?token=${req.query.token || ''}`);
+    res.redirect(`${CLIENT_URL}/reset-password?token=${req.query.token || ''}`);
   }
 });
 
@@ -7346,7 +8194,7 @@ app.get('/verify-email', (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
   } else {
-    res.redirect(`http://localhost:3000/verify-email?token=${req.query.token || ''}`);
+    res.redirect(`${CLIENT_URL}/verify-email?token=${req.query.token || ''}`);
   }
 });
 
@@ -7364,7 +8212,7 @@ app.get('/superadmin', (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
   } else {
-    res.redirect('http://localhost:3000/superadmin');
+    res.redirect(CLIENT_URL + '/superadmin');
   }
 });
 
@@ -7378,7 +8226,7 @@ app.get('/app/*', (req, res) => {
   if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
   } else {
-    res.redirect('http://localhost:3000');
+    res.redirect(CLIENT_URL);
   }
 });
 
@@ -7399,19 +8247,82 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // ===========================================
+// GLOBAL ERROR HANDLER
+// ===========================================
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err.stack || err.message || err);
+  
+  // CORS error
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ error: 'CORS: Origin not allowed' });
+  }
+  
+  // Multer file size error
+  if (err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'File too large. Maximum size is 25MB.' });
+  }
+  
+  // Don't expose stack traces in production
+  res.status(err.status || 500).json({ 
+    error: IS_PRODUCTION ? 'An unexpected error occurred' : err.message 
+  });
+});
+
+// ===========================================
 // START SERVER
 // ===========================================
 
-mongoose.connect(MONGODB_URI)
-  .then(() => {
-    console.log('Connected to MongoDB');
-    app.listen(PORT, () => {
-      console.log(`PermitWise server running on port ${PORT}`);
-    });
-  })
-  .catch(err => {
-    console.error('MongoDB connection error:', err);
-    process.exit(1);
+const connectWithRetry = async (retries = 5, delay = 5000) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await mongoose.connect(MONGODB_URI);
+      console.log('Connected to MongoDB');
+      return;
+    } catch (err) {
+      console.error(`MongoDB connection attempt ${i + 1}/${retries} failed:`, err.message);
+      if (i < retries - 1) {
+        console.log(`Retrying in ${delay / 1000}s...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  console.error('FATAL: Could not connect to MongoDB after multiple retries');
+  process.exit(1);
+};
+
+connectWithRetry().then(() => {
+  const server = app.listen(PORT, () => {
+    console.log(`PermitWise server running on port ${PORT} [${NODE_ENV}]`);
+    console.log(`  Stripe:  ${STRIPE_ENABLED ? (stripe ? 'ENABLED ✓' : 'ENABLED but MISSING KEY ✗') : 'DISABLED (test mode)'}`);
+    console.log(`  IAP:     ${IAP_VALIDATION_ENABLED ? 'ENABLED ✓' : 'DISABLED (test mode)'}`);
+    if (!twilioClient) console.warn('  Twilio:  not configured — SMS disabled');
+    if (!EMAIL_USER) console.warn('  Email:   not configured — notifications disabled');
   });
+  
+  // Graceful shutdown
+  const shutdown = async (signal) => {
+    console.log(`${signal} received. Shutting down gracefully...`);
+    server.close(() => {
+      console.log('HTTP server closed');
+      mongoose.connection.close(false).then(() => {
+        console.log('MongoDB connection closed');
+        process.exit(0);
+      });
+    });
+    // Force exit after 10 seconds
+    setTimeout(() => {
+      console.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  };
+  
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+});
+
+// Handle unhandled rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 module.exports = app;
