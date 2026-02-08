@@ -352,10 +352,22 @@ const getSecureFileUrl = async (fileUrl) => {
 };
 
 // ===========================================
-// GOOGLE PLAY BILLING (Android) / IN-APP PURCHASE
+// GOOGLE PLAY BILLING (Android) / APP STORE (iOS) IN-APP PURCHASE
 // ===========================================
-// Note: For production, integrate with react-native-iap or expo-in-app-purchases
-// This provides the integration structure - actual billing requires native setup
+// Requires: npm install react-native-iap
+// Setup: Follow react-native-iap setup guide for both platforms
+// Google Play: Create subscriptions in Play Console
+// App Store: Create subscriptions in App Store Connect
+
+// Import react-native-iap (must be installed: npm install react-native-iap)
+// import * as RNIap from 'react-native-iap';
+let RNIap = null;
+try {
+  RNIap = require('react-native-iap');
+} catch (e) {
+  console.warn('react-native-iap not installed. IAP will fall back to Stripe checkout.');
+}
+
 const SUBSCRIPTION_SKUS = {
   basic: Platform.OS === 'android' ? 'permitwise_basic_monthly' : 'com.permitwise.basic.monthly',
   pro: Platform.OS === 'android' ? 'permitwise_pro_monthly' : 'com.permitwise.pro.monthly',
@@ -368,44 +380,119 @@ const PLAN_DETAILS = {
   elite: { name: 'Elite', price: '$99/month', priceValue: 99, features: ['Unlimited permits', 'Priority support', 'Unlimited cities', 'Event readiness', 'Team access'] },
 };
 
-// Billing service abstraction - handles both Google Play and Stripe
+// Billing service - handles Google Play, App Store, and Stripe fallback
 const BillingService = {
-  isGooglePlayAvailable: Platform.OS === 'android',
+  isNativeIAPAvailable: !!RNIap && (Platform.OS === 'android' || Platform.OS === 'ios'),
+  _initialized: false,
+  _purchaseListener: null,
+  _errorListener: null,
   
   // Initialize billing - call on app start
   async initialize() {
-    if (this.isGooglePlayAvailable) {
-      // In production: Initialize Google Play Billing
-      // await RNIap.initConnection();
-      console.log('Google Play Billing would initialize here');
+    if (!this.isNativeIAPAvailable) {
+      console.log('Native IAP not available, using Stripe checkout fallback');
+      return true;
     }
-    return true;
+    
+    try {
+      await RNIap.initConnection();
+      this._initialized = true;
+      
+      // Listen for purchase updates
+      this._purchaseListener = RNIap.purchaseUpdatedListener(async (purchase) => {
+        try {
+          const receipt = purchase.transactionReceipt;
+          if (receipt) {
+            // Determine plan from productId
+            const planEntry = Object.entries(SUBSCRIPTION_SKUS).find(([_, sku]) => sku === purchase.productId);
+            const plan = planEntry ? planEntry[0] : null;
+            
+            if (Platform.OS === 'android') {
+              // Verify with our server
+              await api.post('/subscription/verify-google', {
+                purchaseToken: purchase.purchaseToken,
+                productId: purchase.productId,
+                packageName: purchase.packageNameAndroid
+              });
+            } else {
+              // iOS - verify receipt with server
+              await api.post('/subscription/verify-apple', {
+                receiptData: receipt,
+                productId: purchase.productId
+              });
+            }
+            
+            // Acknowledge the purchase (required for Google Play)
+            if (Platform.OS === 'android') {
+              await RNIap.acknowledgePurchaseAndroid({ token: purchase.purchaseToken });
+            }
+            // Finish the transaction (required for both platforms)
+            await RNIap.finishTransaction({ purchase, isConsumable: false });
+          }
+        } catch (err) {
+          console.error('Purchase verification error:', err);
+        }
+      });
+      
+      // Listen for purchase errors
+      this._errorListener = RNIap.purchaseErrorListener((error) => {
+        if (error.code !== 'E_USER_CANCELLED') {
+          console.error('Purchase error:', error);
+        }
+      });
+      
+      console.log('Native IAP initialized successfully');
+      return true;
+    } catch (err) {
+      console.error('IAP initialization failed:', err);
+      this.isNativeIAPAvailable = false;
+      return false;
+    }
   },
 
-  // Get available subscriptions
+  // Get available subscriptions with prices from the store
   async getSubscriptions() {
-    if (this.isGooglePlayAvailable) {
-      // In production: Fetch from Google Play
-      // return await RNIap.getSubscriptions(Object.values(SUBSCRIPTION_SKUS));
-      return Object.entries(PLAN_DETAILS).map(([key, plan]) => ({
-        productId: SUBSCRIPTION_SKUS[key],
-        ...plan,
-        localizedPrice: plan.price,
-      }));
+    if (this.isNativeIAPAvailable && this._initialized) {
+      try {
+        const skus = Object.values(SUBSCRIPTION_SKUS);
+        const subscriptions = await RNIap.getSubscriptions({ skus });
+        return subscriptions.map(sub => {
+          const planEntry = Object.entries(SUBSCRIPTION_SKUS).find(([_, sku]) => sku === sub.productId);
+          const planKey = planEntry ? planEntry[0] : 'basic';
+          const planInfo = PLAN_DETAILS[planKey] || {};
+          return {
+            productId: sub.productId,
+            ...planInfo,
+            // Use store price (localized) instead of hardcoded
+            localizedPrice: sub.localizedPrice || planInfo.price,
+            price: sub.localizedPrice || planInfo.price,
+          };
+        });
+      } catch (err) {
+        console.error('Failed to get subscriptions from store:', err);
+      }
     }
-    return Object.entries(PLAN_DETAILS).map(([key, plan]) => ({ productId: key, ...plan }));
+    // Fallback: return hardcoded plan details
+    return Object.entries(PLAN_DETAILS).map(([key, plan]) => ({
+      productId: SUBSCRIPTION_SKUS[key],
+      ...plan,
+      localizedPrice: plan.price,
+    }));
   },
 
   // Purchase subscription
   async purchaseSubscription(sku, plan) {
-    if (this.isGooglePlayAvailable) {
-      // In production: Use Google Play Billing
-      // const purchase = await RNIap.requestSubscription(sku);
-      // Then verify purchase with backend
-      console.log('Would purchase via Google Play:', sku);
-      // For now, fall back to Stripe
+    if (this.isNativeIAPAvailable && this._initialized) {
+      // Native IAP purchase - verification handled by purchaseUpdatedListener
+      if (Platform.OS === 'android') {
+        await RNIap.requestSubscription({ sku });
+      } else {
+        await RNIap.requestSubscription({ sku });
+      }
+      return { status: 'pending_verification' };
     }
-    // Stripe checkout via backend
+    
+    // Fallback: Stripe checkout via browser
     const data = await api.post('/subscription/checkout', { plan, platform: Platform.OS });
     if (data.url) {
       await Linking.openURL(data.url);
@@ -413,16 +500,38 @@ const BillingService = {
     return data;
   },
 
-  // Restore purchases (required for App Store/Play Store)
+  // Restore purchases (required by both App Store and Play Store policies)
   async restorePurchases() {
-    if (this.isGooglePlayAvailable) {
-      // In production: RNIap.getAvailablePurchases()
-      console.log('Would restore purchases from Google Play');
+    if (this.isNativeIAPAvailable && this._initialized) {
+      try {
+        const purchases = await RNIap.getAvailablePurchases();
+        if (purchases && purchases.length > 0) {
+          // Verify the latest purchase with our server
+          const latestPurchase = purchases[purchases.length - 1];
+          if (Platform.OS === 'android') {
+            await api.post('/subscription/verify-google', {
+              purchaseToken: latestPurchase.purchaseToken,
+              productId: latestPurchase.productId,
+              packageName: latestPurchase.packageNameAndroid
+            });
+          } else {
+            await api.post('/subscription/verify-apple', {
+              receiptData: latestPurchase.transactionReceipt,
+              productId: latestPurchase.productId
+            });
+          }
+          return true;
+        }
+        return false;
+      } catch (err) {
+        console.error('Restore purchases error:', err);
+        return false;
+      }
     }
-    // Verify with backend
+    // Fallback: check server status
     try {
-      await api.get('/subscription/status');
-      return true;
+      const data = await api.post('/subscription/restore');
+      return data.restored;
     } catch (e) {
       return false;
     }
@@ -430,14 +539,28 @@ const BillingService = {
 
   // Manage subscription (opens platform subscription management)
   async manageSubscription() {
-    if (this.isGooglePlayAvailable) {
-      // Opens Google Play subscription management
+    if (Platform.OS === 'android') {
       await Linking.openURL('https://play.google.com/store/account/subscriptions');
     } else {
-      // Opens App Store subscription management
       await Linking.openURL('https://apps.apple.com/account/subscriptions');
     }
   },
+  
+  // Cleanup listeners on unmount
+  cleanup() {
+    if (this._purchaseListener) {
+      this._purchaseListener.remove();
+      this._purchaseListener = null;
+    }
+    if (this._errorListener) {
+      this._errorListener.remove();
+      this._errorListener = null;
+    }
+    if (this.isNativeIAPAvailable && this._initialized) {
+      RNIap.endConnection();
+      this._initialized = false;
+    }
+  }
 };
 
 // ===========================================
@@ -466,7 +589,12 @@ const AuthProvider = ({ children }) => {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchUser(); }, [fetchUser]);
+  useEffect(() => { 
+    fetchUser(); 
+    // Initialize in-app purchases
+    BillingService.initialize().catch(err => console.warn('IAP init:', err.message));
+    return () => { BillingService.cleanup(); };
+  }, [fetchUser]);
 
   const login = async (email, password) => {
     const data = await api.post('/auth/login', { email, password });
@@ -3490,7 +3618,7 @@ const SettingsScreen = ({ navigation }) => {
         
         {/* Manage Subscription - opens Google Play / Apple subscription settings */}
         {subscription?.stripeSubscriptionId && (
-          <TouchableOpacity onPress={() => InAppPurchase.manageSubscription()}>
+          <TouchableOpacity onPress={() => BillingService.manageSubscription()}>
             <Card style={styles.settingsCard}>
               <Text style={styles.settingsLabel}>Manage Subscription</Text>
               <Text style={[styles.settingsHint, { marginTop: 2 }]}>Update payment method, cancel, or view history</Text>
