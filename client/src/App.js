@@ -5452,7 +5452,7 @@ const SettingsPage = () => {
       toast.info('Checkout was canceled. You can upgrade anytime.');
       window.history.replaceState({}, '', window.location.pathname);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const addCity = () => {
     const maxCities = subscription?.features?.maxCities || 1;
     const currentCities = businessData.operatingCities.filter(c => c.city && c.state).length;
