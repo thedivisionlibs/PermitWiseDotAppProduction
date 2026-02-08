@@ -4978,6 +4978,7 @@ const OrganizerSettingsPage = () => {
     try {
       const data = await api.post('/organizer/subscription/checkout');
       if (data.url) window.location.href = data.url;
+      else if (data.message) toast.info(data.message);
     } catch (err) { toast.error(err.message); }
   };
   
@@ -4985,6 +4986,7 @@ const OrganizerSettingsPage = () => {
     try {
       const data = await api.post('/organizer/subscription/portal');
       if (data.url) window.location.href = data.url;
+      else if (data.message) toast.info(data.message);
     } catch (err) { toast.error(err.message); }
   };
   
@@ -5433,8 +5435,24 @@ const SettingsPage = () => {
   
   const handleUpgrade = async (plan) => { 
     if (!canManageSubscription) { toast.error('Only the business owner can manage subscriptions'); return; }
-    try { const data = await api.post('/subscription/checkout', { plan }); if (data.url) window.location.href = data.url; } catch (err) { toast.error(err.message); } 
+    try { const data = await api.post('/subscription/checkout', { plan }); if (data.url) window.location.href = data.url; else if (data.message) { toast.info(data.message); fetchUser(); } } catch (err) { toast.error(err.message); } 
   };
+  const handleManageBilling = async () => {
+    if (!canManageSubscription) { toast.error('Only the business owner can manage billing'); return; }
+    try { const data = await api.post('/subscription/portal'); if (data.url) window.location.href = data.url; else if (data.message) toast.info(data.message); } catch (err) { toast.error(err.message); }
+  };
+  // Handle Stripe checkout success/cancel URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('success') === 'true') {
+      toast.success('Subscription activated! Welcome to PermitWise.');
+      fetchUser();
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('canceled') === 'true') {
+      toast.info('Checkout was canceled. You can upgrade anytime.');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
   const addCity = () => {
     const maxCities = subscription?.features?.maxCities || 1;
     const currentCities = businessData.operatingCities.filter(c => c.city && c.state).length;
@@ -5671,7 +5689,10 @@ const SettingsPage = () => {
                 <div className="plan-header"><h3>Current Plan</h3><Badge variant="primary">{subscription?.plan?.toUpperCase() || 'TRIAL'}</Badge></div>
                 <p>Status: <strong>{subscription?.status}</strong></p>
                 {subscription?.status === 'trial' && subscription?.trialEndsAt && <p className="trial-warning">Trial ends {formatDate(subscription.trialEndsAt)}</p>}
-                {subscription?.currentPeriodEnd && <p>Next billing: {formatDate(subscription.currentPeriodEnd)}</p>}
+                {subscription?.currentPeriodEnd && subscription?.status === 'active' && <p>Next billing: {formatDate(subscription.currentPeriodEnd)}</p>}
+                {subscription?.stripeSubscriptionId && canManageSubscription && (
+                  <Button variant="outline" onClick={handleManageBilling} style={{ marginTop: '12px' }}><Icons.Settings /> Manage Subscription</Button>
+                )}
               </Card>
               <h3>Available Plans</h3>
               <div className="plans-grid">
