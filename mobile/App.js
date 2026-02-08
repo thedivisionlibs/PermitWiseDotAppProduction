@@ -1211,7 +1211,7 @@ const RegisterScreen = ({ navigation }) => {
         <View style={styles.authHeader}>
           <Icons.Shield size={48} /><Text style={styles.authTitle}>PermitWise</Text>
           <Text style={styles.authSubtitle}>Create your account</Text>
-          <Text style={styles.trialBadge}>Full access for 14 days before payment</Text>
+          <Text style={styles.trialBadge}>Get 14 days on us — with most benefits</Text>
         </View>
         {error ? <View style={styles.alertError}><Text style={styles.alertText}>{error}</Text></View> : null}
         
@@ -1599,7 +1599,7 @@ const DashboardScreen = ({ navigation }) => {
           <Text style={styles.headerSubtitle}>Compliance overview</Text>
         </View>
         {subscription?.status === 'trial' && (
-          <View style={styles.trialBanner}><Text style={styles.trialText}>Full access ends {formatDate(subscription.trialEndsAt)} • Then payment begins</Text></View>
+          <View style={styles.trialBanner}><Text style={styles.trialText}>Your introductory period ends {formatDate(subscription.trialEndsAt)} — subscribe to keep full access</Text></View>
         )}
         {needsAttention > 0 && (
           <Card style={styles.ahaBanner}>
@@ -3117,7 +3117,7 @@ const OrganizerSettingsScreen = ({ navigation }) => {
             <View>
               <Text style={[styles.settingsSection, { color: '#065f46' }]}>Organizer Plan</Text>
               <Text style={{ color: '#047857', fontSize: 12 }}>
-                {subscription?.status === 'active' ? 'Active' : subscription?.status === 'trial' ? `Trial - ${Math.max(0, Math.ceil((new Date(subscription?.trialEndsAt) - new Date()) / (1000 * 60 * 60 * 24)))} days left` : 'Inactive'}
+                {subscription?.status === 'active' ? 'Active' : subscription?.status === 'trial' ? `Intro period — ${Math.max(0, Math.ceil((new Date(subscription?.trialEndsAt) - new Date()) / (1000 * 60 * 60 * 24)))} days left` : 'Inactive'}
               </Text>
             </View>
             <Text style={{ color: '#065f46', fontWeight: '700', fontSize: 18 }}>$79/mo</Text>
@@ -3338,7 +3338,7 @@ const SettingsScreen = ({ navigation }) => {
   const getSubscriptionStatusText = () => {
     if (subscription?.status === 'trial') {
       const daysLeft = daysUntil(subscription.trialEndsAt);
-      return `Full access for ${daysLeft} more days before payment`;
+      return `Intro period — ${daysLeft} days left to subscribe`;
     }
     if (subscription?.status === 'active') return 'Active subscription';
     return 'Inactive';
@@ -3723,7 +3723,7 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
           </View>
           
           <ScrollView style={styles.plansContainer}>
-            <Text style={styles.subscriptionSubtitle}>Full access for 14 days before payment begins</Text>
+            <Text style={styles.subscriptionSubtitle}>Get 14 days on us — with most benefits</Text>
             
             {Object.entries(PLAN_DETAILS).map(([key, plan]) => (
               <TouchableOpacity 
@@ -3946,7 +3946,7 @@ const InspectionsScreen = () => {
           </View>
 
           <Button title="Upgrade to Pro" onPress={() => toast.info('Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
-          <Text style={styles.upgradeModalCancel}>14-day free trial • Cancel anytime</Text>
+          <Text style={styles.upgradeModalCancel}>14 days on us • Cancel anytime</Text>
         </ScrollView>
       </SafeAreaView>
     );
@@ -5781,7 +5781,7 @@ const EventsScreen = () => {
           </View>
 
           <Button title="Upgrade to Elite" onPress={() => toast.info('Go to Settings > Subscription to upgrade your plan.')} style={styles.upgradeModalButton} />
-          <Text style={styles.upgradeModalCancel}>14-day free trial • Cancel anytime</Text>
+          <Text style={styles.upgradeModalCancel}>14 days on us • Cancel anytime</Text>
           
           <View style={styles.requestEventSection}>
             <Text style={styles.requestEventText}>Know of an event that should be on PermitWise?</Text>
