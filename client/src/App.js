@@ -717,15 +717,41 @@ const ExpiredSubscriptionBanner = () => {
 
 // Upgrade Required Modal - shows when expired users try to use premium features
 const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires an active subscription', feature = null }) => {
-  const { subscription } = useAuth();
+  const { user, subscription } = useAuth();
+  const [upgrading, setUpgrading] = useState(false);
+  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
   
-  const planFeatures = {
+  const vendorPlanFeatures = {
     basic: ['Permit tracking for 1 city', 'Document storage', 'Email reminders', 'Basic compliance dashboard'],
     pro: ['Everything in Basic', 'Multi-city support (up to 3)', 'SMS alerts', 'Inspection checklists', 'PDF autofill'],
     elite: ['Everything in Pro', 'Unlimited cities', 'Event integration', 'Team accounts', 'Priority support', 'API access']
   };
+  const vendorPlanPrices = { basic: 29, pro: 49, elite: 99 };
   
-  const planPrices = { basic: 29, pro: 49, elite: 99 };
+  const organizerFeatures = [
+    'Unlimited event listings', 'Vendor compliance tracking', 'Automated permit verification',
+    'Custom application forms', 'Payment processing', 'Analytics dashboard', 'Priority support'
+  ];
+  
+  const handleVendorUpgrade = async (plan) => {
+    setUpgrading(true);
+    try {
+      const data = await api.post('/subscription/checkout', { plan });
+      if (data.url) window.location.href = data.url;
+      else if (data.message) { onClose(); window.location.hash = 'settings'; }
+    } catch (err) { toast.error(err.message || 'Checkout failed'); }
+    setUpgrading(false);
+  };
+  
+  const handleOrganizerUpgrade = async () => {
+    setUpgrading(true);
+    try {
+      const data = await api.post('/organizer/subscription/checkout');
+      if (data.url) window.location.href = data.url;
+      else if (data.message) { onClose(); window.location.hash = 'settings'; }
+    } catch (err) { toast.error(err.message || 'Checkout failed'); }
+    setUpgrading(false);
+  };
   
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Upgrade Required" size="lg">
@@ -734,7 +760,9 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
           <Icons.Lock />
           <div>
             <h3>{reason}</h3>
-            <p>Choose a plan to continue using PermitWise with full access to all features.</p>
+            <p>{isOrganizer 
+              ? 'Subscribe to the Organizer plan to manage events and vendor compliance.' 
+              : 'Choose a plan to continue using PermitWise with full access to all features.'}</p>
           </div>
         </div>
         
@@ -744,21 +772,41 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
           </div>
         )}
         
-        <div className="plans-grid">
-          {['basic', 'pro', 'elite'].map(plan => (
-            <div key={plan} className={`plan-card ${plan === 'pro' ? 'recommended' : ''}`}>
-              {plan === 'pro' && <div className="plan-badge">Most Popular</div>}
-              <h4>{plan.charAt(0).toUpperCase() + plan.slice(1)}</h4>
-              <div className="plan-price">${planPrices[plan]}<span>/mo</span></div>
+        {isOrganizer ? (
+          <div className="plans-grid">
+            <div className="plan-card recommended" style={{ maxWidth: '400px', margin: '0 auto' }}>
+              <div className="plan-badge">Event Organizer</div>
+              <h4>Organizer Plan</h4>
+              <div className="plan-price">$79<span>/mo</span></div>
               <ul className="plan-features">
-                {planFeatures[plan].map((f, i) => <li key={i}><Icons.Check /> {f}</li>)}
+                {organizerFeatures.map((f, i) => <li key={i}><Icons.Check /> {f}</li>)}
               </ul>
-              <Button onClick={() => window.location.hash = 'settings'} className={plan === 'pro' ? '' : 'btn-outline'}>
-                {subscription?.plan === plan ? 'Current Plan' : 'Choose Plan'}
+              <Button onClick={handleOrganizerUpgrade} disabled={upgrading}>
+                {upgrading ? 'Processing...' : 'Subscribe Now'}
               </Button>
             </div>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="plans-grid">
+            {['basic', 'pro', 'elite'].map(plan => (
+              <div key={plan} className={`plan-card ${plan === 'pro' ? 'recommended' : ''}`}>
+                {plan === 'pro' && <div className="plan-badge">Most Popular</div>}
+                <h4>{plan.charAt(0).toUpperCase() + plan.slice(1)}</h4>
+                <div className="plan-price">${vendorPlanPrices[plan]}<span>/mo</span></div>
+                <ul className="plan-features">
+                  {vendorPlanFeatures[plan].map((f, i) => <li key={i}><Icons.Check /> {f}</li>)}
+                </ul>
+                <Button 
+                  onClick={() => handleVendorUpgrade(plan)} 
+                  className={plan === 'pro' ? '' : 'btn-outline'}
+                  disabled={upgrading || subscription?.plan === plan}
+                >
+                  {subscription?.plan === plan ? 'Current Plan' : upgrading ? 'Processing...' : 'Choose Plan'}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
         
         <p className="upgrade-note">All plans include a 14-day free trial. Cancel anytime.</p>
       </div>
@@ -2244,7 +2292,7 @@ const InspectionsPage = () => {
             <p>Also includes SMS alerts, PDF autofill & multi-city support</p>
           </div>
 
-          <Button size="lg" onClick={() => window.location.hash = 'settings'}>{isExpired ? 'Renew Subscription' : 'Upgrade to Pro'}</Button>
+          <Button size="lg" onClick={async () => { try { const data = await api.post('/subscription/checkout', { plan: 'pro' }); if (data.url) window.location.href = data.url; else if (data.message) toast.info(data.message); } catch (err) { toast.error(err.message); } }}>{isExpired ? 'Renew Subscription' : 'Upgrade to Pro'}</Button>
           <p className="upgrade-note">{isExpired ? 'Restore full access immediately' : '14-day free trial • Cancel anytime'}</p>
         </div>
       </div>
@@ -4011,7 +4059,7 @@ const EventsPage = () => {
             <p>Includes everything in Pro + team accounts & priority support</p>
           </div>
 
-          <Button size="lg" onClick={() => window.location.hash = 'settings'}>{isExpired ? 'Renew Subscription' : 'Upgrade to Elite'}</Button>
+          <Button size="lg" onClick={async () => { try { const data = await api.post('/subscription/checkout', { plan: 'elite' }); if (data.url) window.location.href = data.url; else if (data.message) toast.info(data.message); } catch (err) { toast.error(err.message); } }}>{isExpired ? 'Renew Subscription' : 'Upgrade to Elite'}</Button>
           <p className="upgrade-note">{isExpired ? 'Restore full access immediately' : '14-day free trial • Cancel anytime'}</p>
           
           <div className="request-event-section">
