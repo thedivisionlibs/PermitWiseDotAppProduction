@@ -372,12 +372,17 @@ const SUBSCRIPTION_SKUS = {
   basic: Platform.OS === 'android' ? 'permitwise_basic_monthly' : 'com.permitwise.basic.monthly',
   pro: Platform.OS === 'android' ? 'permitwise_pro_monthly' : 'com.permitwise.pro.monthly',
   elite: Platform.OS === 'android' ? 'permitwise_elite_monthly' : 'com.permitwise.elite.monthly',
+  organizer: Platform.OS === 'android' ? 'permitwise_organizer_monthly' : 'com.permitwise.organizer.monthly',
 };
 
 const PLAN_DETAILS = {
   basic: { name: 'Basic', price: '$19/month', priceValue: 19, features: ['Up to 5 permits', 'Email reminders', '1 operating city'] },
   pro: { name: 'Pro', price: '$49/month', priceValue: 49, features: ['Up to 20 permits', 'SMS + Email reminders', '5 operating cities', 'Document storage', 'Inspection checklists'], popular: true },
   elite: { name: 'Elite', price: '$99/month', priceValue: 99, features: ['Unlimited permits', 'Priority support', 'Unlimited cities', 'Event readiness', 'Team access'] },
+};
+
+const ORGANIZER_PLAN_DETAILS = {
+  organizer: { name: 'Organizer', price: '$79/month', priceValue: 79, features: ['Unlimited events', 'Vendor compliance tracking', 'Automated permit verification', 'Custom application forms', 'Payment processing', 'Analytics dashboard', 'Priority support'] },
 };
 
 // Billing service - handles Google Play, App Store, and Stripe fallback
@@ -493,6 +498,11 @@ const BillingService = {
     }
     
     // Fallback: Stripe checkout via browser
+    if (plan === 'organizer') {
+      const data = await api.post('/organizer/subscription/checkout');
+      if (data.url) await Linking.openURL(data.url);
+      return data;
+    }
     const data = await api.post('/subscription/checkout', { plan, platform: Platform.OS });
     if (data.url) {
       await Linking.openURL(data.url);
@@ -2874,6 +2884,7 @@ const OrganizerSettingsScreen = ({ navigation }) => {
   const [activeSection, setActiveSection] = useState(null);
   const [loading, setLoading] = useState(false);
   const [subscription, setSubscription] = useState(null);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   
   const [profileData, setProfileData] = useState({
     firstName: user?.firstName || '',
@@ -2935,11 +2946,8 @@ const OrganizerSettingsScreen = ({ navigation }) => {
     finally { setLoading(false); }
   };
 
-  const handleUpgrade = async () => {
-    try {
-      const data = await api.post('/organizer/subscription/checkout');
-      if (data.url) Linking.openURL(data.url);
-    } catch (err) { toast.error(err.message); }
+  const handleUpgrade = () => {
+    setShowSubscriptionModal(true);
   };
 
   const handleLogout = () => {
@@ -3151,6 +3159,7 @@ const OrganizerSettingsScreen = ({ navigation }) => {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+      <SubscriptionModal visible={showSubscriptionModal} onClose={() => setShowSubscriptionModal(false)} currentPlan={subscription?.plan} onSubscribe={() => { fetchUser(); api.get('/organizer/subscription').then(data => setSubscription(data.subscription)).catch(console.error); }} />
     </SafeAreaView>
   );
 };
@@ -3672,9 +3681,12 @@ const SettingsScreen = ({ navigation }) => {
 // SUBSCRIPTION MODAL (Google Play / Stripe)
 // ===========================================
 const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [restoring, setRestoring] = useState(false);
+  const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  const plans = isOrganizer ? ORGANIZER_PLAN_DETAILS : PLAN_DETAILS;
 
   const handlePurchase = async (plan) => {
     setLoading(true);
@@ -3682,7 +3694,7 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
     try {
       await BillingService.purchaseSubscription(SUBSCRIPTION_SKUS[plan], plan);
       toast.success('Redirecting to checkout...');
-      onSubscribe();
+      if (onSubscribe) onSubscribe();
     } catch (error) {
       toast.error(error.message);
     } finally {
@@ -3718,14 +3730,14 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
       <View style={styles.modalOverlay}>
         <View style={styles.subscriptionModal}>
           <View style={styles.subscriptionHeader}>
-            <Text style={styles.subscriptionTitle}>Choose Your Plan</Text>
+            <Text style={styles.subscriptionTitle}>{isOrganizer ? 'Organizer Plan' : 'Choose Your Plan'}</Text>
             <TouchableOpacity onPress={onClose}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
           </View>
           
           <ScrollView style={styles.plansContainer}>
-            <Text style={styles.subscriptionSubtitle}>Get 14 days on us — with most benefits</Text>
+            <Text style={styles.subscriptionSubtitle}>{isOrganizer ? 'Manage events and vendor compliance' : 'Get 14 days on us — with most benefits'}</Text>
             
-            {Object.entries(PLAN_DETAILS).map(([key, plan]) => (
+            {Object.entries(plans).map(([key, plan]) => (
               <TouchableOpacity 
                 key={key} 
                 style={[styles.planCard, currentPlan === key && styles.planCardCurrent, plan.popular && styles.planCardPopular]}
@@ -6864,7 +6876,7 @@ const MainTabsWithBanner = () => {
   
   return (
     <View style={{ flex: 1 }}>
-      {isExpired && !isOrganizer && (
+      {isExpired && (
         <View style={styles.expiredBanner}>
           <View style={styles.expiredBannerContent}>
             <Icons.Alert size={20} color="#dc2626" />
