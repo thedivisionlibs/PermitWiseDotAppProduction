@@ -718,6 +718,7 @@ const ExpiredSubscriptionBanner = () => {
 // Upgrade Required Modal - shows when expired users try to use premium features
 const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires an active subscription', feature = null }) => {
   const { user, subscription } = useAuth();
+  const toast = useToast();
   const [upgrading, setUpgrading] = useState(false);
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
   
