@@ -3924,8 +3924,8 @@ const InspectionsScreen = () => {
 
   useEffect(() => { if (hasAccess) fetchData(); else setLoading(false); }, [hasAccess]);
 
-  const startInspection = (checklist) => {
-    setActiveChecklist(checklist);
+  const startInspection = (checklist, isUserChecklist = false) => {
+    setActiveChecklist({ ...checklist, isUserChecklist });
     // Handle both items array directly or items within sections
     const items = checklist.items || (checklist.sections || []).flatMap(s => s.items || []);
     setInspectionData({ 
@@ -3948,12 +3948,17 @@ const InspectionsScreen = () => {
   const submitInspection = async () => {
     setSubmitting(true);
     try {
-      await api.post('/inspections', { 
-        checklistId: activeChecklist._id, 
+      const payload = { 
         items: inspectionData.items, 
         notes: inspectionData.notes, 
         inspectionDate: new Date() 
-      });
+      };
+      if (activeChecklist.isUserChecklist) {
+        payload.userChecklistId = activeChecklist._id;
+      } else {
+        payload.checklistId = activeChecklist._id;
+      }
+      await api.post('/inspections', payload);
       toast.success('Inspection completed!');
       setActiveChecklist(null);
       fetchData();
@@ -4221,7 +4226,7 @@ const InspectionsScreen = () => {
                   <Text style={styles.checklistMeta}>{item.items?.length || 0} items • Custom</Text>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <TouchableOpacity style={styles.startBtnSmall} onPress={() => startInspection(item)}>
+                  <TouchableOpacity style={styles.startBtnSmall} onPress={() => startInspection(item, true)}>
                     <Text style={styles.startBtnText}>Start</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => deleteUserChecklist(item._id)}>
@@ -4250,7 +4255,7 @@ const InspectionsScreen = () => {
               <Card style={styles.inspectionHistoryCard}>
                 <View style={styles.inspectionHistoryHeader}>
                   <View>
-                    <Text style={styles.inspectionHistoryName}>{item.checklistId?.name || 'Inspection'}</Text>
+                    <Text style={styles.inspectionHistoryName}>{item.checklistId?.name || item.userChecklistId?.name || 'Inspection'}</Text>
                     <Text style={styles.inspectionHistoryDate}>{formatDate(item.inspectionDate)}</Text>
                   </View>
                   <Badge 
@@ -4288,7 +4293,7 @@ const InspectionsScreen = () => {
           <View style={styles.inspectionViewModal}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalTitle}>{viewingInspection?.checklistId?.name || 'Inspection Results'}</Text>
+                <Text style={styles.modalTitle}>{viewingInspection?.checklistId?.name || viewingInspection?.userChecklistId?.name || 'Inspection Results'}</Text>
                 <Text style={styles.inspectionViewDate}>{viewingInspection && formatDate(viewingInspection.inspectionDate)}</Text>
               </View>
               <TouchableOpacity onPress={() => setViewingInspection(null)}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
