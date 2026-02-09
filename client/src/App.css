@@ -1917,10 +1917,18 @@ img { max-width: 100%; display: block; }
   border-radius: var(--radius);
   margin-bottom: 0.5rem;
 }
+.issue-item svg {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  flex-shrink: 0;
+}
 .issue-item.missing { border-left: 3px solid var(--danger); }
 .issue-item.expired { border-left: 3px solid var(--warning); }
 .issue-item.missing_document { border-left: 3px solid var(--warning); }
 .issue-item.in_progress { border-left: 3px solid var(--primary); }
+.issue-item.clickable:hover { background: var(--gray-100); }
 .all-good {
   display: flex;
   align-items: center;
@@ -1929,6 +1937,11 @@ img { max-width: 100%; display: block; }
   background: var(--success-light);
   color: var(--success);
   border-radius: var(--radius);
+}
+.all-good svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 /* Event Management Modal */
