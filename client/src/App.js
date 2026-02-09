@@ -4225,18 +4225,67 @@ const EventsPage = () => {
   };
 
   const updateAttendingPermitStatus = async (eventId, permitIndex, status) => {
+    // Optimistic update for real-time UI
+    if (selectedAttendingEvent && selectedAttendingEvent._id === eventId) {
+      setSelectedAttendingEvent(prev => {
+        const updated = { ...prev, requiredPermits: prev.requiredPermits.map((p, i) => i === permitIndex ? { ...p, status } : p) };
+        updated.completedPermits = updated.requiredPermits.filter(p => p.status === 'obtained' || p.status === 'not_applicable').length;
+        return updated;
+      });
+    }
+    setAttendingEvents(prev => prev.map(ae => {
+      if (ae._id !== eventId) return ae;
+      const updated = { ...ae, requiredPermits: ae.requiredPermits.map((p, i) => i === permitIndex ? { ...p, status } : p) };
+      updated.completedPermits = updated.requiredPermits.filter(p => p.status === 'obtained' || p.status === 'not_applicable').length;
+      updated.completedItems = updated.completedPermits + (updated.complianceChecklist?.filter(c => c.completed).length || 0);
+      updated.totalItems = (updated.requiredPermits?.length || 0) + (updated.complianceChecklist?.length || 0);
+      return updated;
+    }));
     try {
       await api.put(`/attending-events/${eventId}/permit/${permitIndex}`, { status });
       fetchVendorData();
-    } catch (error) { toast.error('Failed to update'); }
+    } catch (error) { toast.error('Failed to update'); fetchVendorData(); }
   };
 
   const updateAttendingChecklistItem = async (eventId, checkIndex, completed) => {
+    // Optimistic update for real-time UI
+    if (selectedAttendingEvent && selectedAttendingEvent._id === eventId) {
+      setSelectedAttendingEvent(prev => {
+        const updated = { ...prev, complianceChecklist: prev.complianceChecklist.map((c, i) => i === checkIndex ? { ...c, completed } : c) };
+        updated.completedChecklist = updated.complianceChecklist.filter(c => c.completed).length;
+        return updated;
+      });
+    }
+    setAttendingEvents(prev => prev.map(ae => {
+      if (ae._id !== eventId) return ae;
+      const updated = { ...ae, complianceChecklist: ae.complianceChecklist.map((c, i) => i === checkIndex ? { ...c, completed } : c) };
+      updated.completedChecklist = updated.complianceChecklist.filter(c => c.completed).length;
+      updated.completedItems = (updated.requiredPermits?.filter(p => p.status === 'obtained' || p.status === 'not_applicable').length || 0) + updated.completedChecklist;
+      updated.totalItems = (updated.requiredPermits?.length || 0) + (updated.complianceChecklist?.length || 0);
+      return updated;
+    }));
     try {
       await api.put(`/attending-events/${eventId}/checklist/${checkIndex}`, { completed });
       fetchVendorData();
-    } catch (error) { toast.error('Failed to update'); }
+    } catch (error) { toast.error('Failed to update'); fetchVendorData(); }
   };
+
+  // Sync selectedAttendingEvent with fresh data after re-fetches
+  useEffect(() => {
+    if (selectedAttendingEvent) {
+      const updated = attendingEvents.find(ae => ae._id === selectedAttendingEvent._id);
+      if (updated) setSelectedAttendingEvent(updated);
+    }
+  }, [attendingEvents]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync selectedEvent with fresh data after re-fetches
+  useEffect(() => {
+    if (selectedEvent) {
+      const allEvents = [...events, ...publishedEvents];
+      const updated = allEvents.find(e => e._id === selectedEvent._id);
+      if (updated) setSelectedEvent(updated);
+    }
+  }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Separate attending events by status
   const upcomingAttendingEvents = attendingEvents.filter(ae => ae.status === 'upcoming' && new Date(ae.endDate || ae.startDate) >= new Date());
@@ -4652,11 +4701,14 @@ const EventsPage = () => {
                   <div className="issues-list">
                     <p className="issues-intro">The following issues need to be resolved:</p>
                     {selectedEvent.issues.map((issue, i) => (
-                      <div key={i} className={`issue-item ${issue.type}`}>
+                      <div key={i} className={`issue-item ${issue.type} ${issue.vendorPermitId ? 'clickable' : ''}`} 
+                        onClick={issue.vendorPermitId ? () => { setSelectedEvent(null); window.location.hash = 'permits'; } : undefined}
+                        style={issue.vendorPermitId ? { cursor: 'pointer' } : undefined}>
                         {issue.type === 'missing' && <><Icons.Alert /> <span><strong>{issue.permit}</strong> - Permit not found</span></>}
                         {issue.type === 'expired' && <><Icons.Clock /> <span><strong>{issue.permit}</strong> - Expired or will expire before event</span></>}
                         {issue.type === 'missing_document' && <><Icons.Document /> <span><strong>{issue.permit}</strong> - Document not uploaded</span></>}
                         {issue.type === 'in_progress' && <><Icons.Clock /> <span><strong>{issue.permit}</strong> - Application in progress</span></>}
+                        {issue.vendorPermitId && <span style={{ fontSize: '0.75rem', color: 'var(--primary)', marginLeft: 'auto' }}>View →</span>}
                       </div>
                     ))}
                   </div>
