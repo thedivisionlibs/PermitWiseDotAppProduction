@@ -4075,13 +4075,13 @@ app.get('/api/events/my-events', authMiddleware, async (req, res) => {
         );
         
         if (!vendorPermit || vendorPermit.status === 'missing') {
-          issues.push({ type: 'missing', permit: required.name });
+          issues.push({ type: 'missing', permit: required.name, permitTypeId: required._id, vendorPermitId: vendorPermit?._id || null });
         } else if (vendorPermit.status === 'expired' || (vendorPermit.expiryDate && new Date(vendorPermit.expiryDate) < event.startDate)) {
-          issues.push({ type: 'expired', permit: required.name });
+          issues.push({ type: 'expired', permit: required.name, permitTypeId: required._id, vendorPermitId: vendorPermit._id });
         } else if (vendorPermit.status === 'in_progress') {
-          issues.push({ type: 'in_progress', permit: required.name });
+          issues.push({ type: 'in_progress', permit: required.name, permitTypeId: required._id, vendorPermitId: vendorPermit._id });
         } else if (!vendorPermit.documentId) {
-          issues.push({ type: 'missing_document', permit: required.name });
+          issues.push({ type: 'missing_document', permit: required.name, permitTypeId: required._id, vendorPermitId: vendorPermit._id });
         } else {
           readyCount++;
         }
