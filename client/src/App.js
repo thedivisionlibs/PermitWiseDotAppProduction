@@ -717,10 +717,13 @@ const ExpiredSubscriptionBanner = () => {
 
 // Upgrade Required Modal - shows when expired users try to use premium features
 const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires an active subscription', feature = null }) => {
-  const { user, subscription } = useAuth();
+  const { user, subscription, fetchUser } = useAuth();
   const toast = useToast();
   const [upgrading, setUpgrading] = useState(false);
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
+  
+  const PLAN_RANK = { free: 0, trial: 0, basic: 1, pro: 2, elite: 3, promo: 4, lifetime: 5 };
+  const currentRank = PLAN_RANK[subscription?.plan] || 0;
   
   const vendorPlanFeatures = {
     basic: ['Permit tracking for 1 city', 'Document storage', 'Email reminders', 'Basic compliance dashboard'],
@@ -734,13 +737,49 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
     'Custom application forms', 'Payment processing', 'Analytics dashboard', 'Priority support'
   ];
   
-  const handleVendorUpgrade = async (plan) => {
+  const getPlanAction = (plan) => {
+    const targetRank = PLAN_RANK[plan] || 0;
+    if (subscription?.plan === plan) return 'current';
+    if (subscription?.pendingPlanChange === plan) return 'pending';
+    // If no active subscription, it's always an upgrade/new signup
+    if (!subscription || !['active', 'grace_period'].includes(subscription.status)) return 'upgrade';
+    return targetRank > currentRank ? 'upgrade' : 'downgrade';
+  };
+  
+  const handleVendorPlanAction = async (plan) => {
+    const action = getPlanAction(plan);
     setUpgrading(true);
     try {
-      const data = await api.post('/subscription/checkout', { plan });
-      if (data.url) window.location.href = data.url;
-      else if (data.message) { onClose(); window.location.hash = 'settings'; }
-    } catch (err) { toast.error(err.message || 'Checkout failed'); }
+      if (action === 'downgrade') {
+        const data = await api.post('/subscription/change-plan', { plan });
+        if (data.success) {
+          toast.success(data.message);
+          fetchUser();
+          onClose();
+        } else if (data.needsCheckout) {
+          const checkoutData = await api.post('/subscription/checkout', { plan });
+          if (checkoutData.url) window.location.href = checkoutData.url;
+        }
+      } else {
+        // Upgrade or new subscription — check if we can do in-place upgrade
+        if (['active', 'grace_period'].includes(subscription?.status) && action === 'upgrade') {
+          const data = await api.post('/subscription/change-plan', { plan });
+          if (data.success) {
+            toast.success(data.message);
+            fetchUser();
+            onClose();
+          } else if (data.needsCheckout) {
+            const checkoutData = await api.post('/subscription/checkout', { plan });
+            if (checkoutData.url) window.location.href = checkoutData.url;
+          }
+        } else {
+          // No active sub — go through checkout
+          const data = await api.post('/subscription/checkout', { plan });
+          if (data.url) window.location.href = data.url;
+          else if (data.message) { onClose(); window.location.hash = 'settings'; }
+        }
+      }
+    } catch (err) { toast.error(err.message || 'Failed to change plan'); }
     setUpgrading(false);
   };
   
@@ -754,8 +793,16 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
     setUpgrading(false);
   };
   
+  const getButtonLabel = (plan) => {
+    const action = getPlanAction(plan);
+    if (action === 'current') return 'Current Plan';
+    if (action === 'pending') return 'Downgrade Scheduled';
+    if (upgrading) return 'Processing...';
+    return action === 'downgrade' ? 'Downgrade' : 'Upgrade';
+  };
+  
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Upgrade Required" size="lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={currentRank > 0 ? 'Change Plan' : 'Upgrade Required'} size="lg">
       <div className="upgrade-modal">
         <div className="upgrade-reason">
           <Icons.Lock />
@@ -770,6 +817,12 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
         {feature && (
           <div className="feature-highlight">
             <strong>Feature needed:</strong> {feature}
+          </div>
+        )}
+        
+        {subscription?.pendingPlanChange && (
+          <div className="feature-highlight" style={{ borderLeft: '3px solid var(--warning)', background: '#fffbeb' }}>
+            <strong>Pending change:</strong> Your plan will switch to {subscription.pendingPlanChange.charAt(0).toUpperCase() + subscription.pendingPlanChange.slice(1)} on {subscription.currentPeriodEnd ? new Date(subscription.currentPeriodEnd).toLocaleDateString() : 'next renewal'}.
           </div>
         )}
         
@@ -789,23 +842,27 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
           </div>
         ) : (
           <div className="plans-grid">
-            {['basic', 'pro', 'elite'].map(plan => (
-              <div key={plan} className={`plan-card ${plan === 'pro' ? 'recommended' : ''}`}>
-                {plan === 'pro' && <div className="plan-badge">Most Popular</div>}
-                <h4>{plan.charAt(0).toUpperCase() + plan.slice(1)}</h4>
-                <div className="plan-price">${vendorPlanPrices[plan]}<span>/mo</span></div>
-                <ul className="plan-features">
-                  {vendorPlanFeatures[plan].map((f, i) => <li key={i}><Icons.Check /> {f}</li>)}
-                </ul>
-                <Button 
-                  onClick={() => handleVendorUpgrade(plan)} 
-                  className={plan === 'pro' ? '' : 'btn-outline'}
-                  disabled={upgrading || subscription?.plan === plan}
-                >
-                  {subscription?.plan === plan ? 'Current Plan' : upgrading ? 'Processing...' : 'Choose Plan'}
-                </Button>
-              </div>
-            ))}
+            {['basic', 'pro', 'elite'].map(plan => {
+              const action = getPlanAction(plan);
+              return (
+                <div key={plan} className={`plan-card ${plan === 'pro' ? 'recommended' : ''}`}>
+                  {plan === 'pro' && <div className="plan-badge">Most Popular</div>}
+                  <h4>{plan.charAt(0).toUpperCase() + plan.slice(1)}</h4>
+                  <div className="plan-price">${vendorPlanPrices[plan]}<span>/mo</span></div>
+                  <ul className="plan-features">
+                    {vendorPlanFeatures[plan].map((f, i) => <li key={i}><Icons.Check /> {f}</li>)}
+                  </ul>
+                  <Button 
+                    onClick={() => handleVendorPlanAction(plan)} 
+                    className={action === 'downgrade' ? 'btn-outline btn-warning' : plan === 'pro' ? '' : 'btn-outline'}
+                    disabled={upgrading || action === 'current' || action === 'pending'}
+                  >
+                    {getButtonLabel(plan)}
+                  </Button>
+                  {action === 'downgrade' && <p className="plan-note">Keeps current features until renewal</p>}
+                </div>
+              );
+            })}
           </div>
         )}
         
@@ -5534,10 +5591,46 @@ const SettingsPage = () => {
     } finally { setLoading(false); }
   };
   
-  const handleUpgrade = async (plan) => { 
-    if (!canManageSubscription) { toast.error('Only the business owner can manage subscriptions'); return; }
-    try { const data = await api.post('/subscription/checkout', { plan }); if (data.url) window.location.href = data.url; else if (data.message) { toast.info(data.message); fetchUser(); } } catch (err) { toast.error(err.message); } 
+  const PLAN_RANK = { free: 0, trial: 0, basic: 1, pro: 2, elite: 3, promo: 4, lifetime: 5 };
+  const currentRank = PLAN_RANK[subscription?.plan] || 0;
+  
+  const getPlanAction = (planId) => {
+    if (subscription?.plan === planId) return 'current';
+    if (subscription?.pendingPlanChange === planId) return 'pending';
+    if (!subscription || !['active', 'grace_period'].includes(subscription.status)) return 'upgrade';
+    return (PLAN_RANK[planId] || 0) > currentRank ? 'upgrade' : 'downgrade';
   };
+  
+  const handlePlanAction = async (plan) => { 
+    if (!canManageSubscription) { toast.error('Only the business owner can manage subscriptions'); return; }
+    const action = getPlanAction(plan);
+    try {
+      if (action === 'upgrade' && ['active', 'grace_period'].includes(subscription?.status)) {
+        // In-place upgrade
+        const data = await api.post('/subscription/change-plan', { plan });
+        if (data.success) { toast.success(data.message); fetchUser(); }
+        else if (data.needsCheckout) { const cd = await api.post('/subscription/checkout', { plan }); if (cd.url) window.location.href = cd.url; }
+      } else if (action === 'downgrade') {
+        const ok = await confirm({ title: 'Downgrade Plan', message: `Are you sure you want to downgrade to ${plan.charAt(0).toUpperCase() + plan.slice(1)}? You'll keep your current features until your next billing date.`, confirmText: 'Downgrade', variant: 'warning' });
+        if (!ok) return;
+        const data = await api.post('/subscription/change-plan', { plan });
+        if (data.success) { toast.success(data.message); fetchUser(); }
+      } else {
+        // New subscription via checkout
+        const data = await api.post('/subscription/checkout', { plan }); 
+        if (data.url) window.location.href = data.url; 
+        else if (data.message) { toast.info(data.message); fetchUser(); }
+      }
+    } catch (err) { toast.error(err.message); } 
+  };
+  
+  const handleCancelPendingChange = async () => {
+    try {
+      const data = await api.post('/subscription/cancel-plan-change');
+      if (data.success) { toast.success(data.message); fetchUser(); }
+    } catch (err) { toast.error(err.message); }
+  };
+  
   const handleManageBilling = async () => {
     if (!canManageSubscription) { toast.error('Only the business owner can manage billing'); return; }
     try { const data = await api.post('/subscription/portal'); if (data.url) window.location.href = data.url; else if (data.message) toast.info(data.message); } catch (err) { toast.error(err.message); }
@@ -5791,6 +5884,12 @@ const SettingsPage = () => {
                 <p>Status: <strong>{subscription?.status}</strong></p>
                 {subscription?.status === 'trial' && subscription?.trialEndsAt && <p className="trial-warning">Trial ends {formatDate(subscription.trialEndsAt)}</p>}
                 {subscription?.currentPeriodEnd && subscription?.status === 'active' && <p>Next billing: {formatDate(subscription.currentPeriodEnd)}</p>}
+                {subscription?.pendingPlanChange && (
+                  <div style={{ marginTop: '8px', padding: '8px 12px', background: '#fffbeb', border: '1px solid #fbbf24', borderRadius: '6px', fontSize: '0.875rem' }}>
+                    <strong>Scheduled change:</strong> Switching to {subscription.pendingPlanChange.charAt(0).toUpperCase() + subscription.pendingPlanChange.slice(1)} on {subscription.currentPeriodEnd ? formatDate(subscription.currentPeriodEnd) : 'next renewal'}
+                    <button onClick={handleCancelPendingChange} style={{ marginLeft: '8px', color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontSize: '0.875rem' }}>Cancel</button>
+                  </div>
+                )}
                 {subscription?.stripeSubscriptionId && canManageSubscription && (
                   <Button variant="outline" onClick={handleManageBilling} style={{ marginTop: '12px' }}><Icons.Settings /> Manage Subscription</Button>
                 )}
@@ -5801,14 +5900,25 @@ const SettingsPage = () => {
                   { id: 'basic', name: 'Starter', price: 19, features: ['Permit tracking', 'Email reminders', 'Document vault', '1 user'] },
                   { id: 'pro', name: 'Pro', price: 49, features: ['Everything in Starter', 'SMS alerts', 'PDF autofill', 'Inspection checklists', 'Multi-city support'] },
                   { id: 'elite', name: 'Elite', price: 99, features: ['Everything in Pro', 'Event readiness', 'Team accounts (5 users)', 'Priority support', 'API access'] }
-                ].map(plan => (
-                  <Card key={plan.id} className={`plan-card ${subscription?.plan === plan.id ? 'current' : ''}`}>
-                    <h3>{plan.name}</h3>
-                    <div className="price">${plan.price}<span>/mo</span></div>
-                    <ul className="plan-features">{plan.features.map((f, i) => <li key={i}><Icons.Check /> {f}</li>)}</ul>
-                    <Button variant={subscription?.plan === plan.id ? 'outline' : 'primary'} onClick={() => handleUpgrade(plan.id)} disabled={subscription?.plan === plan.id}>{subscription?.plan === plan.id ? 'Current Plan' : 'Upgrade'}</Button>
-                  </Card>
-                ))}
+                ].map(plan => {
+                  const action = getPlanAction(plan.id);
+                  const btnLabel = action === 'current' ? 'Current Plan' : action === 'pending' ? 'Downgrade Scheduled' : action === 'downgrade' ? 'Downgrade' : 'Upgrade';
+                  return (
+                    <Card key={plan.id} className={`plan-card ${action === 'current' ? 'current' : ''}`}>
+                      <h3>{plan.name}</h3>
+                      <div className="price">${plan.price}<span>/mo</span></div>
+                      <ul className="plan-features">{plan.features.map((f, i) => <li key={i}><Icons.Check /> {f}</li>)}</ul>
+                      <Button 
+                        variant={action === 'current' || action === 'pending' ? 'outline' : action === 'downgrade' ? 'outline' : 'primary'} 
+                        onClick={() => handlePlanAction(plan.id)} 
+                        disabled={action === 'current' || action === 'pending'}
+                      >
+                        {btnLabel}
+                      </Button>
+                      {action === 'downgrade' && <p style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginTop: '4px', textAlign: 'center' }}>Keeps current features until renewal</p>}
+                    </Card>
+                  );
+                })}
               </div>
             </div>
           )}
