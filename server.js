@@ -3786,7 +3786,7 @@ app.post('/api/checklists', masterAdminMiddleware, async (req, res) => {
 // Start inspection
 app.post('/api/inspections', authMiddleware, requirePremiumFeature('inspectionChecklists'), async (req, res) => {
   try {
-    const { checklistId, items, notes, inspectionDate, location } = req.body;
+    const { checklistId, userChecklistId, items, notes, inspectionDate, location } = req.body;
     
     // items is optional - if not provided, create skeleton from checklist
     let results;
@@ -3824,7 +3824,8 @@ app.post('/api/inspections', authMiddleware, requirePremiumFeature('inspectionCh
     
     const inspection = new VendorInspection({
       vendorBusinessId: req.user.vendorBusinessId,
-      checklistId,
+      checklistId: userChecklistId ? undefined : checklistId,
+      userChecklistId: userChecklistId || undefined,
       completedBy: req.userId,
       inspectionDate: inspectionDate || new Date(),
       results,
@@ -3838,6 +3839,7 @@ app.post('/api/inspections', authMiddleware, requirePremiumFeature('inspectionCh
     // Populate and return
     const populated = await VendorInspection.findById(inspection._id)
       .populate('checklistId', 'name category')
+      .populate('userChecklistId', 'name description')
       .populate('completedBy', 'firstName lastName');
     
     res.status(201).json({ inspection: populated });
@@ -3855,7 +3857,7 @@ app.put('/api/inspections/:id', authMiddleware, requirePremiumFeature('inspectio
       { _id: req.params.id, vendorBusinessId: req.user.vendorBusinessId },
       { results, notes, overallStatus, photos, location, updatedAt: Date.now() },
       { new: true }
-    ).populate('checklistId');
+    ).populate('checklistId').populate('userChecklistId', 'name description');
     
     if (!inspection) {
       return res.status(404).json({ error: 'Inspection not found' });
@@ -3874,6 +3876,7 @@ app.get('/api/inspections', authMiddleware, async (req, res) => {
       vendorBusinessId: req.user.vendorBusinessId
     })
       .populate('checklistId', 'name category')
+      .populate('userChecklistId', 'name description')
       .populate('completedBy', 'firstName lastName')
       .sort({ inspectionDate: -1 });
       
