@@ -3705,7 +3705,7 @@ const SettingsScreen = ({ navigation }) => {
 // SUBSCRIPTION MODAL (Google Play / Stripe)
 // ===========================================
 const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
-  const { user } = useAuth();
+  const { user, subscription } = useAuth();
   const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
@@ -3713,13 +3713,50 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
   const plans = isOrganizer ? ORGANIZER_PLAN_DETAILS : PLAN_DETAILS;
 
-  const handlePurchase = async (plan) => {
+  const PLAN_RANK = { free: 0, trial: 0, basic: 1, pro: 2, elite: 3, promo: 4, lifetime: 5 };
+  const currentRank = PLAN_RANK[currentPlan] || 0;
+  
+  const getPlanAction = (planKey) => {
+    if (currentPlan === planKey) return 'current';
+    if (subscription?.pendingPlanChange === planKey) return 'pending';
+    if (!currentPlan || !['active', 'grace_period'].includes(subscription?.status)) return 'upgrade';
+    return (PLAN_RANK[planKey] || 0) > currentRank ? 'upgrade' : 'downgrade';
+  };
+
+  const handlePlanAction = async (planKey) => {
+    const action = getPlanAction(planKey);
     setLoading(true);
-    setSelectedPlan(plan);
+    setSelectedPlan(planKey);
     try {
-      await BillingService.purchaseSubscription(SUBSCRIPTION_SKUS[plan], plan);
-      toast.success('Redirecting to checkout...');
-      if (onSubscribe) onSubscribe();
+      if (action === 'downgrade') {
+        // Downgrade via server — keep current features until renewal
+        const data = await api.post('/subscription/change-plan', { plan: planKey });
+        if (data.success) {
+          toast.success(data.message);
+          if (onSubscribe) onSubscribe();
+        } else if (data.needsCheckout) {
+          // Fallback to IAP checkout
+          await BillingService.purchaseSubscription(SUBSCRIPTION_SKUS[planKey], planKey);
+          toast.success('Subscription updated');
+          if (onSubscribe) onSubscribe();
+        }
+      } else if (action === 'upgrade' && ['active', 'grace_period'].includes(subscription?.status)) {
+        // In-place upgrade via server
+        const data = await api.post('/subscription/change-plan', { plan: planKey });
+        if (data.success) {
+          toast.success(data.message);
+          if (onSubscribe) onSubscribe();
+        } else if (data.needsCheckout) {
+          await BillingService.purchaseSubscription(SUBSCRIPTION_SKUS[planKey], planKey);
+          toast.success('Redirecting to checkout...');
+          if (onSubscribe) onSubscribe();
+        }
+      } else {
+        // New subscription — go through IAP
+        await BillingService.purchaseSubscription(SUBSCRIPTION_SKUS[planKey], planKey);
+        toast.success('Redirecting to checkout...');
+        if (onSubscribe) onSubscribe();
+      }
     } catch (error) {
       toast.error(error.message);
     } finally {
@@ -3749,50 +3786,86 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
   const handleManage = async () => {
     await BillingService.manageSubscription();
   };
+  
+  const handleCancelPendingChange = async () => {
+    try {
+      const data = await api.post('/subscription/cancel-plan-change');
+      if (data.success) { toast.success(data.message); if (onSubscribe) onSubscribe(); }
+    } catch (err) { toast.error(err.message); }
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide">
       <View style={styles.modalOverlay}>
         <View style={styles.subscriptionModal}>
           <View style={styles.subscriptionHeader}>
-            <Text style={styles.subscriptionTitle}>{isOrganizer ? 'Organizer Plan' : 'Choose Your Plan'}</Text>
+            <Text style={styles.subscriptionTitle}>{isOrganizer ? 'Organizer Plan' : currentRank > 0 ? 'Change Plan' : 'Choose Your Plan'}</Text>
             <TouchableOpacity onPress={onClose}><Icons.X size={24} color={COLORS.gray600} /></TouchableOpacity>
           </View>
           
           <ScrollView style={styles.plansContainer}>
             <Text style={styles.subscriptionSubtitle}>{isOrganizer ? 'Manage events and vendor compliance' : 'Get 14 days on us — with most benefits'}</Text>
             
-            {Object.entries(plans).map(([key, plan]) => (
-              <TouchableOpacity 
-                key={key} 
-                style={[styles.planCard, currentPlan === key && styles.planCardCurrent, plan.popular && styles.planCardPopular]}
-                onPress={() => handlePurchase(key)}
-                disabled={loading || currentPlan === key}
-              >
-                {plan.popular && <View style={styles.popularBadge}><Text style={styles.popularBadgeText}>Most Popular</Text></View>}
-                <View style={styles.planHeader}>
-                  <Text style={styles.planName}>{plan.name}</Text>
-                  <Text style={styles.planPrice}>{plan.price}</Text>
-                </View>
-                <View style={styles.planFeatures}>
-                  {plan.features.map((feature, i) => (
-                    <View key={i} style={styles.planFeature}>
-                      <Icons.Check size={14} color={COLORS.success} />
-                      <Text style={styles.planFeatureText}>{feature}</Text>
+            {subscription?.pendingPlanChange && (
+              <View style={{ backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fbbf24', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                <Text style={{ fontSize: 13, color: '#92400e' }}>
+                  <Text style={{ fontWeight: '600' }}>Scheduled change: </Text>
+                  Switching to {subscription.pendingPlanChange.charAt(0).toUpperCase() + subscription.pendingPlanChange.slice(1)} on {subscription.currentPeriodEnd ? new Date(subscription.currentPeriodEnd).toLocaleDateString() : 'next renewal'}
+                </Text>
+                <TouchableOpacity onPress={handleCancelPendingChange} style={{ marginTop: 6 }}>
+                  <Text style={{ fontSize: 13, color: COLORS.danger, textDecorationLine: 'underline' }}>Cancel change</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            
+            {Object.entries(plans).map(([key, plan]) => {
+              const action = getPlanAction(key);
+              const btnLabel = action === 'current' ? 'Current Plan' 
+                : action === 'pending' ? 'Downgrade Scheduled'
+                : loading && selectedPlan === key ? 'Processing...' 
+                : action === 'downgrade' ? `Downgrade to ${plan.name}`
+                : `Upgrade to ${plan.name}`;
+              
+              return (
+                <TouchableOpacity 
+                  key={key} 
+                  style={[styles.planCard, action === 'current' && styles.planCardCurrent, plan.popular && styles.planCardPopular]}
+                  onPress={() => handlePlanAction(key)}
+                  disabled={loading || action === 'current' || action === 'pending'}
+                >
+                  {plan.popular && <View style={styles.popularBadge}><Text style={styles.popularBadgeText}>Most Popular</Text></View>}
+                  <View style={styles.planHeader}>
+                    <Text style={styles.planName}>{plan.name}</Text>
+                    <Text style={styles.planPrice}>{plan.price}</Text>
+                  </View>
+                  <View style={styles.planFeatures}>
+                    {plan.features.map((feature, i) => (
+                      <View key={i} style={styles.planFeature}>
+                        <Icons.Check size={14} color={COLORS.success} />
+                        <Text style={styles.planFeatureText}>{feature}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  {action === 'current' ? (
+                    <View style={styles.currentPlanBadge}><Text style={styles.currentPlanText}>Current Plan</Text></View>
+                  ) : action === 'pending' ? (
+                    <View style={[styles.currentPlanBadge, { backgroundColor: '#fef3c7' }]}><Text style={[styles.currentPlanText, { color: '#92400e' }]}>Downgrade Scheduled</Text></View>
+                  ) : (
+                    <View>
+                      <Button 
+                        title={btnLabel} 
+                        variant={action === 'downgrade' ? 'outline' : undefined}
+                        loading={loading && selectedPlan === key}
+                        style={{ marginTop: 12 }}
+                      />
+                      {action === 'downgrade' && (
+                        <Text style={{ fontSize: 11, color: COLORS.gray500, textAlign: 'center', marginTop: 4 }}>Keeps current features until renewal</Text>
+                      )}
                     </View>
-                  ))}
-                </View>
-                {currentPlan === key ? (
-                  <View style={styles.currentPlanBadge}><Text style={styles.currentPlanText}>Current Plan</Text></View>
-                ) : (
-                  <Button 
-                    title={loading && selectedPlan === key ? 'Processing...' : `Subscribe to ${plan.name}`} 
-                    loading={loading && selectedPlan === key}
-                    style={{ marginTop: 12 }}
-                  />
-                )}
-              </TouchableOpacity>
-            ))}
+                  )}
+                </TouchableOpacity>
+              );
+            })}
 
             <View style={styles.subscriptionActions}>
               {currentPlan && (
