@@ -602,6 +602,9 @@ const subscriptionSchema = new mongoose.Schema({
     eventIntegration: { type: Boolean, default: false },
     prioritySupport: { type: Boolean, default: false }
   },
+  // Pending plan change (for downgrades — applied at next renewal)
+  pendingPlanChange: { type: String, enum: ['basic', 'pro', 'elite', null], default: null },
+  pendingPlanChangeDate: { type: Date }, // When the change was requested
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
@@ -1504,6 +1507,9 @@ const STRIPE_PRICES = {
   pro: process.env.STRIPE_PRICE_PRO,
   elite: process.env.STRIPE_PRICE_ELITE
 };
+
+// Plan ranking for upgrade/downgrade comparison (higher = better)
+const PLAN_RANK = { free: 0, trial: 0, basic: 1, pro: 2, elite: 3, promo: 4, lifetime: 5 };
 
 // Plan features
 const PLAN_FEATURES = {
@@ -5688,6 +5694,7 @@ app.post('/api/subscription/checkout', authMiddleware, requireRole('owner'), asy
             vendorBusinessId: req.user.vendorBusinessId, userId: req.userId, plan,
             status: 'active', features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
             currentPeriodStart: new Date(), currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            pendingPlanChange: null, pendingPlanChangeDate: null,
             gracePeriodEndsAt: null, lastPaymentFailedAt: null, paymentFailureCount: 0, updatedAt: new Date()
           },
           { upsert: true, new: true }
@@ -5777,6 +5784,141 @@ app.post('/api/subscription/portal', authMiddleware, requireRole('owner'), async
     });
     
     res.json({ url: session.url });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Change subscription plan (upgrade or downgrade)
+app.post('/api/subscription/change-plan', authMiddleware, requireRole('owner'), async (req, res) => {
+  try {
+    const { plan: newPlan } = req.body;
+    if (!['basic', 'pro', 'elite'].includes(newPlan)) {
+      return res.status(400).json({ error: 'Invalid plan' });
+    }
+
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.user.vendorBusinessId });
+    if (!subscription) {
+      return res.status(400).json({ error: 'No subscription found', needsCheckout: true });
+    }
+
+    const currentPlan = subscription.plan;
+    if (currentPlan === newPlan) {
+      return res.status(400).json({ error: 'You are already on this plan' });
+    }
+
+    // If subscription is not active, redirect to checkout
+    if (!['active', 'grace_period'].includes(subscription.status)) {
+      return res.json({ needsCheckout: true, message: 'Please complete checkout to start your subscription' });
+    }
+
+    const currentRank = PLAN_RANK[currentPlan] || 0;
+    const newRank = PLAN_RANK[newPlan] || 0;
+    const isUpgrade = newRank > currentRank;
+
+    if (!STRIPE_ENABLED || !stripe) {
+      // --- TEST MODE ---
+      if (isUpgrade) {
+        // Upgrade: switch immediately
+        subscription.plan = newPlan;
+        subscription.features = PLAN_FEATURES[newPlan] || PLAN_FEATURES.basic;
+        subscription.pendingPlanChange = null;
+        subscription.pendingPlanChangeDate = null;
+        subscription.updatedAt = new Date();
+        await subscription.save();
+        return res.json({ 
+          success: true, action: 'upgrade', plan: newPlan,
+          message: `Upgraded to ${newPlan.charAt(0).toUpperCase() + newPlan.slice(1)}! Your new features are active now.`
+        });
+      } else {
+        // Downgrade: schedule for end of period, keep current features
+        subscription.pendingPlanChange = newPlan;
+        subscription.pendingPlanChangeDate = new Date();
+        subscription.updatedAt = new Date();
+        await subscription.save();
+        return res.json({ 
+          success: true, action: 'downgrade', plan: newPlan,
+          effectiveDate: subscription.currentPeriodEnd,
+          message: `Your plan will change to ${newPlan.charAt(0).toUpperCase() + newPlan.slice(1)} on ${new Date(subscription.currentPeriodEnd).toLocaleDateString()}. You'll keep your current features until then.`
+        });
+      }
+    }
+
+    // --- STRIPE MODE ---
+    if (!subscription.stripeSubscriptionId) {
+      return res.json({ needsCheckout: true, message: 'Please complete checkout first' });
+    }
+
+    const newPriceId = STRIPE_PRICES[newPlan];
+    if (!newPriceId) {
+      return res.status(400).json({ error: 'Stripe price not configured for this plan' });
+    }
+
+    const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+    const currentItemId = stripeSubscription.items.data[0].id;
+
+    if (isUpgrade) {
+      // Upgrade: change price immediately, prorate the difference
+      await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+        items: [{ id: currentItemId, price: newPriceId }],
+        proration_behavior: 'always_invoice',
+        metadata: { ...stripeSubscription.metadata, plan: newPlan }
+      });
+      // Update our DB immediately
+      subscription.plan = newPlan;
+      subscription.features = PLAN_FEATURES[newPlan] || PLAN_FEATURES.basic;
+      subscription.stripePriceId = newPriceId;
+      subscription.pendingPlanChange = null;
+      subscription.pendingPlanChangeDate = null;
+      subscription.updatedAt = new Date();
+      await subscription.save();
+      return res.json({ 
+        success: true, action: 'upgrade', plan: newPlan,
+        message: `Upgraded to ${newPlan.charAt(0).toUpperCase() + newPlan.slice(1)}! You'll be charged the prorated difference.`
+      });
+    } else {
+      // Downgrade: keep current plan, schedule change at next renewal
+      subscription.pendingPlanChange = newPlan;
+      subscription.pendingPlanChangeDate = new Date();
+      subscription.updatedAt = new Date();
+      await subscription.save();
+      // Update Stripe metadata so the webhook knows the pending change
+      await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+        metadata: { ...stripeSubscription.metadata, pendingPlan: newPlan }
+      });
+      return res.json({ 
+        success: true, action: 'downgrade', plan: newPlan,
+        effectiveDate: subscription.currentPeriodEnd,
+        message: `Your plan will change to ${newPlan.charAt(0).toUpperCase() + newPlan.slice(1)} on ${new Date(subscription.currentPeriodEnd).toLocaleDateString()}. You'll keep your current features until then.`
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cancel a pending plan change
+app.post('/api/subscription/cancel-plan-change', authMiddleware, requireRole('owner'), async (req, res) => {
+  try {
+    const subscription = await Subscription.findOne({ vendorBusinessId: req.user.vendorBusinessId });
+    if (!subscription || !subscription.pendingPlanChange) {
+      return res.status(400).json({ error: 'No pending plan change to cancel' });
+    }
+    const canceledPlan = subscription.pendingPlanChange;
+    subscription.pendingPlanChange = null;
+    subscription.pendingPlanChangeDate = null;
+    subscription.updatedAt = new Date();
+    await subscription.save();
+    // Clear Stripe metadata too
+    if (STRIPE_ENABLED && stripe && subscription.stripeSubscriptionId) {
+      try {
+        const stripeSub = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+        const meta = { ...stripeSub.metadata };
+        delete meta.pendingPlan;
+        await stripe.subscriptions.update(subscription.stripeSubscriptionId, { metadata: meta });
+      } catch (e) { console.error('Failed to clear Stripe pending metadata:', e.message); }
+    }
+    res.json({ success: true, message: `Pending change to ${canceledPlan} has been canceled. You'll stay on your current plan.` });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -6454,6 +6596,8 @@ app.post('/webhook', async (req, res) => {
               currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
               currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
               features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
+              pendingPlanChange: null,
+              pendingPlanChangeDate: null,
               gracePeriodEndsAt: null,
               lastPaymentFailedAt: null,
               paymentFailureCount: 0,
@@ -6470,17 +6614,48 @@ app.post('/webhook', async (req, res) => {
         const invoice = event.data.object;
         // Payment successful - restore to active, clear grace period
         // Try vendor subscription first, then organizer
-        const vendorSub = await Subscription.findOneAndUpdate(
-          { stripeCustomerId: invoice.customer },
-          { 
+        const vendorSub = await Subscription.findOne({ stripeCustomerId: invoice.customer });
+        
+        if (vendorSub) {
+          const updateFields = {
             status: 'active',
             gracePeriodEndsAt: null,
             lastPaymentFailedAt: null,
             paymentFailureCount: 0,
             updatedAt: new Date()
+          };
+          
+          // Apply pending plan change at renewal
+          if (vendorSub.pendingPlanChange) {
+            const newPlan = vendorSub.pendingPlanChange;
+            updateFields.plan = newPlan;
+            updateFields.features = PLAN_FEATURES[newPlan] || PLAN_FEATURES.basic;
+            updateFields.pendingPlanChange = null;
+            updateFields.pendingPlanChangeDate = null;
+            
+            // Also update Stripe subscription to new price if possible
+            if (STRIPE_ENABLED && stripe && vendorSub.stripeSubscriptionId) {
+              try {
+                const newPriceId = STRIPE_PRICES[newPlan];
+                if (newPriceId) {
+                  const stripeSub = await stripe.subscriptions.retrieve(vendorSub.stripeSubscriptionId);
+                  await stripe.subscriptions.update(vendorSub.stripeSubscriptionId, {
+                    items: [{ id: stripeSub.items.data[0].id, price: newPriceId }],
+                    proration_behavior: 'none',
+                    metadata: { ...stripeSub.metadata, plan: newPlan, pendingPlan: null }
+                  });
+                  updateFields.stripePriceId = newPriceId;
+                }
+              } catch (e) { console.error('Failed to update Stripe price at renewal:', e.message); }
+            }
+            console.log(`Applied pending plan change to ${newPlan} for customer ${invoice.customer}`);
           }
-        );
-        if (!vendorSub) {
+          
+          await Subscription.findOneAndUpdate(
+            { stripeCustomerId: invoice.customer },
+            updateFields
+          );
+        } else {
           // Try organizer subscription
           await OrganizerSubscription.findOneAndUpdate(
             { stripeCustomerId: invoice.customer },
