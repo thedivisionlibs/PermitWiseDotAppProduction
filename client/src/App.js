@@ -4016,6 +4016,93 @@ const EventsPage = () => {
     );
   }
 
+  // VENDOR VIEW - requires Elite plan
+  // Show different messaging for expired vs no plan
+  if (!hasVendorAccess) {
+    return (
+      <div className="upgrade-feature-page">
+        <div className="upgrade-feature-content">
+          <div className="upgrade-feature-icon">{isExpired ? <Icons.Lock /> : <Icons.Event />}</div>
+          <h1>{isExpired ? 'Subscription Expired' : 'Event Readiness'}</h1>
+          <Badge variant={isExpired ? 'danger' : 'warning'}>{isExpired ? 'Renew to Access' : 'Elite Plan Required'}</Badge>
+          <p className="upgrade-feature-description">
+            {isExpired 
+              ? 'Your subscription has expired. Renew now to access event readiness features and see your compliance status for upcoming events.'
+              : 'See your permit compliance status for events you\'ve been invited to participate in. Know instantly if you\'re ready or what\'s missing.'}
+          </p>
+          
+          <div className="upgrade-feature-grid">
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>Readiness Dashboard</h3>
+              <p>See at a glance which events you're ready for and which need attention</p>
+            </div>
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>Apply to Events</h3>
+              <p>Browse and apply to events looking for vendors like you</p>
+            </div>
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>Missing Permit Alerts</h3>
+              <p>Know exactly which permits or documents you need for each event</p>
+            </div>
+            <div className="upgrade-feature-item">
+              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
+              <h3>Organizer Integration</h3>
+              <p>Event organizers can verify your compliance directly</p>
+            </div>
+          </div>
+
+          <div className="upgrade-pricing-card elite">
+            <span className="upgrade-plan-label">Elite Plan</span>
+            <div className="upgrade-price">$99<span>/month</span></div>
+            <p>Includes everything in Pro + team accounts & priority support</p>
+          </div>
+
+          <Button size="lg" onClick={async () => { try { const data = await api.post('/subscription/checkout', { plan: 'elite' }); if (data.url) window.location.href = data.url; else if (data.message) toast.info(data.message); } catch (err) { toast.error(err.message); } }}>{isExpired ? 'Renew Subscription' : 'Upgrade to Elite'}</Button>
+          <p className="upgrade-note">{isExpired ? 'Restore full access immediately' : '14-day free trial • Cancel anytime'}</p>
+          
+          <div className="request-event-section">
+            <p>Know of an event that should be on PermitWise?</p>
+            <Button variant="outline" onClick={() => setShowRequestModal(true)}>Request an Event</Button>
+          </div>
+        </div>
+        
+        {/* Event Request Modal - available even without Elite */}
+        <Modal isOpen={showRequestModal} onClose={() => setShowRequestModal(false)} title="Request an Event">
+          {requestSubmitted ? (
+            <div className="request-success">
+              <div className="success-icon"><Icons.Check /></div>
+              <h3>Request Submitted!</h3>
+              <p>We'll review your event request and add it to PermitWise soon.</p>
+            </div>
+          ) : (
+            <>
+              <p className="modal-intro">Tell us about an event you'd like to see on PermitWise for permit compliance tracking.</p>
+              <Input label="Event Name *" placeholder="Downtown Food Festival" value={requestForm.eventName} onChange={(e) => setRequestForm(f => ({ ...f, eventName: e.target.value }))} />
+              <Input label="Organizer Name" placeholder="City Events Department" value={requestForm.organizerName} onChange={(e) => setRequestForm(f => ({ ...f, organizerName: e.target.value }))} />
+              <div className="form-row">
+                <Input label="City *" placeholder="Austin" value={requestForm.city} onChange={(e) => setRequestForm(f => ({ ...f, city: e.target.value }))} />
+                <Select label="State *" value={requestForm.state} onChange={(e) => setRequestForm(f => ({ ...f, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+              </div>
+              <div className="form-row">
+                <DateInput label="Start Date" value={requestForm.startDate} onChange={(e) => setRequestForm(f => ({ ...f, startDate: e.target.value }))} />
+                <DateInput label="End Date" value={requestForm.endDate} onChange={(e) => setRequestForm(f => ({ ...f, endDate: e.target.value }))} />
+              </div>
+              <Input label="Event Website" placeholder="https://example.com" value={requestForm.website} onChange={(e) => setRequestForm(f => ({ ...f, website: e.target.value }))} />
+              <Input label="Additional Info" placeholder="Any other details about the event..." value={requestForm.additionalInfo} onChange={(e) => setRequestForm(f => ({ ...f, additionalInfo: e.target.value }))} />
+              <div className="modal-actions">
+                <Button variant="outline" onClick={() => setShowRequestModal(false)}>Cancel</Button>
+                <Button onClick={submitEventRequest} loading={requestSubmitting} disabled={!requestForm.eventName || !requestForm.city || !requestForm.state}>Submit Request</Button>
+              </div>
+            </>
+          )}
+        </Modal>
+      </div>
+    );
+  }
+
   const getReadinessIcon = (status) => {
     if (status === 'ready') return <Icons.Check />;
     if (status === 'missing_permit' || status === 'expired_permit') return <Icons.Alert />;
@@ -4199,93 +4286,6 @@ const EventsPage = () => {
       if (updated) setSelectedEvent(updated);
     }
   }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // VENDOR VIEW - requires Elite plan
-  // Show different messaging for expired vs no plan
-  if (!hasVendorAccess) {
-    return (
-      <div className="upgrade-feature-page">
-        <div className="upgrade-feature-content">
-          <div className="upgrade-feature-icon">{isExpired ? <Icons.Lock /> : <Icons.Event />}</div>
-          <h1>{isExpired ? 'Subscription Expired' : 'Event Readiness'}</h1>
-          <Badge variant={isExpired ? 'danger' : 'warning'}>{isExpired ? 'Renew to Access' : 'Elite Plan Required'}</Badge>
-          <p className="upgrade-feature-description">
-            {isExpired 
-              ? 'Your subscription has expired. Renew now to access event readiness features and see your compliance status for upcoming events.'
-              : 'See your permit compliance status for events you\'ve been invited to participate in. Know instantly if you\'re ready or what\'s missing.'}
-          </p>
-          
-          <div className="upgrade-feature-grid">
-            <div className="upgrade-feature-item">
-              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
-              <h3>Readiness Dashboard</h3>
-              <p>See at a glance which events you're ready for and which need attention</p>
-            </div>
-            <div className="upgrade-feature-item">
-              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
-              <h3>Apply to Events</h3>
-              <p>Browse and apply to events looking for vendors like you</p>
-            </div>
-            <div className="upgrade-feature-item">
-              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
-              <h3>Missing Permit Alerts</h3>
-              <p>Know exactly which permits or documents you need for each event</p>
-            </div>
-            <div className="upgrade-feature-item">
-              <div className="upgrade-feature-item-icon"><Icons.Check /></div>
-              <h3>Organizer Integration</h3>
-              <p>Event organizers can verify your compliance directly</p>
-            </div>
-          </div>
-
-          <div className="upgrade-pricing-card elite">
-            <span className="upgrade-plan-label">Elite Plan</span>
-            <div className="upgrade-price">$99<span>/month</span></div>
-            <p>Includes everything in Pro + team accounts & priority support</p>
-          </div>
-
-          <Button size="lg" onClick={async () => { try { const data = await api.post('/subscription/checkout', { plan: 'elite' }); if (data.url) window.location.href = data.url; else if (data.message) toast.info(data.message); } catch (err) { toast.error(err.message); } }}>{isExpired ? 'Renew Subscription' : 'Upgrade to Elite'}</Button>
-          <p className="upgrade-note">{isExpired ? 'Restore full access immediately' : '14-day free trial • Cancel anytime'}</p>
-          
-          <div className="request-event-section">
-            <p>Know of an event that should be on PermitWise?</p>
-            <Button variant="outline" onClick={() => setShowRequestModal(true)}>Request an Event</Button>
-          </div>
-        </div>
-        
-        {/* Event Request Modal - available even without Elite */}
-        <Modal isOpen={showRequestModal} onClose={() => setShowRequestModal(false)} title="Request an Event">
-          {requestSubmitted ? (
-            <div className="request-success">
-              <div className="success-icon"><Icons.Check /></div>
-              <h3>Request Submitted!</h3>
-              <p>We'll review your event request and add it to PermitWise soon.</p>
-            </div>
-          ) : (
-            <>
-              <p className="modal-intro">Tell us about an event you'd like to see on PermitWise for permit compliance tracking.</p>
-              <Input label="Event Name *" placeholder="Downtown Food Festival" value={requestForm.eventName} onChange={(e) => setRequestForm(f => ({ ...f, eventName: e.target.value }))} />
-              <Input label="Organizer Name" placeholder="City Events Department" value={requestForm.organizerName} onChange={(e) => setRequestForm(f => ({ ...f, organizerName: e.target.value }))} />
-              <div className="form-row">
-                <Input label="City *" placeholder="Austin" value={requestForm.city} onChange={(e) => setRequestForm(f => ({ ...f, city: e.target.value }))} />
-                <Select label="State *" value={requestForm.state} onChange={(e) => setRequestForm(f => ({ ...f, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
-              </div>
-              <div className="form-row">
-                <DateInput label="Start Date" value={requestForm.startDate} onChange={(e) => setRequestForm(f => ({ ...f, startDate: e.target.value }))} />
-                <DateInput label="End Date" value={requestForm.endDate} onChange={(e) => setRequestForm(f => ({ ...f, endDate: e.target.value }))} />
-              </div>
-              <Input label="Event Website" placeholder="https://example.com" value={requestForm.website} onChange={(e) => setRequestForm(f => ({ ...f, website: e.target.value }))} />
-              <Input label="Additional Info" placeholder="Any other details about the event..." value={requestForm.additionalInfo} onChange={(e) => setRequestForm(f => ({ ...f, additionalInfo: e.target.value }))} />
-              <div className="modal-actions">
-                <Button variant="outline" onClick={() => setShowRequestModal(false)}>Cancel</Button>
-                <Button onClick={submitEventRequest} loading={requestSubmitting} disabled={!requestForm.eventName || !requestForm.city || !requestForm.state}>Submit Request</Button>
-              </div>
-            </>
-          )}
-        </Modal>
-      </div>
-    );
-  }
 
   // Separate attending events by status
   const upcomingAttendingEvents = attendingEvents.filter(ae => ae.status === 'upcoming' && new Date(ae.endDate || ae.startDate) >= new Date());
