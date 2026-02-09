@@ -2263,7 +2263,13 @@ const InspectionsPage = () => {
 
   const submitInspection = async () => {
     try {
-      await api.post('/inspections', { checklistId: activeChecklist._id, items: inspectionData.items, notes: inspectionData.notes, inspectionDate: new Date() });
+      const payload = { items: inspectionData.items, notes: inspectionData.notes, inspectionDate: new Date() };
+      if (activeChecklist.isUserChecklist) {
+        payload.userChecklistId = activeChecklist._id;
+      } else {
+        payload.checklistId = activeChecklist._id;
+      }
+      await api.post('/inspections', payload);
       setActiveChecklist(null);
       fetchData();
       toast.success('Inspection submitted successfully!');
@@ -2433,7 +2439,7 @@ const InspectionsPage = () => {
           <h2>Recent Inspections</h2>
           {inspections.length > 0 ? inspections.map(insp => (
             <Card key={insp._id} className="inspection-history-card clickable" onClick={() => setViewingInspection(insp)}>
-              <h3>{insp.checklistId?.name || 'Inspection'}</h3>
+              <h3>{insp.checklistId?.name || insp.userChecklistId?.name || 'Inspection'}</h3>
               <p>{formatDate(insp.inspectionDate)}</p>
               <div className="inspection-result">
                 <Badge variant={insp.overallStatus === 'pass' ? 'success' : insp.overallStatus === 'fail' ? 'danger' : 'warning'}>
@@ -2451,7 +2457,7 @@ const InspectionsPage = () => {
           <div className="inspection-view">
             <div className="inspection-view-header">
               <div>
-                <h3>{viewingInspection.checklistId?.name || 'Inspection'}</h3>
+                <h3>{viewingInspection.checklistId?.name || viewingInspection.userChecklistId?.name || 'Inspection'}</h3>
                 <p className="inspection-date">{formatDate(viewingInspection.inspectionDate)}</p>
               </div>
               <Badge variant={viewingInspection.overallStatus === 'pass' ? 'success' : viewingInspection.overallStatus === 'fail' ? 'danger' : 'warning'} size="lg">
