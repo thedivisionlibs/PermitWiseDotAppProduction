@@ -2883,6 +2883,12 @@ img { max-width: 100%; display: block; }
   font-size: 13px;
   color: var(--gray-500);
 }
+.plan-card .plan-note {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--gray-500);
+  text-align: center;
+}
 .trial-warning {
   display: flex;
   align-items: center;
