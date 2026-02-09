@@ -2,7 +2,7 @@
 import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, Alert, Modal, RefreshControl, StatusBar, Platform, Image, FlatList, StyleSheet, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Svg, { Path, Circle, Rect, Polyline, Line } from 'react-native-svg';
@@ -2272,11 +2272,20 @@ const PermitDetailScreen = ({ route, navigation }) => {
         const formData = new FormData();
         formData.append('file', fileData);
         formData.append('category', 'permit');
-        formData.append('permitId', permit._id);
+        formData.append('relatedEntityType', 'permit');
+        formData.append('relatedEntityId', permit._id);
         
         try {
-          await api.upload('/documents', formData);
+          const docResponse = await api.upload('/documents', formData);
           toast.success('Document uploaded successfully');
+          // Optimistic update — show document immediately
+          if (docResponse.document) {
+            setPermit(prev => ({
+              ...prev,
+              documentId: prev.documentId || docResponse.document,
+              documents: [...(prev.documents || []), docResponse.document]
+            }));
+          }
           refreshPermit();
         } catch (err) {
           toast.error(err.message || 'Failed to upload document');
@@ -4318,6 +4327,7 @@ const EventsScreen = () => {
   const { user, subscription, business } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
+  const navigation = useNavigation();
   const [events, setEvents] = useState([]);
   const [publishedEvents, setPublishedEvents] = useState([]);
   const [organizerEvents, setOrganizerEvents] = useState([]);
@@ -6169,7 +6179,7 @@ const EventsScreen = () => {
                     <Text style={styles.progressText}>{ae.completedItems}/{ae.totalItems} items</Text>
                   </View>
                 )}
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, paddingHorizontal: 2 }}>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, paddingHorizontal: 16, paddingBottom: 16 }}>
                   <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 8, backgroundColor: COLORS.primary }} onPress={() => setSelectedAttendingEvent(ae)}>
                     <Icons.Eye size={14} color="#fff" />
                     <Text style={{ fontSize: 13, fontWeight: '600', color: '#fff' }}>View</Text>
@@ -6572,14 +6582,25 @@ const EventsScreen = () => {
                   {selectedEvent?.issues?.length > 0 ? (
                     <View style={styles.issuesList}>
                       <Text style={styles.issuesIntro}>Issues to resolve:</Text>
-                      {selectedEvent.issues.map((issue, i) => (
-                        <View key={i} style={[styles.issueItem, { borderLeftColor: issue.type === 'missing' || issue.type === 'expired' ? COLORS.danger : COLORS.warning }]}>
-                          {issue.type === 'missing' && <Text style={styles.issueItemText}>🚫 <Text style={styles.issueBold}>{issue.permit}</Text> - Permit not found</Text>}
-                          {issue.type === 'expired' && <Text style={styles.issueItemText}>⏰ <Text style={styles.issueBold}>{issue.permit}</Text> - Expired</Text>}
-                          {issue.type === 'missing_document' && <Text style={styles.issueItemText}>📄 <Text style={styles.issueBold}>{issue.permit}</Text> - Document missing</Text>}
-                          {issue.type === 'in_progress' && <Text style={styles.issueItemText}>⏳ <Text style={styles.issueBold}>{issue.permit}</Text> - In progress</Text>}
-                        </View>
-                      ))}
+                      {selectedEvent.issues.map((issue, i) => {
+                        const matchingPermit = issue.vendorPermitId ? vendorPermitsList.find(p => p._id === issue.vendorPermitId) : null;
+                        const Wrapper = matchingPermit ? TouchableOpacity : View;
+                        const wrapperProps = matchingPermit ? {
+                          onPress: () => {
+                            setSelectedEvent(null);
+                            navigation.navigate('Permits', { screen: 'PermitDetail', params: { permit: matchingPermit } });
+                          }
+                        } : {};
+                        return (
+                          <Wrapper key={i} style={[styles.issueItem, { borderLeftColor: issue.type === 'missing' || issue.type === 'expired' ? COLORS.danger : COLORS.warning }]} {...wrapperProps}>
+                            {issue.type === 'missing' && <Text style={styles.issueItemText}>🚫 <Text style={styles.issueBold}>{issue.permit}</Text> - Permit not found</Text>}
+                            {issue.type === 'expired' && <Text style={styles.issueItemText}>⏰ <Text style={styles.issueBold}>{issue.permit}</Text> - Expired</Text>}
+                            {issue.type === 'missing_document' && <Text style={styles.issueItemText}>📄 <Text style={styles.issueBold}>{issue.permit}</Text> - Document missing</Text>}
+                            {issue.type === 'in_progress' && <Text style={styles.issueItemText}>⏳ <Text style={styles.issueBold}>{issue.permit}</Text> - In progress</Text>}
+                            {matchingPermit && <Text style={{ fontSize: 11, color: COLORS.primary, marginTop: 4 }}>Tap to view permit →</Text>}
+                          </Wrapper>
+                        );
+                      })}
                     </View>
                   ) : (
                     <View style={styles.allGood}>
