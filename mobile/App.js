@@ -1325,6 +1325,7 @@ const ForgotPasswordScreen = ({ navigation }) => {
 // ===========================================
 const OnboardingScreen = () => {
   const { updateBusiness, fetchUser } = useAuth();
+  const toast = useToast();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
   const [showTypePicker, setShowTypePicker] = useState(false); const [showStatePicker, setShowStatePicker] = useState(false);
@@ -1552,6 +1553,7 @@ const OnboardingScreen = () => {
 // ===========================================
 const DashboardScreen = ({ navigation }) => {
   const { user, business, subscription } = useAuth();
+  const toast = useToast();
   const [stats, setStats] = useState(null); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
 
@@ -1666,6 +1668,7 @@ const DashboardScreen = ({ navigation }) => {
 
 const PermitsScreen = ({ navigation }) => {
   const { business, canWrite, isExpired, updateBusiness } = useAuth();
+  const toast = useToast();
   const [permits, setPermits] = useState([]); const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false);
   const [showAddCityModal, setShowAddCityModal] = useState(false);
@@ -1958,6 +1961,7 @@ const PermitsScreen = ({ navigation }) => {
 // Add City Permits Modal
 const AddCityPermitsModal = ({ visible, onClose, onSuccess, updateBusiness }) => {
   const { business } = useAuth();
+  const toast = useToast();
   const [city, setCity] = useState('');
   const [customCity, setCustomCity] = useState('');
   const [state, setState] = useState('');
@@ -2138,6 +2142,7 @@ const AddCityPermitsModal = ({ visible, onClose, onSuccess, updateBusiness }) =>
 
 const PermitDetailScreen = ({ route, navigation }) => {
   const { permit: initialPermit } = route.params;
+  const toast = useToast();
   const { subscription } = useAuth();
   const [permit, setPermit] = useState(initialPermit);
   const [loadingAutofill, setLoadingAutofill] = useState(false);
@@ -2448,6 +2453,7 @@ const PermitDetailScreen = ({ route, navigation }) => {
 
 const AddPermitScreen = ({ navigation }) => {
   const { business, canWrite, isExpired } = useAuth();
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [permitTypes, setPermitTypes] = useState([]);
   const [jurisdictions, setJurisdictions] = useState([]);
@@ -2553,6 +2559,7 @@ const AddPermitScreen = ({ navigation }) => {
 
 const EditPermitScreen = ({ route, navigation }) => {
   const { permit } = route.params;
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     permitNumber: permit?.permitNumber || '',
@@ -2575,15 +2582,19 @@ const EditPermitScreen = ({ route, navigation }) => {
   const handleSubmit = async () => {
     setLoading(true);
     try {
-      await api.put(`/permits/${permit._id}`, {
+      const result = await api.put(`/permits/${permit._id}`, {
         permitNumber: form.permitNumber,
         issueDate: form.issueDate || null,
         expiryDate: form.expiryDate || null,
         status: form.status
       });
+      if (result?._subscriptionExpired) {
+        toast.error('Subscription expired — upgrade to edit permits');
+        return;
+      }
       toast.success('Permit updated');
       navigation.goBack();
-    } catch (e) { toast.error(e.message); }
+    } catch (e) { toast.error(e.message || 'Failed to save permit'); }
     finally { setLoading(false); }
   };
 
@@ -2630,6 +2641,7 @@ const EditPermitScreen = ({ route, navigation }) => {
 
 const DocumentsScreen = ({ navigation }) => {
   const [documents, setDocuments] = useState([]); 
+  const toast = useToast();
   const [loading, setLoading] = useState(true); 
   const [refreshing, setRefreshing] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -2711,6 +2723,7 @@ const DocumentsScreen = ({ navigation }) => {
 // Upload Document Modal
 const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
   const [category, setCategory] = useState('other');
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -2881,6 +2894,7 @@ const UploadDocumentModal = ({ visible, onClose, onSuccess }) => {
 // ===========================================
 const OrganizerSettingsScreen = ({ navigation }) => {
   const { user, fetchUser, logout } = useAuth();
+  const toast = useToast();
   const [activeSection, setActiveSection] = useState(null);
   const [loading, setLoading] = useState(false);
   const [subscription, setSubscription] = useState(null);
@@ -3166,6 +3180,7 @@ const OrganizerSettingsScreen = ({ navigation }) => {
 
 const SettingsScreen = ({ navigation }) => {
   const { user, business, subscription, subscriptionStatus, logout, fetchUser, updateBusiness } = useAuth();
+  const toast = useToast();
   const [activeSection, setActiveSection] = useState(null);
   const [loading, setLoading] = useState(false);
   const [profileData, setProfileData] = useState({ firstName: user?.firstName || '', lastName: user?.lastName || '', phone: user?.phone || '' });
@@ -3682,6 +3697,7 @@ const SettingsScreen = ({ navigation }) => {
 // ===========================================
 const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
   const { user } = useAuth();
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [restoring, setRestoring] = useState(false);
@@ -3791,6 +3807,7 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
 
 const InspectionsScreen = () => {
   const { subscription } = useAuth();
+  const toast = useToast();
   const [checklists, setChecklists] = useState([]);
   const [userChecklists, setUserChecklists] = useState([]);
   const [inspections, setInspections] = useState([]);
@@ -4818,6 +4835,23 @@ const EventsScreen = () => {
       setLoading(false);
     }
   }, [user, subscription]);
+
+  // Sync selectedAttendingEvent with fresh data after re-fetches
+  useEffect(() => {
+    if (selectedAttendingEvent) {
+      const updated = attendingEvents.find(ae => ae._id === selectedAttendingEvent._id);
+      if (updated) setSelectedAttendingEvent(updated);
+    }
+  }, [attendingEvents]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync selectedEvent with fresh event data after re-fetches
+  useEffect(() => {
+    if (selectedEvent) {
+      const allEvents = [...events, ...publishedEvents];
+      const updated = allEvents.find(e => e._id === selectedEvent._id);
+      if (updated) setSelectedEvent(updated);
+    }
+  }, [events, publishedEvents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submitEventRequest = async () => {
     setRequestSubmitting(true);
@@ -5976,17 +6010,33 @@ const EventsScreen = () => {
   };
 
   const updateAttendingPermitStatus = async (eventId, index, status) => {
+    // Optimistic update — update UI immediately
+    if (selectedAttendingEvent && selectedAttendingEvent._id === eventId) {
+      setSelectedAttendingEvent(prev => {
+        const updated = { ...prev, requiredPermits: prev.requiredPermits.map((p, i) => i === index ? { ...p, status } : p) };
+        updated.completedPermits = updated.requiredPermits.filter(p => p.status === 'obtained' || p.status === 'not_applicable').length;
+        return updated;
+      });
+    }
     try {
       await api.put(`/attending-events/${eventId}/permit/${index}`, { status });
       fetchMyEvents();
-    } catch (error) { toast.error('Failed to update'); }
+    } catch (error) { toast.error('Failed to update'); fetchMyEvents(); }
   };
 
   const updateAttendingChecklistItem = async (eventId, index, completed) => {
+    // Optimistic update — update UI immediately
+    if (selectedAttendingEvent && selectedAttendingEvent._id === eventId) {
+      setSelectedAttendingEvent(prev => {
+        const updated = { ...prev, complianceChecklist: prev.complianceChecklist.map((c, i) => i === index ? { ...c, completed } : c) };
+        updated.completedChecklist = updated.complianceChecklist.filter(c => c.completed).length;
+        return updated;
+      });
+    }
     try {
       await api.put(`/attending-events/${eventId}/checklist/${index}`, { completed });
       fetchMyEvents();
-    } catch (error) { toast.error('Failed to update'); }
+    } catch (error) { toast.error('Failed to update'); fetchMyEvents(); }
   };
 
   const upcomingAttendingEvents = attendingEvents.filter(ae => ae.status === 'upcoming' && new Date(ae.endDate || ae.startDate) >= new Date());
@@ -6059,15 +6109,15 @@ const EventsScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.pageHeader}>
-        <View>
+      <View style={[styles.pageHeader, { flexWrap: 'wrap', rowGap: 10 }]}>
+        <View style={{ flexShrink: 1 }}>
           <Text style={styles.pageTitle}>Event Readiness</Text>
           <Text style={styles.pageSubtitle}>Your compliance status for events</Text>
         </View>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flexDirection: 'row', gap: 8, flexShrink: 0 }}>
           <TouchableOpacity style={[styles.requestEventButtonSmall, { backgroundColor: COLORS.primary }]} onPress={openAddAttendingModal}>
             <Icons.Plus size={16} color="#fff" />
-            <Text style={[styles.requestEventButtonSmallText, { color: '#fff' }]}>Add Event</Text>
+            <Text style={[styles.requestEventButtonSmallText, { color: '#fff' }]}>Add</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.requestEventButtonSmall} onPress={() => setShowRequestModal(true)}>
             <Icons.Plus size={16} color={COLORS.primary} />
@@ -6119,15 +6169,18 @@ const EventsScreen = () => {
                     <Text style={styles.progressText}>{ae.completedItems}/{ae.totalItems} items</Text>
                   </View>
                 )}
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
-                  <TouchableOpacity style={[styles.eventCardActionBtn, { flex: 1 }]} onPress={() => setSelectedAttendingEvent(ae)}>
-                    <Text style={styles.eventCardActionBtnText}>View / Manage</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, paddingHorizontal: 2 }}>
+                  <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 8, backgroundColor: COLORS.primary }} onPress={() => setSelectedAttendingEvent(ae)}>
+                    <Icons.Eye size={14} color="#fff" />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#fff' }}>View</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.eventCardActionBtn, { paddingHorizontal: 12 }]} onPress={() => openEditAttendingModal(ae)}>
-                    <Icons.Edit size={14} color={COLORS.primary} />
+                  <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: COLORS.gray300, backgroundColor: COLORS.white }} onPress={() => openEditAttendingModal(ae)}>
+                    <Icons.Edit size={14} color={COLORS.gray700} />
+                    <Text style={{ fontSize: 13, fontWeight: '500', color: COLORS.gray700 }}>Edit</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.eventCardActionBtn, { paddingHorizontal: 12 }]} onPress={() => deleteAttendingEvent(ae._id)}>
+                  <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca', backgroundColor: '#fef2f2' }} onPress={() => deleteAttendingEvent(ae._id)}>
                     <Icons.Trash size={14} color={COLORS.danger} />
+                    <Text style={{ fontSize: 13, fontWeight: '500', color: COLORS.danger }}>Delete</Text>
                   </TouchableOpacity>
                 </View>
               </Card>
