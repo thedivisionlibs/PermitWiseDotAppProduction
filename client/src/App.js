@@ -4016,6 +4016,23 @@ const EventsPage = () => {
     );
   }
 
+  // Sync selectedAttendingEvent with fresh data after re-fetches
+  useEffect(() => {
+    if (selectedAttendingEvent) {
+      const updated = attendingEvents.find(ae => ae._id === selectedAttendingEvent._id);
+      if (updated) setSelectedAttendingEvent(updated);
+    }
+  }, [attendingEvents]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync selectedEvent with fresh data after re-fetches
+  useEffect(() => {
+    if (selectedEvent) {
+      const allEvents = [...events, ...publishedEvents];
+      const updated = allEvents.find(e => e._id === selectedEvent._id);
+      if (updated) setSelectedEvent(updated);
+    }
+  }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // VENDOR VIEW - requires Elite plan
   // Show different messaging for expired vs no plan
   if (!hasVendorAccess) {
@@ -4269,23 +4286,6 @@ const EventsPage = () => {
       fetchVendorData();
     } catch (error) { toast.error('Failed to update'); fetchVendorData(); }
   };
-
-  // Sync selectedAttendingEvent with fresh data after re-fetches
-  useEffect(() => {
-    if (selectedAttendingEvent) {
-      const updated = attendingEvents.find(ae => ae._id === selectedAttendingEvent._id);
-      if (updated) setSelectedAttendingEvent(updated);
-    }
-  }, [attendingEvents]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Sync selectedEvent with fresh data after re-fetches
-  useEffect(() => {
-    if (selectedEvent) {
-      const allEvents = [...events, ...publishedEvents];
-      const updated = allEvents.find(e => e._id === selectedEvent._id);
-      if (updated) setSelectedEvent(updated);
-    }
-  }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Separate attending events by status
   const upcomingAttendingEvents = attendingEvents.filter(ae => ae.status === 'upcoming' && new Date(ae.endDate || ae.startDate) >= new Date());
