@@ -45,32 +45,32 @@
     
     /* ========== NAVIGATION ========== */
     .nav {
-      position: fixed;
+      position: fixed; /* already in your file */
       top: 0;
       left: 0;
       right: 0;
-      background: rgba(255,255,255,0.95);
-      backdrop-filter: blur(10px);
       z-index: 1000;
-      border-bottom: 1px solid var(--gray-100);
-      transition: all 0.3s;
-
-      /* make sure nav has explicit height */
-      height: 84px;  /* adjust if needed */
-      overflow: hidden;
     }
     .nav-banner-bg {
       position: absolute;
-      left: 0;
       top: 0;
+      bottom: 0;               /* <-- forces vertical fit to the nav bar */
+      left: 0;
     
-      height: 100%;
-      width: clamp(380px, 35vw, 700px);
+      width: clamp(380px, 35vw, 720px);  /* <-- controls how far it reaches */
+      height: auto;                       /* <-- let top/bottom control height */
     
-      object-fit: cover;
+      object-fit: cover;                  /* <-- fills nav height, crops if needed */
       object-position: left center;
     
-      pointer-events: none; /* prevents blocking nav links */
+      z-index: 0;                         /* <-- behind everything */
+      pointer-events: none;               /* <-- never blocks buttons/links */
+    }
+    
+    /* Bring the nav content ABOVE the banner */
+    .nav-inner {
+      position: relative;                 /* <-- creates stacking context */
+      z-index: 1;                         /* <-- above banner */
     }
     .nav.scrolled { box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
     .nav-inner {
