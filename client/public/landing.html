@@ -45,32 +45,15 @@
     
     /* ========== NAVIGATION ========== */
     .nav {
-      position: fixed; /* already in your file */
+      position: fixed;
       top: 0;
       left: 0;
       right: 0;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(10px);
       z-index: 1000;
-    }
-    .nav-banner-bg {
-      position: absolute;
-      top: 0;
-      bottom: 0;               /* <-- forces vertical fit to the nav bar */
-      left: 0;
-    
-      width: clamp(380px, 35vw, 720px);  /* <-- controls how far it reaches */
-      height: auto;                       /* <-- let top/bottom control height */
-    
-      object-fit: cover;                  /* <-- fills nav height, crops if needed */
-      object-position: left center;
-    
-      z-index: 0;                         /* <-- behind everything */
-      pointer-events: none;               /* <-- never blocks buttons/links */
-    }
-    
-    /* Bring the nav content ABOVE the banner */
-    .nav-inner {
-      position: relative;                 /* <-- creates stacking context */
-      z-index: 1;                         /* <-- above banner */
+      border-bottom: 1px solid var(--gray-100);
+      transition: all 0.3s;
     }
     .nav.scrolled { box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
     .nav-inner {
@@ -1481,26 +1464,15 @@
 </head>
 <body>
   <!-- Navigation -->
-  <nav class="nav" id="nav" style="position:fixed; top:0; left:0; right:0; z-index:1000;">
-
-    <img 
-      src="/images/permitwise-banner.png"
-      alt="PermitWise"
-      style="
-        position:absolute;
-        top:0;
-        bottom:0;
-        left:0;
-        width: clamp(420px, 35vw, 800px);
-        height:100%;
-        object-fit:cover;
-        object-position:left center;
-        pointer-events:none;
-        z-index:0;
-      ">
-  
-    <div class="nav-inner" style="position:relative; z-index:1;">
-      
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="/" class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="M9 12l2 2 4-4"/>
+        </svg>
+        PermitWise
+      </a>
       <div class="nav-links">
         <a href="#features">Features</a>
         <a href="#organizers">Organizers</a>
@@ -1508,15 +1480,12 @@
         <a href="#pricing">Pricing</a>
         <a href="#faq">FAQ</a>
       </div>
-  
       <div class="nav-actions">
         <a href="/app" class="btn btn-outline btn-sm">Log In</a>
         <a href="/app?register=true" class="btn btn-primary btn-sm">Start Free Trial</a>
       </div>
-  
     </div>
   </nav>
-
 
   <!-- Hero Section -->
   <section class="hero">
