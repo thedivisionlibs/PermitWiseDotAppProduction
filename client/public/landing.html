@@ -72,10 +72,11 @@
       min-width: 0;
       margin-right: 24px;
       overflow: hidden;
+      align-self: stretch;
     }
     .logo img {
-      height: 54px;
-      max-width: 100%;
+      height: 100%;
+      width: auto;
       object-fit: contain;
       object-position: left center;
       -webkit-mask-image: linear-gradient(to right, black 50%, transparent 95%);
@@ -1452,7 +1453,6 @@
     }
     @media (max-width: 768px) {
       .nav-links { display: none; }
-      .logo img { height: 42px; }
       .logo { margin-right: 12px; }
       .hero h1 { font-size: 36px; }
       .section-header h2 { font-size: 32px; }
