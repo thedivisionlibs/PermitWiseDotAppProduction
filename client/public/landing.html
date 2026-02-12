@@ -84,6 +84,18 @@
     }
     .nav-links a:hover { color: var(--primary); }
     .nav-actions { display: flex; gap: 12px; }
+
+    .logo-banner {
+      display: flex;
+      align-items: center;
+      text-decoration: none;
+    }
+    
+    .logo-banner img {
+      height: 50px;      /* adjust if needed */
+      width: auto;
+      object-fit: contain;
+    }
     
     /* ========== BUTTONS ========== */
     .btn {
@@ -1466,12 +1478,8 @@
   <!-- Navigation -->
   <nav class="nav" id="nav">
     <div class="nav-inner">
-      <a href="/" class="logo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          <path d="M9 12l2 2 4-4"/>
-        </svg>
-        PermitWise
+      <a href="/" class="logo-banner">
+        <img src="/images/permitwise-banner.png" alt="PermitWise Logo">
       </a>
       <div class="nav-links">
         <a href="#features">Features</a>
