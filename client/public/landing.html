@@ -59,11 +59,11 @@
     .nav-inner{
       max-width: 1200px;
       margin: 0 auto;
-      padding: 16px 24px;
+      padding: 12px 24px;   /* smaller than 16px; keeps nav compact */
       display: flex;
       align-items: center;
       justify-content: flex-start;
-      gap: 28px;
+      gap: 24px;
     }
     .logo {
       display: flex;
@@ -84,17 +84,20 @@
       transition: color 0.2s;
     }
     .nav-links a:hover { color: var(--primary); }
-    .nav-actions { display: flex; gap: 12px; margin-left: auto; }
+    .nav-actions{
+      display: flex;
+      gap: 12px;
+      margin-left: auto;
+    }
 
     .logo-banner{
       display: flex;
       align-items: center;
+      width: clamp(320px, 30vw, 520px);  /* how far it reaches toward Features */
+      height: 44px;                      /* fixed height that matches nav nicely */
+      overflow: hidden;
       flex: 0 0 auto;
-      width: clamp(300px, 34vw, 520px);   /* <-- increase if you want even wider */
-      height: 56px;                        /* nav-safe height */
-      overflow: hidden;                    /* allows cropping */
-    }
-    
+    } 
     .logo-banner img{
       width: 100%;
       height: 100%;
