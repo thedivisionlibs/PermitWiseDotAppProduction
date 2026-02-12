@@ -56,13 +56,14 @@
       transition: all 0.3s;
     }
     .nav.scrolled { box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-    .nav-inner {
+    .nav-inner{
       max-width: 1200px;
       margin: 0 auto;
       padding: 16px 24px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      justify-content: flex-start;
+      gap: 28px;
     }
     .logo {
       display: flex;
@@ -83,18 +84,21 @@
       transition: color 0.2s;
     }
     .nav-links a:hover { color: var(--primary); }
-    .nav-actions { display: flex; gap: 12px; }
+    .nav-actions { display: flex; gap: 12px; margin-left: auto; }
 
-    .logo-banner {
+    .logo-banner{
       display: flex;
       align-items: center;
-      text-decoration: none;
+      flex: 0 0 auto;
+      width: clamp(220px, 26vw, 420px);  /* THIS controls how much space it takes */
     }
     
-    .logo-banner img {
-      height: 50px;      /* adjust if needed */
-      width: auto;
+    .logo-banner img{
+      width: 100%;
+      height: auto;
+      max-height: 56px;                  /* keeps nav from getting too tall */
       object-fit: contain;
+      display: block;
     }
     
     /* ========== BUTTONS ========== */
@@ -1452,6 +1456,7 @@
     }
     @media (max-width: 768px) {
       .nav-links { display: none; }
+      .logo-banner{ width: min(72vw, 520px); }
       .hero h1 { font-size: 36px; }
       .section-header h2 { font-size: 32px; }
       .problem h2 { font-size: 32px; }
