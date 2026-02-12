@@ -54,6 +54,23 @@
       z-index: 1000;
       border-bottom: 1px solid var(--gray-100);
       transition: all 0.3s;
+
+      /* make sure nav has explicit height */
+      height: 84px;  /* adjust if needed */
+      overflow: hidden;
+    }
+    .nav-banner-bg {
+      position: absolute;
+      left: 0;
+      top: 0;
+    
+      height: 100%;
+      width: clamp(380px, 35vw, 700px);
+    
+      object-fit: cover;
+      object-position: left center;
+    
+      pointer-events: none; /* prevents blocking nav links */
     }
     .nav.scrolled { box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
     .nav-inner {
@@ -1465,14 +1482,11 @@
 <body>
   <!-- Navigation -->
   <nav class="nav" id="nav">
+    <img src="/images/permitwise-banner.png"
+       alt="PermitWise"
+       class="nav-banner-bg">
+    
     <div class="nav-inner">
-      <a href="/" class="logo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-          <path d="M9 12l2 2 4-4"/>
-        </svg>
-        PermitWise
-      </a>
       <div class="nav-links">
         <a href="#features">Features</a>
         <a href="#organizers">Organizers</a>
