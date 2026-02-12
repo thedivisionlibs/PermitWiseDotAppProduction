@@ -1481,12 +1481,26 @@
 </head>
 <body>
   <!-- Navigation -->
-  <nav class="nav" id="nav">
-    <img src="/images/permitwise-banner.png"
-       alt="PermitWise"
-       class="nav-banner-bg">
-    
-    <div class="nav-inner">
+  <nav class="nav" id="nav" style="position:fixed; top:0; left:0; right:0; z-index:1000;">
+
+    <img 
+      src="/images/permitwise-banner.png"
+      alt="PermitWise"
+      style="
+        position:absolute;
+        top:0;
+        bottom:0;
+        left:0;
+        width: clamp(420px, 35vw, 800px);
+        height:100%;
+        object-fit:cover;
+        object-position:left center;
+        pointer-events:none;
+        z-index:0;
+      ">
+  
+    <div class="nav-inner" style="position:relative; z-index:1;">
+      
       <div class="nav-links">
         <a href="#features">Features</a>
         <a href="#organizers">Organizers</a>
@@ -1494,12 +1508,15 @@
         <a href="#pricing">Pricing</a>
         <a href="#faq">FAQ</a>
       </div>
+  
       <div class="nav-actions">
         <a href="/app" class="btn btn-outline btn-sm">Log In</a>
         <a href="/app?register=true" class="btn btn-primary btn-sm">Start Free Trial</a>
       </div>
+  
     </div>
   </nav>
+
 
   <!-- Hero Section -->
   <section class="hero">
