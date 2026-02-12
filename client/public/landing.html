@@ -56,28 +56,22 @@
       transition: all 0.3s;
     }
     .nav.scrolled { box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-    .nav-inner{
+    .nav-inner {
       max-width: 1200px;
       margin: 0 auto;
-      padding: 12px 24px;   /* smaller than 16px; keeps nav compact */
+      padding: 16px 24px;
       display: flex;
+      justify-content: space-between;
       align-items: center;
-      justify-content: flex-start;
-      gap: 24px;
     }
-    .logo{
+    .logo {
       display: flex;
       align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 22px;
+      color: var(--primary);
       text-decoration: none;
-    
-      /* this controls how far it reaches toward "Features" */
-      width: clamp(320px, 28vw, 560px);
-    
-      /* this locks it to the existing nav bar height */
-      height: 40px;
-    
-      /* if your banner exceeds the slot, it won't push nav taller */
-      overflow: hidden;
     }
     .logo svg { width: 36px; height: 36px; }
     .nav-links { display: flex; align-items: center; gap: 36px; }
@@ -89,37 +83,7 @@
       transition: color 0.2s;
     }
     .nav-links a:hover { color: var(--primary); }
-    .nav-actions{
-      display: flex;
-      gap: 12px;
-      margin-left: auto;
-    }
-
-    .logo .nav-banner{
-      width: 100%;
-      height: 100%;
-    
-      /* you said stretching is acceptable */
-      object-fit: fill;
-    
-      display: block;
-    }
-
-    .logo-banner{
-      display: flex;
-      align-items: center;
-      width: clamp(320px, 30vw, 520px);  /* how far it reaches toward Features */
-      height: 44px;                      /* fixed height that matches nav nicely */
-      overflow: hidden;
-      flex: 0 0 auto;
-    } 
-    .logo-banner img{
-      width: 100%;
-      height: 100%;
-      object-fit: cover;                   /* KEY: fill width, crop as needed */
-      object-position: left center;        /* keep the “PermitWise” side visible */
-      display: block;
-    }
+    .nav-actions { display: flex; gap: 12px; }
     
     /* ========== BUTTONS ========== */
     .btn {
@@ -1476,7 +1440,6 @@
     }
     @media (max-width: 768px) {
       .nav-links { display: none; }
-      .logo-banner{ width: min(72vw, 520px); }
       .hero h1 { font-size: 36px; }
       .section-header h2 { font-size: 32px; }
       .problem h2 { font-size: 32px; }
@@ -1504,7 +1467,11 @@
   <nav class="nav" id="nav">
     <div class="nav-inner">
       <a href="/" class="logo">
-        <img src="/images/permitwise-banner.png" alt="PermitWise" class="nav-banner" />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="M9 12l2 2 4-4"/>
+        </svg>
+        PermitWise
       </a>
       <div class="nav-links">
         <a href="#features">Features</a>
