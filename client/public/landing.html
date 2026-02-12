@@ -90,14 +90,16 @@
       display: flex;
       align-items: center;
       flex: 0 0 auto;
-      width: clamp(220px, 26vw, 420px);  /* THIS controls how much space it takes */
+      width: clamp(300px, 34vw, 520px);   /* <-- increase if you want even wider */
+      height: 56px;                        /* nav-safe height */
+      overflow: hidden;                    /* allows cropping */
     }
     
     .logo-banner img{
       width: 100%;
-      height: auto;
-      max-height: 56px;                  /* keeps nav from getting too tall */
-      object-fit: contain;
+      height: 100%;
+      object-fit: cover;                   /* KEY: fill width, crop as needed */
+      object-position: left center;        /* keep the “PermitWise” side visible */
       display: block;
     }
     
