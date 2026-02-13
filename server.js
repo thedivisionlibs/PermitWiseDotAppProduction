@@ -11,6 +11,7 @@ const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const path = require('path');
 const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 const cron = require('node-cron');
 const Stripe = require('stripe');
 const twilio = require('twilio');
@@ -39,6 +40,9 @@ const EMAIL_HOST = process.env.EMAIL_HOST || 'smtp.gmail.com';
 const EMAIL_PORT = process.env.EMAIL_PORT || 587;
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASS = process.env.EMAIL_PASS;
+const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
+const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@permitwise.app';
+const FROM_NAME = process.env.FROM_NAME || 'PermitWise';
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5000';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 // Google Play receipt validation
@@ -142,7 +146,7 @@ if (STRIPE_ENABLED && stripe) {
   }
 }
 
-// Initialize Nodemailer
+// Initialize Nodemailer (fallback if SendGrid not configured)
 const transporter = nodemailer.createTransport({
   host: EMAIL_HOST,
   port: EMAIL_PORT,
@@ -152,6 +156,14 @@ const transporter = nodemailer.createTransport({
     pass: EMAIL_PASS
   }
 });
+
+// Initialize SendGrid (primary email provider)
+if (SENDGRID_API_KEY) {
+  sgMail.setApiKey(SENDGRID_API_KEY);
+  console.log('✅ SendGrid configured as primary email provider');
+} else {
+  console.log('⚠️  SendGrid not configured (set SENDGRID_API_KEY). Falling back to SMTP.');
+}
 
 // ===========================================
 // SECURITY MIDDLEWARE
@@ -1447,13 +1459,30 @@ const generateToken = (userId) => {
 
 // Send email
 const sendEmail = async (to, subject, html) => {
+  // Primary: SendGrid
+  if (SENDGRID_API_KEY) {
+    try {
+      await sgMail.send({
+        to,
+        from: { email: FROM_EMAIL, name: FROM_NAME },
+        subject,
+        html
+      });
+      return { success: true };
+    } catch (error) {
+      console.error('SendGrid error:', error.response?.body || error.message);
+      return { success: false, message: error.message };
+    }
+  }
+  
+  // Fallback: Nodemailer SMTP
   if (!EMAIL_USER || !EMAIL_PASS) {
     console.log('Email not configured. Would send:', { to, subject });
-    return { success: false, message: 'Email not configured' };
+    return { success: false, message: 'Email not configured — set SENDGRID_API_KEY or EMAIL_USER/EMAIL_PASS' };
   }
   try {
     await transporter.sendMail({
-      from: `"PermitWise" <${EMAIL_USER}>`,
+      from: `"${FROM_NAME}" <${EMAIL_USER}>`,
       to,
       subject,
       html
@@ -5071,47 +5100,23 @@ app.delete('/api/events/:id/withdraw', authMiddleware, async (req, res) => {
     // Send email notification to organizer
     if (event.organizerId?.email) {
       try {
-        if (process.env.SENDGRID_API_KEY) {
-          const sgMail = require('@sendgrid/mail');
-          sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-          await sgMail.send({
-            to: event.organizerId.email,
-            from: process.env.FROM_EMAIL || 'noreply@permitwise.app',
-            subject: `Vendor Withdrawal: ${event.eventName}`,
-            html: `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #dc2626;">Vendor Withdrawal Notice</h2>
-                <p><strong>${vendorName}</strong> has withdrawn from your event <strong>${event.eventName}</strong>.</p>
-                ${reason && reason !== 'No reason provided' ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
-                <p style="margin-top: 20px; color: #666;">
-                  <small>Date of Event: ${new Date(event.startDate).toLocaleDateString()}</small><br>
-                  <small>Location: ${event.location?.city}, ${event.location?.state}</small>
-                </p>
-                <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
-                <p style="color: #999; font-size: 12px;">This is an automated notification from PermitWise.</p>
-              </div>
-            `
-          });
-        } else {
-          // Fall back to nodemailer
-          await sendEmail(
-            event.organizerId.email,
-            `Vendor Withdrawal: ${event.eventName}`,
-            `
-              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #dc2626;">Vendor Withdrawal Notice</h2>
-                <p><strong>${vendorName}</strong> has withdrawn from your event <strong>${event.eventName}</strong>.</p>
-                ${reason && reason !== 'No reason provided' ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
-                <p style="margin-top: 20px; color: #666;">
-                  <small>Date of Event: ${new Date(event.startDate).toLocaleDateString()}</small><br>
-                  <small>Location: ${event.location?.city}, ${event.location?.state}</small>
-                </p>
-                <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
-                <p style="color: #999; font-size: 12px;">This is an automated notification from PermitWise.</p>
-              </div>
-            `
-          );
-        }
+        await sendEmail(
+          event.organizerId.email,
+          `Vendor Withdrawal: ${event.eventName}`,
+          `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #dc2626;">Vendor Withdrawal Notice</h2>
+              <p><strong>${vendorName}</strong> has withdrawn from your event <strong>${event.eventName}</strong>.</p>
+              ${reason && reason !== 'No reason provided' ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+              <p style="margin-top: 20px; color: #666;">
+                <small>Date of Event: ${new Date(event.startDate).toLocaleDateString()}</small><br>
+                <small>Location: ${event.location?.city}, ${event.location?.state}</small>
+              </p>
+              <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
+              <p style="color: #999; font-size: 12px;">This is an automated notification from PermitWise.</p>
+            </div>
+          `
+        );
       } catch (emailErr) {
         console.error('Failed to send withdrawal notification email:', emailErr.message || emailErr);
         // Don't fail the request if email fails
@@ -7495,17 +7500,22 @@ app.put('/api/admin/events/:id/verification', masterAdminMiddleware, async (req,
     
     // Send email notification to organizer
     const organizer = await User.findById(event.organizerId);
-    if (organizer?.email && process.env.SENDGRID_API_KEY) {
+    if (organizer?.email) {
       const statusText = verificationStatus === 'approved' ? 'approved' : 
                          verificationStatus === 'rejected' ? 'rejected' :
                          verificationStatus === 'info_needed' ? 'requires additional information' : verificationStatus;
       try {
-        await sgMail.send({
-          to: organizer.email,
-          from: process.env.SENDGRID_FROM_EMAIL || 'noreply@permitwise.com',
-          subject: `Event Verification Update: ${event.eventName}`,
-          text: `Your event "${event.eventName}" has been ${statusText}. ${verificationNotes ? `\n\nNote from admin: ${verificationNotes}` : ''}`
-        });
+        await sendEmail(
+          organizer.email,
+          `Event Verification Update: ${event.eventName}`,
+          `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Event Verification Update</h2>
+            <p>Your event "<strong>${event.eventName}</strong>" has been <strong>${statusText}</strong>.</p>
+            ${verificationNotes ? `<p><strong>Note from admin:</strong> ${verificationNotes}</p>` : ''}
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
+            <p style="color: #999; font-size: 12px;">This is an automated notification from PermitWise.</p>
+          </div>`
+        );
       } catch (emailErr) { console.error('Email error:', emailErr); }
     }
     
@@ -8552,7 +8562,7 @@ connectWithRetry().then(() => {
     console.log(`  Google:  ${GOOGLE_PLAY_VALIDATION_ENABLED ? 'ENABLED ✓' : 'DISABLED (test mode)'}`);
     console.log(`  Apple:   ${APPLE_VALIDATION_ENABLED ? 'ENABLED ✓' : 'DISABLED (test mode)'}`);
     if (!twilioClient) console.warn('  Twilio:  not configured — SMS disabled');
-    if (!EMAIL_USER) console.warn('  Email:   not configured — notifications disabled');
+    console.log(`  Email:   ${SENDGRID_API_KEY ? 'SendGrid ENABLED ✓' : EMAIL_USER ? 'SMTP ENABLED ✓' : 'not configured — notifications disabled'}`);
   });
   
   // Graceful shutdown
