@@ -8561,7 +8561,7 @@ connectWithRetry().then(() => {
     console.log(`  Stripe:  ${STRIPE_ENABLED ? (stripe ? 'ENABLED ✓' : 'ENABLED but MISSING KEY ✗') : 'DISABLED (test mode)'}`);
     console.log(`  Google:  ${GOOGLE_PLAY_VALIDATION_ENABLED ? 'ENABLED ✓' : 'DISABLED (test mode)'}`);
     console.log(`  Apple:   ${APPLE_VALIDATION_ENABLED ? 'ENABLED ✓' : 'DISABLED (test mode)'}`);
-    if (!twilioClient) console.warn('  Twilio:  not configured — SMS disabled');
+    console.log(`  Twilio:  ${twilioClient ? 'ENABLED ✓' : 'not configured — SMS disabled'}`);
     console.log(`  Email:   ${SENDGRID_API_KEY ? 'SendGrid ENABLED ✓' : EMAIL_USER ? 'SMTP ENABLED ✓' : 'not configured — notifications disabled'}`);
   });
   
