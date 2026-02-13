@@ -48,15 +48,11 @@ const permitTypeSchema = new mongoose.Schema({
     enum: ["critical", "often_forgotten", "event_required"],
     default: "critical",
   },
-  // NEW: aligns with your main PermitType schema
   requiresFoodHandling: { type: Boolean, default: false },
   formFields: [
     {
       fieldName: String,
-      fieldType: {
-        type: String,
-        enum: ["text", "date", "checkbox", "select"],
-      },
+      fieldType: { type: String, enum: ["text", "date", "checkbox", "select"] },
       mappedTo: String,
       required: Boolean,
     },
@@ -69,7 +65,6 @@ const permitTypeSchema = new mongoose.Schema({
 const Jurisdiction = mongoose.model("Jurisdiction", jurisdictionSchema);
 const PermitType = mongoose.model("PermitType", permitTypeSchema);
 
-// Keep in sync with your VendorBusiness enum (server side)
 const VENDOR_TYPES_ALL = [
   "food_truck",
   "food_cart",
@@ -93,88 +88,39 @@ const FOOD_VENDOR_TYPES = [
 ];
 
 const DEFAULT_FORM_FIELDS = [
-  {
-    fieldName: "Business Legal Name",
-    fieldType: "text",
-    mappedTo: "businessName",
-    required: true,
-  },
-  {
-    fieldName: "DBA Name",
-    fieldType: "text",
-    mappedTo: "dbaName",
-    required: false,
-  },
-  {
-    fieldName: "EIN",
-    fieldType: "text",
-    mappedTo: "ein",
-    required: false,
-  },
-  {
-    fieldName: "Business Phone",
-    fieldType: "text",
-    mappedTo: "phone",
-    required: false,
-  },
-  {
-    fieldName: "Business Email",
-    fieldType: "text",
-    mappedTo: "email",
-    required: false,
-  },
-  {
-    fieldName: "Street Address",
-    fieldType: "text",
-    mappedTo: "address.street",
-    required: false,
-  },
-  {
-    fieldName: "City",
-    fieldType: "text",
-    mappedTo: "address.city",
-    required: false,
-  },
-  {
-    fieldName: "State",
-    fieldType: "text",
-    mappedTo: "address.state",
-    required: false,
-  },
-  {
-    fieldName: "ZIP",
-    fieldType: "text",
-    mappedTo: "address.zip",
-    required: false,
-  },
+  { fieldName: "Business Legal Name", fieldType: "text", mappedTo: "businessName", required: true },
+  { fieldName: "DBA Name", fieldType: "text", mappedTo: "dbaName", required: false },
+  { fieldName: "EIN", fieldType: "text", mappedTo: "ein", required: false },
+  { fieldName: "Business Phone", fieldType: "text", mappedTo: "phone", required: false },
+  { fieldName: "Business Email", fieldType: "text", mappedTo: "email", required: false },
+  { fieldName: "Street Address", fieldType: "text", mappedTo: "address.street", required: false },
+  { fieldName: "City", fieldType: "text", mappedTo: "address.city", required: false },
+  { fieldName: "State", fieldType: "text", mappedTo: "address.state", required: false },
+  { fieldName: "ZIP", fieldType: "text", mappedTo: "address.zip", required: false },
 ];
 
-// Generic bundle for every city – makes the library complete everywhere
+// If you want, expand this over time (CA, NY, PA, etc).
+const STATE_TAX_URLS = {
+  TX: "https://comptroller.texas.gov/taxes/permit/",
+};
+
+// Generic bundle for every city – baseline completeness everywhere
 function coreCityPermits(jurisdictionName, state) {
   return [
     {
       jurisdictionName,
       state,
       name: "General Business License / Registration",
-      description:
-        "Baseline business registration commonly required to operate within this city.",
+      description: "Baseline business registration commonly required to operate within this city.",
       vendorTypes: VENDOR_TYPES_ALL,
       issuingAuthorityName: `${jurisdictionName} Business Licensing`,
-      issuingAuthorityContact: {
-        website: "",
-        phone: "",
-        email: "",
-        address: "",
-      },
+      issuingAuthorityContact: { website: "", phone: "", email: "", address: "" },
       defaultDurationDays: 365,
       renewalPeriodMonths: 12,
       estimatedCost: "Varies",
       applicationUrl: "",
       pdfTemplateUrl: "",
-      requiredDocuments: [
-        "Government ID",
-        "Business formation docs (if applicable)",
-      ],
+      requiredDocuments: ["Government ID", "Business formation docs (if applicable)"],
       renewalLeadTimeDays: 30,
       importanceLevel: "critical",
       requiresFoodHandling: false,
@@ -185,20 +131,14 @@ function coreCityPermits(jurisdictionName, state) {
       jurisdictionName,
       state,
       name: "State Sales / Use Tax Permit",
-      description:
-        "State sales/use tax registration required to collect and remit tax on taxable sales.",
+      description: "State sales/use tax registration required to collect and remit tax on taxable sales.",
       vendorTypes: VENDOR_TYPES_ALL,
       issuingAuthorityName: `${state} Department of Revenue / Tax Agency`,
-      issuingAuthorityContact: {
-        website: "",
-        phone: "",
-        email: "",
-        address: "",
-      },
+      issuingAuthorityContact: { website: STATE_TAX_URLS[state] || "", phone: "", email: "", address: "" },
       defaultDurationDays: 3650,
       renewalPeriodMonths: 0,
       estimatedCost: "Often free (varies by state)",
-      applicationUrl: "",
+      applicationUrl: STATE_TAX_URLS[state] || "",
       pdfTemplateUrl: "",
       requiredDocuments: ["SSN/EIN"],
       renewalLeadTimeDays: 30,
@@ -211,23 +151,17 @@ function coreCityPermits(jurisdictionName, state) {
       jurisdictionName,
       state,
       name: "Liability Insurance Certificate",
-      description:
-        "Proof of general liability insurance often required by events, landlords, and municipalities.",
+      description: "Proof of general liability insurance often required by events, landlords, and municipalities.",
       vendorTypes: VENDOR_TYPES_ALL,
       issuingAuthorityName: "Insurance Provider",
-      issuingAuthorityContact: {
-        website: "",
-        phone: "",
-        email: "",
-        address: "",
-      },
+      issuingAuthorityContact: { website: "", phone: "", email: "", address: "" },
       defaultDurationDays: 365,
       renewalPeriodMonths: 12,
-      estimatedCost: "$200–$1,200 per year (varies)",
+      estimatedCost: "Varies",
       applicationUrl: "",
       pdfTemplateUrl: "",
-      requiredDocuments: ["Policy documentation / Certificate of Insurance"],
-      renewalLeadTimeDays: 30,
+      requiredDocuments: ["Certificate of insurance (COI) listing required additional insureds (if needed)"],
+      renewalLeadTimeDays: 15,
       importanceLevel: "critical",
       requiresFoodHandling: false,
       formFields: [],
@@ -236,43 +170,11 @@ function coreCityPermits(jurisdictionName, state) {
     {
       jurisdictionName,
       state,
-      name: "Workers’ Compensation Insurance (if employees)",
-      description:
-        "Workers’ compensation policy typically required if you have employees.",
-      vendorTypes: VENDOR_TYPES_ALL,
-      issuingAuthorityName: "Insurance Provider / State WC Agency",
-      issuingAuthorityContact: {
-        website: "",
-        phone: "",
-        email: "",
-        address: "",
-      },
-      defaultDurationDays: 365,
-      renewalPeriodMonths: 12,
-      estimatedCost: "Varies",
-      applicationUrl: "",
-      pdfTemplateUrl: "",
-      requiredDocuments: ["Policy documentation"],
-      renewalLeadTimeDays: 30,
-      importanceLevel: "often_forgotten",
-      requiresFoodHandling: false,
-      formFields: [],
-      active: true,
-    },
-    {
-      jurisdictionName,
-      state,
-      name: "Fire Safety Inspection (if using propane/generators)",
-      description:
-        "Fire inspection for vendors using propane, open flames, or generators.",
+      name: "Fire Safety Inspection / Fire Permit (if applicable)",
+      description: "Fire inspection/permit often required for propane, generators, suppression systems, or event approvals.",
       vendorTypes: ["food_truck", "food_cart", "mobile_bartender"],
       issuingAuthorityName: "Local Fire Department",
-      issuingAuthorityContact: {
-        website: "",
-        phone: "",
-        email: "",
-        address: "",
-      },
+      issuingAuthorityContact: { website: "", phone: "", email: "", address: "" },
       defaultDurationDays: 365,
       renewalPeriodMonths: 12,
       estimatedCost: "Varies ($0–$200 typical)",
@@ -281,7 +183,6 @@ function coreCityPermits(jurisdictionName, state) {
       requiredDocuments: ["Fire extinguisher/suppression documentation"],
       renewalLeadTimeDays: 30,
       importanceLevel: "often_forgotten",
-      // Could also apply to non-food vendors with generators, so leave false
       requiresFoodHandling: false,
       formFields: [],
       active: true,
@@ -290,16 +191,10 @@ function coreCityPermits(jurisdictionName, state) {
       jurisdictionName,
       state,
       name: "Food Safety Certification (Manager/Handler)",
-      description:
-        "Food manager/handler certification requirements for staff and/or owner.",
+      description: "Food manager/handler certification requirements for staff and/or owner.",
       vendorTypes: FOOD_VENDOR_TYPES,
       issuingAuthorityName: "Approved Training Provider",
-      issuingAuthorityContact: {
-        website: "",
-        phone: "",
-        email: "",
-        address: "",
-      },
+      issuingAuthorityContact: { website: "", phone: "", email: "", address: "" },
       defaultDurationDays: 1095,
       renewalPeriodMonths: 36,
       estimatedCost: "$10–$150",
@@ -316,16 +211,10 @@ function coreCityPermits(jurisdictionName, state) {
       jurisdictionName,
       state,
       name: "Commissary / Service Area Agreement (if required)",
-      description:
-        "Proof of commissary or base-of-operations for mobile food vendors.",
+      description: "Proof of commissary or base-of-operations for mobile food vendors.",
       vendorTypes: ["food_truck", "food_cart", "mobile_bartender"],
       issuingAuthorityName: "Commissary / Shared Kitchen",
-      issuingAuthorityContact: {
-        website: "",
-        phone: "",
-        email: "",
-        address: "",
-      },
+      issuingAuthorityContact: { website: "", phone: "", email: "", address: "" },
       defaultDurationDays: 365,
       renewalPeriodMonths: 12,
       estimatedCost: "Varies by commissary",
@@ -341,6 +230,315 @@ function coreCityPermits(jurisdictionName, state) {
   ];
 }
 
+// City-specific permit packs (research-backed)
+function citySpecificPermits() {
+  return [
+    // === Los Angeles, CA ===
+    ...coreCityPermits("Los Angeles, CA", "CA"),
+    {
+      jurisdictionName: "Los Angeles, CA",
+      state: "CA",
+      name: "LA County Public Health Permit - Mobile Food Facility (MFF)",
+      description: "Public Health permits and inspects mobile food facilities operating in Los Angeles County.",
+      vendorTypes: ["food_truck", "food_cart"],
+      issuingAuthorityName: "Los Angeles County Department of Public Health (Environmental Health)",
+      issuingAuthorityContact: { website: "https://www.publichealth.lacounty.gov/eh/business/food-trucks-carts.htm", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies by risk level (county fee schedule)",
+      applicationUrl: "https://www.publichealth.lacounty.gov/eh/business/food-trucks-carts.htm",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Application", "Plan check (if required)", "Commissary agreement (if required)"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "critical",
+      requiresFoodHandling: true,
+      formFields: DEFAULT_FORM_FIELDS,
+      active: true,
+    },
+    {
+      jurisdictionName: "Los Angeles, CA",
+      state: "CA",
+      name: "City of Los Angeles Business Tax Registration Certificate (BTRC)",
+      description: "Businesses doing business within the City of Los Angeles must obtain a Business Tax Registration Certificate.",
+      vendorTypes: VENDOR_TYPES_ALL,
+      issuingAuthorityName: "City of Los Angeles - Office of Finance",
+      issuingAuthorityContact: { website: "https://business.lacity.gov/plan-business/register-your-business/business-tax-registration-certificate", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://business.lacity.gov/plan-business/register-your-business/business-tax-registration-certificate",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Business info", "Owner ID", "Entity details (if applicable)"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "critical",
+      requiresFoodHandling: false,
+      formFields: DEFAULT_FORM_FIELDS,
+      active: true,
+    },
+
+    // === San Francisco, CA ===
+    ...coreCityPermits("San Francisco, CA", "CA"),
+    {
+      jurisdictionName: "San Francisco, CA",
+      state: "CA",
+      name: "SFDPH Health Permit - Mobile Food Facility",
+      description: "Health permit process for mobile food facilities operating in San Francisco.",
+      vendorTypes: ["food_truck", "food_cart"],
+      issuingAuthorityName: "San Francisco Department of Public Health",
+      issuingAuthorityContact: { website: "https://www.sf.gov/guide-health-permits-mobile-food-facilities", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://www.sf.gov/guide-health-permits-mobile-food-facilities",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Application", "Commissary agreement (if required)", "Vehicle plans/photos (if required)"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "critical",
+      requiresFoodHandling: true,
+      formFields: DEFAULT_FORM_FIELDS,
+      active: true,
+    },
+    {
+      jurisdictionName: "San Francisco, CA",
+      state: "CA",
+      name: "SF Public Works - Mobile Food Facility Permit (Curbside / Location-based)",
+      description: "Public Works permit often required for operating a mobile food facility in specific curbside locations.",
+      vendorTypes: ["food_truck", "food_cart"],
+      issuingAuthorityName: "San Francisco Public Works",
+      issuingAuthorityContact: { website: "https://sfpublicworks.org/services/permits/mobile-food-facilities", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://sfpublicworks.org/services/permits/mobile-food-facilities",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Application", "Photos", "Site plan / location details"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "often_forgotten",
+      requiresFoodHandling: true,
+      formFields: [],
+      active: true,
+    },
+
+    // === San Diego, CA ===
+    ...coreCityPermits("San Diego, CA", "CA"),
+    {
+      jurisdictionName: "San Diego, CA",
+      state: "CA",
+      name: "San Diego County Health Permit - Mobile Food Facility",
+      description: "County environmental health program for mobile food facilities (permits/plan check depending on operation).",
+      vendorTypes: ["food_truck", "food_cart"],
+      issuingAuthorityName: "County of San Diego - Department of Environmental Health",
+      issuingAuthorityContact: { website: "https://www.sandiegocounty.gov/content/sdc/deh/fhd/mobilefood.html", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://www.sandiegocounty.gov/content/sdc/deh/fhd/mobilefood.html",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Application", "Operating procedures (often required)", "Commissary agreement (if applicable)"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "critical",
+      requiresFoodHandling: true,
+      formFields: DEFAULT_FORM_FIELDS,
+      active: true,
+    },
+    {
+      jurisdictionName: "San Diego, CA",
+      state: "CA",
+      name: "City of San Diego - Mobile Food Truck Permit (Private Property, if applicable)",
+      description: "A city permit may be required for mobile food truck operations on private property depending on location/zoning rules.",
+      vendorTypes: ["food_truck"],
+      issuingAuthorityName: "City of San Diego - Development Services",
+      issuingAuthorityContact: { website: "https://www.sandiego.gov/development-services/permits/mobile-food-truck-permit", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://www.sandiego.gov/development-services/permits/mobile-food-truck-permit",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Application", "Property owner authorization (if required)"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "often_forgotten",
+      requiresFoodHandling: false,
+      formFields: [],
+      active: true,
+    },
+
+    // === Chicago, IL ===
+    ...coreCityPermits("Chicago, IL", "IL"),
+    {
+      jurisdictionName: "Chicago, IL",
+      state: "IL",
+      name: "Chicago BACP - Mobile Food Vendor License (MFD/MFP as applicable)",
+      description: "City license for mobile food operations (Mobile Food Dispenser / Mobile Food Preparer depending on operation).",
+      vendorTypes: ["food_truck", "food_cart"],
+      issuingAuthorityName: "Chicago Department of Business Affairs & Consumer Protection (BACP)",
+      issuingAuthorityContact: { website: "https://www.chicago.gov/city/en/depts/bacp/supp_info/mobile_food_vendorlicenses.html", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies by license type",
+      applicationUrl: "https://www.chicago.gov/city/en/depts/bacp/supp_info/mobile_food_vendorlicenses.html",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Application", "Business information", "Vehicle details (if applicable)"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "critical",
+      requiresFoodHandling: true,
+      formFields: DEFAULT_FORM_FIELDS,
+      active: true,
+    },
+
+    // === Philadelphia, PA ===
+    ...coreCityPermits("Philadelphia, PA", "PA"),
+    {
+      jurisdictionName: "Philadelphia, PA",
+      state: "PA",
+      name: "Philadelphia Health - Mobile Food Business Plan Review",
+      description: "Plan review submitted to the Office of Food Protection (often required before changes/installation).",
+      vendorTypes: ["food_truck", "food_cart"],
+      issuingAuthorityName: "City of Philadelphia - Office of Food Protection",
+      issuingAuthorityContact: { website: "https://www.phila.gov/services/permits-violations-licenses/get-a-license/business-licenses/food-businesses/apply-for-a-plan-review-for-a-mobile-food-business/", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://www.phila.gov/services/permits-violations-licenses/get-a-license/business-licenses/food-businesses/apply-for-a-plan-review-for-a-mobile-food-business/",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Plan review application", "Equipment/vehicle details"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "critical",
+      requiresFoodHandling: true,
+      formFields: DEFAULT_FORM_FIELDS,
+      active: true,
+    },
+    {
+      jurisdictionName: "Philadelphia, PA",
+      state: "PA",
+      name: "Philadelphia Food Establishment License - Retail, Non-Permanent Location",
+      description: "City food license for operating a mobile/non-permanent food establishment.",
+      vendorTypes: ["food_truck", "food_cart"],
+      issuingAuthorityName: "City of Philadelphia",
+      issuingAuthorityContact: { website: "https://www.phila.gov/services/permits-violations-licenses/get-a-license/business-licenses/food-businesses/get-a-food-establishment-retail-non-permanent-location-license/", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://www.phila.gov/services/permits-violations-licenses/get-a-license/business-licenses/food-businesses/get-a-food-establishment-retail-non-permanent-location-license/",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Application", "Tax clearance (if required)", "Health approvals (if required)"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "critical",
+      requiresFoodHandling: true,
+      formFields: DEFAULT_FORM_FIELDS,
+      active: true,
+    },
+    {
+      jurisdictionName: "Philadelphia, PA",
+      state: "PA",
+      name: "PA Department of Agriculture - Mobile Food Facility (MFF) License (if state-licensed jurisdiction)",
+      description: "Pennsylvania requires licensing for retail food facilities; mobile food facilities are commonly licensed by PDA unless under a local health jurisdiction.",
+      vendorTypes: ["food_truck", "food_cart", "tent_vendor", "farmers_market"],
+      issuingAuthorityName: "Pennsylvania Department of Agriculture (PDA)",
+      issuingAuthorityContact: { website: "https://www.pa.gov/agencies/pda/food/food-safety/retail-food/fairs-and-other-temporary-events", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://www.pa.gov/agencies/pda/food/food-safety/retail-food/fairs-and-other-temporary-events",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Application", "Plan review (as applicable)", "Commissary agreement (as applicable)"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "often_forgotten",
+      requiresFoodHandling: true,
+      formFields: [],
+      active: true,
+    },
+
+    // === Seattle, WA ===
+    ...coreCityPermits("Seattle, WA", "WA"),
+    {
+      jurisdictionName: "Seattle, WA",
+      state: "WA",
+      name: "King County Public Health - Mobile Food Service Business Permit",
+      description: "Mobile food businesses operating in King County must obtain a mobile food service business permit (and plan review as required).",
+      vendorTypes: ["food_truck", "food_cart"],
+      issuingAuthorityName: "Public Health – Seattle & King County",
+      issuingAuthorityContact: { website: "https://kingcounty.gov/en/dept/dph/certificates-permits-licenses/food-business-permits/mobile-food-business-permit", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://kingcounty.gov/en/dept/dph/certificates-permits-licenses/food-business-permits/mobile-food-business-permit",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Plan review (if required)", "Application", "Commissary/base-of-operations (if required)"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "critical",
+      requiresFoodHandling: true,
+      formFields: DEFAULT_FORM_FIELDS,
+      active: true,
+    },
+    {
+      jurisdictionName: "Seattle, WA",
+      state: "WA",
+      name: "Seattle Business License Tax Certificate",
+      description: "Anyone doing business in Seattle must have a Seattle business license tax certificate.",
+      vendorTypes: VENDOR_TYPES_ALL,
+      issuingAuthorityName: "City of Seattle",
+      issuingAuthorityContact: { website: "https://www.seattle.gov/city-finance/business-taxes-and-licenses/business-licenses", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://www.seattle.gov/city-finance/business-taxes-and-licenses/business-licenses",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Business details", "Owner details"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "critical",
+      requiresFoodHandling: false,
+      formFields: DEFAULT_FORM_FIELDS,
+      active: true,
+    },
+
+    // === Portland, OR ===
+    ...coreCityPermits("Portland, OR", "OR"),
+    {
+      jurisdictionName: "Portland, OR",
+      state: "OR",
+      name: "Multnomah County Food Cart / Mobile Food Unit License",
+      description: "All food carts/mobile food units must be licensed by the county health department (includes carts, trailers, trucks, kiosks).",
+      vendorTypes: ["food_truck", "food_cart"],
+      issuingAuthorityName: "Multnomah County Environmental Health",
+      issuingAuthorityContact: { website: "https://multco.us/services/food-carts", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://multco.us/services/food-carts",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Plan review (first time)", "License application", "Commissary/restroom forms (as applicable)"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "critical",
+      requiresFoodHandling: true,
+      formFields: DEFAULT_FORM_FIELDS,
+      active: true,
+    },
+
+    // === Denver, CO ===
+    ...coreCityPermits("Denver, CO", "CO"),
+    {
+      jurisdictionName: "Denver, CO",
+      state: "CO",
+      name: "Denver Retail Food Establishment - Mobile License",
+      description: "City and County of Denver retail mobile food license for food trucks/carts operating in Denver.",
+      vendorTypes: ["food_truck", "food_cart"],
+      issuingAuthorityName: "City and County of Denver",
+      issuingAuthorityContact: { website: "https://www.denvergov.org/Government/Agencies-Departments-Offices/Agencies-Departments-Offices-Directory/Business-Licensing/Business-licenses/Retail-Food/Retail-food-mobile-license", phone: "", email: "", address: "" },
+      defaultDurationDays: 365,
+      renewalPeriodMonths: 12,
+      estimatedCost: "Varies",
+      applicationUrl: "https://www.denvergov.org/Government/Agencies-Departments-Offices/Agencies-Departments-Offices-Directory/Business-Licensing/Business-licenses/Retail-Food/Retail-food-mobile-license",
+      pdfTemplateUrl: "",
+      requiredDocuments: ["Application", "Commissary agreement (if required)", "Inspections/approvals (as applicable)"],
+      renewalLeadTimeDays: 30,
+      importanceLevel: "critical",
+      requiresFoodHandling: true,
+      formFields: DEFAULT_FORM_FIELDS,
+      active: true,
+    },
+  ];
+}
+
 // PERMIT LIBRARY DEFINITIONS
 const permitLibrary = [
   // === Austin, TX ===
@@ -349,28 +547,16 @@ const permitLibrary = [
     jurisdictionName: "Austin, TX",
     state: "TX",
     name: "Mobile Food Vendor Permit (Austin MFU)",
-    description:
-      "Required permit for mobile food vendors operating in Austin via Austin Public Health.",
+    description: "Required permit for mobile food vendors operating in Austin via Austin Public Health.",
     vendorTypes: ["food_truck", "food_cart"],
     issuingAuthorityName: "Austin Public Health",
-    issuingAuthorityContact: {
-      website: "https://www.austintexas.gov/department/mobile-food-vendors",
-      phone: "",
-      email: "",
-      address: "",
-    },
+    issuingAuthorityContact: { website: "https://www.austintexas.gov/department/mobile-food-vendors", phone: "", email: "", address: "" },
     defaultDurationDays: 365,
     renewalPeriodMonths: 12,
     estimatedCost: "Varies by unit and risk level",
-    applicationUrl:
-      "https://www.austintexas.gov/department/mobile-food-vendors",
+    applicationUrl: "https://www.austintexas.gov/department/mobile-food-vendors",
     pdfTemplateUrl: "",
-    requiredDocuments: [
-      "Application",
-      "Texas sales & use tax permit",
-      "Insurance",
-      "Commissary agreement (if required)",
-    ],
+    requiredDocuments: ["Application", "Texas sales & use tax permit", "Insurance", "Commissary agreement (if required)"],
     renewalLeadTimeDays: 30,
     importanceLevel: "critical",
     requiresFoodHandling: true,
@@ -384,14 +570,11 @@ const permitLibrary = [
     jurisdictionName: "Miami, FL",
     state: "FL",
     name: "Florida DBPR Mobile Food Dispensing Vehicle (MFDV) License",
-    description:
-      "State license for mobile food dispensing vehicles (MFDVs) including trucks and carts.",
+    description: "State license for mobile food dispensing vehicles (MFDVs) including trucks and carts.",
     vendorTypes: ["food_truck", "food_cart"],
-    issuingAuthorityName:
-      "Florida Department of Business and Professional Regulation (DBPR)",
+    issuingAuthorityName: "Florida Department of Business and Professional Regulation (DBPR)",
     issuingAuthorityContact: {
-      website:
-        "https://www.myfloridalicense.com/DBPR/hotels-restaurants/licensing/mobile-food-dispensing-vehicles/",
+      website: "https://www.myfloridalicense.com/DBPR/hotels-restaurants/licensing/mobile-food-dispensing-vehicles/",
       phone: "",
       email: "",
       address: "",
@@ -399,14 +582,9 @@ const permitLibrary = [
     defaultDurationDays: 365,
     renewalPeriodMonths: 12,
     estimatedCost: "$250–$450 typical",
-    applicationUrl:
-      "https://www.myfloridalicense.com/DBPR/hotels-restaurants/licensing/mobile-food-dispensing-vehicles/",
+    applicationUrl: "https://www.myfloridalicense.com/DBPR/hotels-restaurants/licensing/mobile-food-dispensing-vehicles/",
     pdfTemplateUrl: "",
-    requiredDocuments: [
-      "Application",
-      "Commissary agreement (if required)",
-      "Vehicle and equipment details",
-    ],
+    requiredDocuments: ["Application", "Commissary agreement (if required)", "Vehicle and equipment details"],
     renewalLeadTimeDays: 30,
     importanceLevel: "critical",
     requiresFoodHandling: true,
@@ -417,26 +595,16 @@ const permitLibrary = [
     jurisdictionName: "Miami, FL",
     state: "FL",
     name: "Miami-Dade County Local Business Tax Receipt",
-    description:
-      "County business tax receipt required for operating in Miami-Dade County.",
+    description: "County business tax receipt required for operating in Miami-Dade County.",
     vendorTypes: VENDOR_TYPES_ALL,
     issuingAuthorityName: "Miami-Dade County Tax Collector",
-    issuingAuthorityContact: {
-      website: "https://www.miamidade.gov/",
-      phone: "",
-      email: "",
-      address: "",
-    },
+    issuingAuthorityContact: { website: "https://www.miamidade.gov/", phone: "", email: "", address: "" },
     defaultDurationDays: 365,
     renewalPeriodMonths: 12,
     estimatedCost: "$45–$165 typical",
     applicationUrl: "",
     pdfTemplateUrl: "",
-    requiredDocuments: [
-      "Business registration/EIN",
-      "Government ID",
-      "DBPR license (if food)",
-    ],
+    requiredDocuments: ["Business registration/EIN", "Government ID", "DBPR license (if food)"],
     renewalLeadTimeDays: 30,
     importanceLevel: "critical",
     requiresFoodHandling: false,
@@ -447,13 +615,11 @@ const permitLibrary = [
     jurisdictionName: "Miami, FL",
     state: "FL",
     name: "City of Miami Business Tax Receipt (BTR)",
-    description:
-      "City-level business tax receipt to operate within City of Miami limits.",
+    description: "City-level business tax receipt to operate within City of Miami limits.",
     vendorTypes: VENDOR_TYPES_ALL,
     issuingAuthorityName: "City of Miami",
     issuingAuthorityContact: {
-      website:
-        "https://www.miamigov.com/Services/Business/Apply-for-or-Renew-a-Business-Tax-Receipt",
+      website: "https://www.miamigov.com/Services/Business/Apply-for-or-Renew-a-Business-Tax-Receipt",
       phone: "",
       email: "",
       address: "",
@@ -461,13 +627,9 @@ const permitLibrary = [
     defaultDurationDays: 365,
     renewalPeriodMonths: 12,
     estimatedCost: "$35–$100 typical",
-    applicationUrl:
-      "https://www.miamigov.com/Services/Business/Apply-for-or-Renew-a-Business-Tax-Receipt",
+    applicationUrl: "https://www.miamigov.com/Services/Business/Apply-for-or-Renew-a-Business-Tax-Receipt",
     pdfTemplateUrl: "",
-    requiredDocuments: [
-      "Miami-Dade business tax receipt",
-      "Basic business registration",
-    ],
+    requiredDocuments: ["Miami-Dade business tax receipt", "Basic business registration"],
     renewalLeadTimeDays: 30,
     importanceLevel: "critical",
     requiresFoodHandling: false,
@@ -481,14 +643,11 @@ const permitLibrary = [
     jurisdictionName: "New York City, NY",
     state: "NY",
     name: "Mobile Food Vending Unit Permit (NYC)",
-    description:
-      "Permit for the vending unit (truck or cart) issued by NYC DOHMH.",
+    description: "Permit for the vending unit (truck or cart) issued by NYC DOHMH.",
     vendorTypes: ["food_truck", "food_cart"],
-    issuingAuthorityName:
-      "NYC Department of Health and Mental Hygiene (DOHMH)",
+    issuingAuthorityName: "NYC Department of Health and Mental Hygiene (DOHMH)",
     issuingAuthorityContact: {
-      website:
-        "https://www.nyc.gov/site/doh/business/food-operators/mobile-food-vendors.page",
+      website: "https://www.nyc.gov/site/doh/business/food-operators/mobile-food-vendors.page",
       phone: "",
       email: "",
       address: "",
@@ -496,15 +655,9 @@ const permitLibrary = [
     defaultDurationDays: 730,
     renewalPeriodMonths: 24,
     estimatedCost: "$200+ depending on permit type",
-    applicationUrl:
-      "https://www.nyc.gov/site/doh/business/food-operators/mobile-food-vendors.page",
+    applicationUrl: "https://www.nyc.gov/site/doh/business/food-operators/mobile-food-vendors.page",
     pdfTemplateUrl: "",
-    requiredDocuments: [
-      "Application",
-      "Insurance",
-      "Unit layout/photos (if required)",
-      "Commissary letter",
-    ],
+    requiredDocuments: ["Application", "Insurance", "Unit layout/photos (if required)", "Commissary letter"],
     renewalLeadTimeDays: 45,
     importanceLevel: "critical",
     requiresFoodHandling: true,
@@ -515,14 +668,11 @@ const permitLibrary = [
     jurisdictionName: "New York City, NY",
     state: "NY",
     name: "Mobile Food Vending License (Personal License)",
-    description:
-      "Personal license for individuals vending food in NYC, separate from the unit permit.",
+    description: "Personal license for individuals vending food in NYC, separate from the unit permit.",
     vendorTypes: ["food_truck", "food_cart"],
-    issuingAuthorityName:
-      "NYC Department of Health and Mental Hygiene (DOHMH)",
+    issuingAuthorityName: "NYC Department of Health and Mental Hygiene (DOHMH)",
     issuingAuthorityContact: {
-      website:
-        "https://www.nyc.gov/site/doh/business/food-operators/mobile-food-vendors.page",
+      website: "https://www.nyc.gov/site/doh/business/food-operators/mobile-food-vendors.page",
       phone: "",
       email: "",
       address: "",
@@ -530,100 +680,13 @@ const permitLibrary = [
     defaultDurationDays: 730,
     renewalPeriodMonths: 24,
     estimatedCost: "$50 typical",
-    applicationUrl:
-      "https://www.nyc.gov/site/doh/business/food-operators/mobile-food-vendors.page",
+    applicationUrl: "https://www.nyc.gov/site/doh/business/food-operators/mobile-food-vendors.page",
     pdfTemplateUrl: "",
     requiredDocuments: ["Government ID", "Photo"],
     renewalLeadTimeDays: 45,
     importanceLevel: "critical",
     requiresFoodHandling: true,
     formFields: [],
-    active: true,
-  },
-  {
-    jurisdictionName: "New York City, NY",
-    state: "NY",
-    name: "FDNY Propane / LPG Permit (if applicable)",
-    description:
-      "Permit required by FDNY for use of propane (LPG) on mobile food units.",
-    vendorTypes: ["food_truck", "food_cart"],
-    issuingAuthorityName: "Fire Department of the City of New York (FDNY)",
-    issuingAuthorityContact: {
-      website: "",
-      phone: "",
-      email: "",
-      address: "",
-    },
-    defaultDurationDays: 365,
-    renewalPeriodMonths: 12,
-    estimatedCost: "$100–$150 typical",
-    applicationUrl: "",
-    pdfTemplateUrl: "",
-    requiredDocuments: [
-      "System diagram",
-      "Vehicle registration",
-      "Insurance",
-    ],
-    renewalLeadTimeDays: 30,
-    importanceLevel: "often_forgotten",
-    requiresFoodHandling: true,
-    formFields: [],
-    active: true,
-  },
-  {
-    jurisdictionName: "New York City, NY",
-    state: "NY",
-    name: "Commissary / Facility Use Letter",
-    description:
-      "Letter confirming use of an approved commissary/facility as required by NYC DOHMH.",
-    vendorTypes: ["food_truck", "food_cart"],
-    issuingAuthorityName: "Approved Commissary / Facility",
-    issuingAuthorityContact: {
-      website: "",
-      phone: "",
-      email: "",
-      address: "",
-    },
-    defaultDurationDays: 365,
-    renewalPeriodMonths: 12,
-    estimatedCost: "Varies by facility",
-    applicationUrl: "",
-    pdfTemplateUrl: "",
-    requiredDocuments: [
-      "Signed commissary agreement",
-      "Facility permit/license copy",
-    ],
-    renewalLeadTimeDays: 30,
-    importanceLevel: "often_forgotten",
-    requiresFoodHandling: true,
-    formFields: [],
-    active: true,
-  },
-  {
-    jurisdictionName: "New York City, NY",
-    state: "NY",
-    name: "New York State Sales Tax Certificate of Authority",
-    description:
-      "State sales tax registration allowing collection of sales tax in New York.",
-    vendorTypes: VENDOR_TYPES_ALL,
-    issuingAuthorityName:
-      "New York State Department of Taxation and Finance",
-    issuingAuthorityContact: {
-      website: "",
-      phone: "",
-      email: "",
-      address: "",
-    },
-    defaultDurationDays: 3650,
-    renewalPeriodMonths: 0,
-    estimatedCost: "Often free",
-    applicationUrl: "",
-    pdfTemplateUrl: "",
-    requiredDocuments: ["SSN/EIN", "Business registration"],
-    renewalLeadTimeDays: 30,
-    importanceLevel: "critical",
-    requiresFoodHandling: false,
-    formFields: DEFAULT_FORM_FIELDS,
     active: true,
   },
 
@@ -633,26 +696,16 @@ const permitLibrary = [
     jurisdictionName: "Dallas Township, PA",
     state: "PA",
     name: "Local Mobile Food Facilities / Booths Approval",
-    description:
-      "Local approval for mobile food facilities and booths in Dallas Township (Back Mountain).",
+    description: "Local approval for mobile food facilities and booths in Dallas Township (Back Mountain).",
     vendorTypes: ["food_truck", "food_cart", "tent_vendor"],
     issuingAuthorityName: "Dallas Township",
-    issuingAuthorityContact: {
-      website: "https://www.dallastwp.org/",
-      phone: "",
-      email: "",
-      address: "",
-    },
+    issuingAuthorityContact: { website: "https://www.dallastwp.org/", phone: "", email: "", address: "" },
     defaultDurationDays: 365,
     renewalPeriodMonths: 12,
     estimatedCost: "Varies by ordinance",
     applicationUrl: "https://www.dallastwp.org/",
     pdfTemplateUrl: "",
-    requiredDocuments: [
-      "Site/location details",
-      "Insurance certificate",
-      "Food permits (if applicable)",
-    ],
+    requiredDocuments: ["Site/location details", "Insurance certificate", "Food permits (if applicable)"],
     renewalLeadTimeDays: 30,
     importanceLevel: "critical",
     requiresFoodHandling: true,
@@ -660,39 +713,46 @@ const permitLibrary = [
     active: true,
   },
 
+  // === Added city-specific packs ===
+  ...citySpecificPermits(),
+
   // === The rest of the cities get the core bundle only ===
   ...coreCityPermits("Kingston Township, PA", "PA"),
   ...coreCityPermits("Lehman Township, PA", "PA"),
-  ...coreCityPermits("Philadelphia, PA", "PA"),
   ...coreCityPermits("Pittsburgh, PA", "PA"),
   ...coreCityPermits("Harrisburg, PA", "PA"),
   ...coreCityPermits("Allentown, PA", "PA"),
   ...coreCityPermits("Erie, PA", "PA"),
   ...coreCityPermits("Lancaster, PA", "PA"),
-  ...coreCityPermits("Portland, OR", "OR"),
-  ...coreCityPermits("Los Angeles, CA", "CA"),
-  ...coreCityPermits("San Francisco, CA", "CA"),
+
+  // additional jurisdictions seeded in seed_jurisdictions.js:
   ...coreCityPermits("Houston, TX", "TX"),
-  ...coreCityPermits("Denver, CO", "CO"),
-  ...coreCityPermits("San Diego, CA", "CA"),
-  ...coreCityPermits("Chicago, IL", "IL"),
   ...coreCityPermits("Phoenix, AZ", "AZ"),
   ...coreCityPermits("Atlanta, GA", "GA"),
   ...coreCityPermits("Nashville, TN", "TN"),
+  ...coreCityPermits("Dallas, TX", "TX"),
+  ...coreCityPermits("San Antonio, TX", "TX"),
+  ...coreCityPermits("Fort Worth, TX", "TX"),
+  ...coreCityPermits("Orlando, FL", "FL"),
+  ...coreCityPermits("Tampa, FL", "FL"),
+  ...coreCityPermits("Jacksonville, FL", "FL"),
+  ...coreCityPermits("Boston, MA", "MA"),
+  ...coreCityPermits("Washington, DC", "DC"),
+  ...coreCityPermits("Las Vegas, NV", "NV"),
+  ...coreCityPermits("Charlotte, NC", "NC"),
+  ...coreCityPermits("Columbus, OH", "OH"),
+  ...coreCityPermits("Detroit, MI", "MI"),
+  ...coreCityPermits("Minneapolis, MN", "MN"),
 ];
 
 async function main() {
   const uri = process.env.MONGODB_URI;
-  if (!uri) {
-    throw new Error("Missing MONGODB_URI");
-  }
+  if (!uri) throw new Error("Missing MONGODB_URI");
 
   await mongoose.connect(uri);
 
   const jurisdictions = await Jurisdiction.find({ active: true });
-  const jurMap = new Map(
-    jurisdictions.map((j) => [`${j.name}|${j.state}`, j._id])
-  );
+  const jurMap = new Map(jurisdictions.map((j) => [`${j.name}|${j.state}`, j._id]));
 
   let upserts = 0;
 
@@ -701,9 +761,7 @@ async function main() {
     const jId = jurMap.get(key);
 
     if (!jId) {
-      console.warn(
-        `Skipping permit "${p.name}" – missing jurisdiction in DB: ${key}`
-      );
+      console.warn(`Skipping permit "${p.name}" – missing jurisdiction in DB: ${key}`);
       continue;
     }
 
@@ -713,41 +771,27 @@ async function main() {
       name: p.name,
       description: p.description || "",
       issuingAuthorityName: p.issuingAuthorityName || "",
-      issuingAuthorityContact:
-        p.issuingAuthorityContact || {
-          website: "",
-          phone: "",
-          email: "",
-          address: "",
-        },
-      defaultDurationDays:
-        typeof p.defaultDurationDays === "number"
-          ? p.defaultDurationDays
-          : 365,
-      renewalPeriodMonths:
-        typeof p.renewalPeriodMonths === "number"
-          ? p.renewalPeriodMonths
-          : 12,
+      issuingAuthorityContact: p.issuingAuthorityContact || { website: "", phone: "", email: "", address: "" },
+      defaultDurationDays: typeof p.defaultDurationDays === "number" ? p.defaultDurationDays : 365,
+      renewalPeriodMonths: typeof p.renewalPeriodMonths === "number" ? p.renewalPeriodMonths : 12,
       estimatedCost: p.estimatedCost || "",
       applicationUrl: p.applicationUrl || "",
       pdfTemplateUrl: p.pdfTemplateUrl || "",
-      requiredDocuments: p.requiredDocuments || [],
-      renewalLeadTimeDays:
-        typeof p.renewalLeadTimeDays === "number"
-          ? p.renewalLeadTimeDays
-          : 30,
+      requiredDocuments: Array.isArray(p.requiredDocuments) ? p.requiredDocuments : [],
+      renewalLeadTimeDays: typeof p.renewalLeadTimeDays === "number" ? p.renewalLeadTimeDays : 30,
       importanceLevel: p.importanceLevel || "critical",
       requiresFoodHandling: p.requiresFoodHandling === true,
-      formFields: p.formFields || [],
+      formFields: Array.isArray(p.formFields) ? p.formFields : [],
       active: p.active !== false,
       updatedAt: new Date(),
     };
 
     await PermitType.findOneAndUpdate(
-      { jurisdictionId: jId, name: p.name },
+      { jurisdictionId: jId, name: doc.name },
       { $set: doc, $setOnInsert: { createdAt: new Date() } },
       { upsert: true, new: true }
     );
+
     upserts++;
   }
 
