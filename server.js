@@ -1494,6 +1494,50 @@ const sendEmail = async (to, subject, html) => {
   }
 };
 
+// Branded email template builder
+const emailTemplate = ({ heading, body, buttonText, buttonUrl, buttonColor, footerText }) => {
+  const btnColor = buttonColor || '#4F46E5';
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin: 0; padding: 0; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6; padding: 32px 16px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
+        <!-- Header -->
+        <tr><td style="background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); padding: 32px 40px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">PermitWise</h1>
+          <p style="margin: 8px 0 0; color: rgba(255,255,255,0.85); font-size: 13px;">Smart Permit Management for Mobile Vendors</p>
+        </td></tr>
+        <!-- Body -->
+        <tr><td style="background: #ffffff; padding: 40px; border-left: 1px solid #e5e7eb; border-right: 1px solid #e5e7eb;">
+          ${heading ? `<h2 style="margin: 0 0 20px; color: #111827; font-size: 22px; font-weight: 600; line-height: 1.3;">${heading}</h2>` : ''}
+          <div style="color: #374151; font-size: 15px; line-height: 1.7;">
+            ${body}
+          </div>
+          ${buttonText && buttonUrl ? `
+          <div style="text-align: center; margin: 32px 0 8px;">
+            <a href="${buttonUrl}" style="background: ${btnColor}; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: 600; font-size: 15px;">${buttonText}</a>
+          </div>
+          <p style="text-align: center; margin: 12px 0 0; font-size: 12px; color: #9ca3af;">Or copy this link: <a href="${buttonUrl}" style="color: #6366f1; word-break: break-all;">${buttonUrl}</a></p>
+          ` : ''}
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="background: #f9fafb; padding: 24px 40px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb; border-top: none;">
+          ${footerText ? `<p style="margin: 0 0 12px; color: #6b7280; font-size: 13px; line-height: 1.5;">${footerText}</p>` : ''}
+          <p style="margin: 0; color: #9ca3af; font-size: 12px; text-align: center;">© ${new Date().getFullYear()} PermitWise by Umbra Global LLC. All rights reserved.</p>
+          <p style="margin: 8px 0 0; text-align: center;">
+            <a href="${CLIENT_URL}" style="color: #6366f1; font-size: 12px; text-decoration: none;">Visit PermitWise</a>
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+};
+
 // Send SMS
 const sendSMS = async (to, message) => {
   if (!twilioClient) {
@@ -1671,17 +1715,18 @@ app.post('/api/auth/register', async (req, res) => {
     const verifyUrl = `${CLIENT_URL}/verify-email?token=${verificationToken}`;
     await sendEmail(
       email,
-      'Welcome to PermitWise - Verify Your Email',
-      `
-        <h1>Welcome to PermitWise!</h1>
-        <p>Hi ${firstName || 'there'},</p>
-        <p>Thank you for signing up${isOrganizer ? ' as an Event Organizer' : ''}. Please verify your email by clicking the link below:</p>
-        <a href="${verifyUrl}" style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Verify Email</a>
-        <p>Or copy this link: ${verifyUrl}</p>
-        <p>This link expires in 24 hours.</p>
-        ${isOrganizer ? '<p><strong>Note:</strong> Your organizer account will need to be verified by PermitWise before you can publish events. This usually takes 1-2 business days.</p>' : ''}
-        <p>Best,<br>The PermitWise Team</p>
-      `
+      'Welcome to PermitWise — Verify Your Email',
+      emailTemplate({
+        heading: 'Welcome to PermitWise! 🎉',
+        body: `
+          <p>Hi ${firstName || 'there'},</p>
+          <p>Thank you for signing up${isOrganizer ? ' as an <strong>Event Organizer</strong>' : ''}! To get started, please verify your email address by clicking the button below.</p>
+          ${isOrganizer ? '<div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 6px; margin: 16px 0;"><strong>Note:</strong> Your organizer account will need to be reviewed by PermitWise before you can publish events. This usually takes 1–2 business days.</div>' : ''}
+        `,
+        buttonText: 'Verify My Email',
+        buttonUrl: verifyUrl,
+        footerText: 'This verification link expires in 24 hours. If you didn\'t create a PermitWise account, you can safely ignore this email.'
+      })
     );
     
     const token = generateToken(user._id);
@@ -1781,13 +1826,17 @@ app.post('/api/auth/resend-verification', authMiddleware, async (req, res) => {
     const verifyUrl = `${CLIENT_URL}/verify-email?token=${verificationToken}`;
     await sendEmail(
       user.email,
-      'PermitWise - Verify Your Email',
-      `
-        <h1>Verify Your Email</h1>
-        <p>Please verify your email to ensure you receive permit alerts:</p>
-        <a href="${verifyUrl}" style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Verify Email</a>
-        <p>Or copy this link: ${verifyUrl}</p>
-      `
+      'PermitWise — Verify Your Email',
+      emailTemplate({
+        heading: 'Verify Your Email Address',
+        body: `
+          <p>Hi ${user.firstName || 'there'},</p>
+          <p>Please verify your email so you can receive important permit alerts and renewal reminders.</p>
+        `,
+        buttonText: 'Verify My Email',
+        buttonUrl: verifyUrl,
+        footerText: 'This verification link expires in 24 hours.'
+      })
     );
     
     res.json({ message: 'Verification email sent' });
@@ -1814,15 +1863,17 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     const resetUrl = `${CLIENT_URL}/reset-password?token=${resetToken}`;
     await sendEmail(
       email,
-      'PermitWise - Password Reset',
-      `
-        <h1>Password Reset</h1>
-        <p>You requested a password reset. Click the link below:</p>
-        <a href="${resetUrl}" style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Reset Password</a>
-        <p>Or copy this link: ${resetUrl}</p>
-        <p>This link expires in 1 hour.</p>
-        <p>If you didn't request this, please ignore this email.</p>
-      `
+      'PermitWise — Reset Your Password',
+      emailTemplate({
+        heading: 'Reset Your Password 🔑',
+        body: `
+          <p>We received a request to reset the password for your PermitWise account.</p>
+          <p>Click the button below to choose a new password. This link is valid for <strong>1 hour</strong>.</p>
+        `,
+        buttonText: 'Reset Password',
+        buttonUrl: resetUrl,
+        footerText: 'If you didn\'t request a password reset, you can safely ignore this email. Your password will remain unchanged.'
+      })
     );
     
     res.json({ message: 'If an account exists, a reset link has been sent' });
@@ -2139,13 +2190,21 @@ app.post('/api/business/team', authMiddleware, checkFeature('teamAccounts'), req
       await sendEmail(
         email,
         `You've been invited to PermitWise`,
-        `
-          <h1>Team Invitation</h1>
-          <p>Hi ${firstName || 'there'},</p>
-          <p>You've been invited to join ${business.businessName} on PermitWise.</p>
-          <p>Your temporary password is: <strong>${tempPassword}</strong></p>
-          <p>Please login and change your password: <a href="${CLIENT_URL}/login">Login to PermitWise</a></p>
-        `
+        emailTemplate({
+          heading: 'You\'re Invited! 🤝',
+          body: `
+            <p>Hi ${firstName || 'there'},</p>
+            <p>You've been invited to join <strong>${business.businessName}</strong> on PermitWise — the smart permit management platform for mobile vendors.</p>
+            <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0;">
+              <p style="margin: 0 0 4px; font-size: 13px; color: #6b7280;">Your temporary password:</p>
+              <p style="margin: 0; font-size: 18px; font-weight: 700; color: #111827; letter-spacing: 1px;">${tempPassword}</p>
+            </div>
+            <p>Please log in and change your password right away.</p>
+          `,
+          buttonText: 'Log In to PermitWise',
+          buttonUrl: `${CLIENT_URL}/login`,
+          footerText: 'For security, please change your temporary password immediately after logging in.'
+        })
       );
     }
     
@@ -2248,7 +2307,19 @@ app.post('/api/team/invite', authMiddleware, checkFeature('teamAccounts'), requi
       });
       await user.save();
       await sendEmail(email, `You've been invited to PermitWise`,
-        `<h1>Team Invitation</h1><p>You've been invited to join ${business.businessName} on PermitWise.</p><p>Your temporary password is: <strong>${tempPassword}</strong></p><p>Login at: <a href="${CLIENT_URL}/login">${CLIENT_URL}/login</a></p>`
+        emailTemplate({
+          heading: 'You\'re Invited! 🤝',
+          body: `
+            <p>You've been invited to join <strong>${business.businessName}</strong> on PermitWise.</p>
+            <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0;">
+              <p style="margin: 0 0 4px; font-size: 13px; color: #6b7280;">Your temporary password:</p>
+              <p style="margin: 0; font-size: 18px; font-weight: 700; color: #111827; letter-spacing: 1px;">${tempPassword}</p>
+            </div>
+          `,
+          buttonText: 'Log In to PermitWise',
+          buttonUrl: `${CLIENT_URL}/login`,
+          footerText: 'For security, please change your temporary password immediately after logging in.'
+        })
       );
     }
     business.teamMembers.push({ userId: user._id, role: inviteRole });
@@ -4739,23 +4810,25 @@ app.put('/api/events/organizer/:id/cancel', authMiddleware, async (req, res) => 
       return sendEmail(
         email,
         `Event Cancelled: ${event.eventName}`,
-        `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #dc2626;">Event Cancellation Notice</h2>
-            <p>We regret to inform you that the following event has been cancelled by the organizer:</p>
-            <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; margin: 16px 0;">
-              <h3 style="margin: 0 0 8px 0;">${event.eventName}</h3>
-              <p style="margin: 4px 0; color: #666;">📅 Originally scheduled: ${new Date(event.startDate).toLocaleDateString()}</p>
-              <p style="margin: 4px 0; color: #666;">📍 Location: ${event.location?.city}, ${event.location?.state}</p>
+        emailTemplate({
+          heading: 'Event Cancellation Notice',
+          body: `
+            <p>We regret to inform you that the following event has been <strong>cancelled</strong> by the organizer.</p>
+            <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0;">
+              <p style="margin: 0 0 4px; font-size: 18px; font-weight: 600; color: #111827;">${event.eventName}</p>
+              <p style="margin: 4px 0; color: #6b7280; font-size: 14px;">📅 Originally scheduled: ${new Date(event.startDate).toLocaleDateString()}</p>
+              <p style="margin: 4px 0; color: #6b7280; font-size: 14px;">📍 Location: ${event.location?.city}, ${event.location?.state}</p>
             </div>
-            <div style="background: #fef2f2; padding: 16px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #dc2626;">
-              <p style="margin: 0; font-weight: bold;">Reason for Cancellation:</p>
-              <p style="margin: 8px 0 0 0;">${reason.trim()}</p>
+            <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; border-radius: 6px; margin: 16px 0;">
+              <p style="margin: 0 0 4px; font-weight: 600; color: #991b1b;">Reason for cancellation:</p>
+              <p style="margin: 0; color: #7f1d1d;">${reason.trim()}</p>
             </div>
             <p>If you have any questions, please contact the event organizer directly.</p>
-            <p style="color: #666; margin-top: 24px;">— The PermitWise Team</p>
-          </div>
-        `
+          `,
+          buttonText: 'View Your Events',
+          buttonUrl: `${CLIENT_URL}/app#events`,
+          footerText: 'You received this email because you were registered or applied for this event.'
+        })
       ).catch(err => console.error('Failed to send cancellation email to', email, err.message || err));
     });
     
@@ -5103,19 +5176,25 @@ app.delete('/api/events/:id/withdraw', authMiddleware, async (req, res) => {
         await sendEmail(
           event.organizerId.email,
           `Vendor Withdrawal: ${event.eventName}`,
-          `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #dc2626;">Vendor Withdrawal Notice</h2>
+          emailTemplate({
+            heading: 'Vendor Withdrawal Notice',
+            body: `
               <p><strong>${vendorName}</strong> has withdrawn from your event <strong>${event.eventName}</strong>.</p>
-              ${reason && reason !== 'No reason provided' ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
-              <p style="margin-top: 20px; color: #666;">
-                <small>Date of Event: ${new Date(event.startDate).toLocaleDateString()}</small><br>
-                <small>Location: ${event.location?.city}, ${event.location?.state}</small>
-              </p>
-              <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
-              <p style="color: #999; font-size: 12px;">This is an automated notification from PermitWise.</p>
-            </div>
-          `
+              ${reason && reason !== 'No reason provided' ? `
+              <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; border-radius: 6px; margin: 16px 0;">
+                <p style="margin: 0 0 4px; font-weight: 600; color: #991b1b;">Reason provided:</p>
+                <p style="margin: 0; color: #7f1d1d;">${reason}</p>
+              </div>` : ''}
+              <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 16px; margin: 16px 0; font-size: 14px; color: #6b7280;">
+                <p style="margin: 2px 0;">📅 Event date: ${new Date(event.startDate).toLocaleDateString()}</p>
+                <p style="margin: 2px 0;">📍 Location: ${event.location?.city}, ${event.location?.state}</p>
+              </div>
+              <p>You may want to find a replacement vendor for this slot.</p>
+            `,
+            buttonText: 'Manage Event',
+            buttonUrl: `${CLIENT_URL}/app#events`,
+            footerText: 'This is an automated notification from PermitWise.'
+          })
         );
       } catch (emailErr) {
         console.error('Failed to send withdrawal notification email:', emailErr.message || emailErr);
@@ -7254,18 +7333,23 @@ app.put('/api/admin/organizers/:id/approve', masterAdminMiddleware, async (req, 
     await sendEmail(
       user.email,
       'Your PermitWise Organizer Account is Verified!',
-      `
-        <h1>Congratulations! 🎉</h1>
-        <p>Hi ${user.firstName || 'there'},</p>
-        <p>Your event organizer account has been verified. You can now:</p>
-        <ul>
-          <li>Create and publish events</li>
-          <li>Invite vendors to participate</li>
-          <li>Track vendor compliance</li>
-        </ul>
-        <a href="${CLIENT_URL}/app" style="background: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Go to Dashboard</a>
-        <p>Best,<br>The PermitWise Team</p>
-      `
+      emailTemplate({
+        heading: 'Congratulations! 🎉',
+        body: `
+          <p>Hi ${user.firstName || 'there'},</p>
+          <p>Great news — your event organizer account has been <strong>verified and approved</strong>! You now have full access to:</p>
+          <div style="margin: 16px 0;">
+            <div style="display: flex; align-items: center; padding: 8px 0;"><span style="color: #10b981; margin-right: 8px;">✓</span> Create and publish events</div>
+            <div style="display: flex; align-items: center; padding: 8px 0;"><span style="color: #10b981; margin-right: 8px;">✓</span> Invite and manage vendors</div>
+            <div style="display: flex; align-items: center; padding: 8px 0;"><span style="color: #10b981; margin-right: 8px;">✓</span> Track vendor permit compliance</div>
+            <div style="display: flex; align-items: center; padding: 8px 0;"><span style="color: #10b981; margin-right: 8px;">✓</span> Access analytics dashboard</div>
+          </div>
+        `,
+        buttonText: 'Go to Dashboard',
+        buttonUrl: `${CLIENT_URL}/app`,
+        buttonColor: '#10b981',
+        footerText: 'Welcome aboard! If you need help getting started, check out our documentation or reach out to support.'
+      })
     );
     
     res.json({ success: true, message: 'Organizer approved and verified' });
@@ -7296,14 +7380,20 @@ app.put('/api/admin/organizers/:id/reject', masterAdminMiddleware, async (req, r
     await sendEmail(
       user.email,
       'Update on Your PermitWise Organizer Application',
-      `
-        <h1>Application Status Update</h1>
-        <p>Hi ${user.firstName || 'there'},</p>
-        <p>Unfortunately, we were unable to approve your event organizer application at this time.</p>
-        ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
-        <p>If you believe this was a mistake or have questions, please contact our support team.</p>
-        <p>Best,<br>The PermitWise Team</p>
-      `
+      emailTemplate({
+        heading: 'Application Status Update',
+        body: `
+          <p>Hi ${user.firstName || 'there'},</p>
+          <p>Thank you for your interest in becoming an event organizer on PermitWise. Unfortunately, we were unable to approve your application at this time.</p>
+          ${reason ? `
+          <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; border-radius: 6px; margin: 16px 0;">
+            <p style="margin: 0 0 4px; font-weight: 600; color: #991b1b;">Reason:</p>
+            <p style="margin: 0; color: #7f1d1d;">${reason}</p>
+          </div>` : ''}
+          <p>If you believe this was a mistake or have additional information to share, please contact our support team and we'll be happy to review your application again.</p>
+        `,
+        footerText: 'We appreciate your interest in PermitWise. You can reapply at any time.'
+      })
     );
     
     res.json({ success: true, message: 'Organizer rejected' });
@@ -7331,16 +7421,21 @@ app.put('/api/admin/organizers/:id/request-info', masterAdminMiddleware, async (
     // Send info request email
     await sendEmail(
       user.email,
-      'Additional Information Needed for Your PermitWise Application',
-      `
-        <h1>We Need More Information</h1>
-        <p>Hi ${user.firstName || 'there'},</p>
-        <p>Thank you for applying to be an event organizer on PermitWise. To complete your verification, we need some additional information:</p>
-        <p style="background: #f3f4f6; padding: 16px; border-radius: 8px;"><strong>${reason || 'Please provide additional information about your organization.'}</strong></p>
-        <p>Please log in to your account and update your organization profile with the requested information.</p>
-        <a href="${CLIENT_URL}/app" style="background: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Update Profile</a>
-        <p>Best,<br>The PermitWise Team</p>
-      `
+      'Additional Information Needed — PermitWise Application',
+      emailTemplate({
+        heading: 'We Need a Little More Info 📋',
+        body: `
+          <p>Hi ${user.firstName || 'there'},</p>
+          <p>Thank you for applying to be an event organizer on PermitWise! To complete your verification, we need some additional information from you:</p>
+          <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 6px; margin: 16px 0;">
+            <p style="margin: 0; color: #1e40af; font-weight: 500;">${reason || 'Please provide additional information about your organization.'}</p>
+          </div>
+          <p>Please log in to your account and update your organization profile with the requested details.</p>
+        `,
+        buttonText: 'Update My Profile',
+        buttonUrl: `${CLIENT_URL}/app`,
+        footerText: 'Once you\'ve updated your profile, our team will review your application promptly.'
+      })
     );
     
     res.json({ success: true, message: 'Information request sent' });
@@ -7504,17 +7599,30 @@ app.put('/api/admin/events/:id/verification', masterAdminMiddleware, async (req,
       const statusText = verificationStatus === 'approved' ? 'approved' : 
                          verificationStatus === 'rejected' ? 'rejected' :
                          verificationStatus === 'info_needed' ? 'requires additional information' : verificationStatus;
+      const statusColor = verificationStatus === 'approved' ? '#10b981' : verificationStatus === 'rejected' ? '#dc2626' : '#f59e0b';
       try {
         await sendEmail(
           organizer.email,
           `Event Verification Update: ${event.eventName}`,
-          `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Event Verification Update</h2>
-            <p>Your event "<strong>${event.eventName}</strong>" has been <strong>${statusText}</strong>.</p>
-            ${verificationNotes ? `<p><strong>Note from admin:</strong> ${verificationNotes}</p>` : ''}
-            <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
-            <p style="color: #999; font-size: 12px;">This is an automated notification from PermitWise.</p>
-          </div>`
+          emailTemplate({
+            heading: 'Event Verification Update',
+            body: `
+              <p>Hi ${organizer.firstName || 'there'},</p>
+              <p>Your event has received a verification update:</p>
+              <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                <p style="margin: 0 0 8px; font-size: 18px; font-weight: 600; color: #111827;">${event.eventName}</p>
+                <p style="margin: 0; font-size: 14px;">Status: <span style="color: ${statusColor}; font-weight: 600; text-transform: uppercase;">${statusText}</span></p>
+              </div>
+              ${verificationNotes ? `
+              <div style="background: #f9fafb; border-left: 4px solid ${statusColor}; padding: 12px 16px; border-radius: 6px; margin: 16px 0;">
+                <p style="margin: 0 0 4px; font-weight: 600;">Note from admin:</p>
+                <p style="margin: 0;">${verificationNotes}</p>
+              </div>` : ''}
+            `,
+            buttonText: 'View My Events',
+            buttonUrl: `${CLIENT_URL}/app#events`,
+            footerText: 'This is an automated notification from PermitWise.'
+          })
         );
       } catch (emailErr) { console.error('Email error:', emailErr); }
     }
@@ -8277,22 +8385,32 @@ cron.schedule('0 8 * * *', async () => {
         
         // Send email reminder
         if (user.notificationPreferences?.email !== false) {
-          const emailHtml = `
-            <h1>Permit Renewal Reminder</h1>
-            <p>Hi ${user.firstName || 'there'},</p>
-            <p>Your <strong>${permit.permitTypeId?.name || 'permit'}</strong> for ${permit.jurisdictionId?.name || 'your area'} expires in ${days} day${days > 1 ? 's' : ''}.</p>
-            <p><strong>Expiry Date:</strong> ${new Date(permit.expiryDate).toLocaleDateString()}</p>
-            <p>Log in to PermitWise to renew: <a href="${CLIENT_URL}/permits/${permit._id}">${CLIENT_URL}/permits/${permit._id}</a></p>
-            <p>Don't let an expired permit shut you down!</p>
-            <p>Best,<br>The PermitWise Team</p>
-          `;
+          const urgencyColor = days <= 1 ? '#dc2626' : days <= 7 ? '#f59e0b' : '#3b82f6';
+          const urgencyLabel = days <= 1 ? '🚨 Urgent' : days <= 7 ? '⚠️ Expiring Soon' : '📋 Upcoming Renewal';
+          const emailHtml = emailTemplate({
+            heading: `${urgencyLabel} — Permit Renewal Reminder`,
+            body: `
+              <p>Hi ${user.firstName || 'there'},</p>
+              <p>This is a reminder that one of your permits is expiring soon:</p>
+              <div style="background: #f9fafb; border-left: 4px solid ${urgencyColor}; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                <p style="margin: 0 0 4px; font-size: 17px; font-weight: 600; color: #111827;">${permit.permitTypeId?.name || 'Permit'}</p>
+                <p style="margin: 4px 0; color: #6b7280; font-size: 14px;">📍 ${permit.jurisdictionId?.name || 'Your area'}</p>
+                <p style="margin: 4px 0; color: ${urgencyColor}; font-size: 14px; font-weight: 600;">📅 Expires: ${new Date(permit.expiryDate).toLocaleDateString()} (${days} day${days > 1 ? 's' : ''} away)</p>
+              </div>
+              <p>Don't let an expired permit shut you down — log in to PermitWise and take care of it now.</p>
+            `,
+            buttonText: 'Renew My Permit',
+            buttonUrl: `${CLIENT_URL}/app#permits`,
+            buttonColor: urgencyColor,
+            footerText: 'You can manage your notification preferences in your PermitWise account settings.'
+          });
           
           const notification = new Notification({
             vendorBusinessId: permit.vendorBusinessId._id,
             userId: user._id,
             type: 'email',
             channelAddress: user.email,
-            subject: `⚠️ Permit Expires in ${days} Day${days > 1 ? 's' : ''} - ${permit.permitTypeId?.name}`,
+            subject: `⚠️ Permit Expires in ${days} Day${days > 1 ? 's' : ''} — ${permit.permitTypeId?.name}`,
             message: emailHtml,
             sendAt: new Date(),
             relatedVendorPermitId: permit._id
