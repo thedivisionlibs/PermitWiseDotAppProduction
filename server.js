@@ -3080,6 +3080,80 @@ app.post('/api/permits', authMiddleware, requireWriteAccess, async (req, res) =>
   }
 });
 
+// Add custom permit (user-defined name, finds or creates jurisdiction)
+app.post('/api/permits/custom', authMiddleware, requireWriteAccess, async (req, res) => {
+  try {
+    const { name, city, state } = req.body;
+    
+    if (!name || !city || !state) {
+      return res.status(400).json({ error: 'Permit name, city, and state are required' });
+    }
+    
+    // Find or create jurisdiction for this city/state
+    let jurisdiction = await Jurisdiction.findOne({
+      $or: [
+        { city: new RegExp(`^${city}$`, 'i'), state },
+        { name: new RegExp(`^${city}$`, 'i'), state }
+      ]
+    });
+    
+    if (!jurisdiction) {
+      jurisdiction = new Jurisdiction({
+        name: city,
+        type: 'city',
+        city,
+        state,
+        active: true
+      });
+      await jurisdiction.save();
+    }
+    
+    // Create a custom permit type (tagged as custom/user-created)
+    let permitType = await PermitType.findOne({
+      jurisdictionId: jurisdiction._id,
+      name: new RegExp(`^${name}$`, 'i')
+    });
+    
+    if (!permitType) {
+      permitType = new PermitType({
+        jurisdictionId: jurisdiction._id,
+        name: name.trim(),
+        description: 'Custom permit added by vendor',
+        vendorTypes: [req.user?.vendorBusinessId ? 'custom' : 'general'],
+        active: true
+      });
+      await permitType.save();
+    }
+    
+    // Check if permit already exists for this vendor
+    const existing = await VendorPermit.findOne({
+      vendorBusinessId: req.user.vendorBusinessId,
+      permitTypeId: permitType._id
+    });
+    
+    if (existing) {
+      return res.status(400).json({ error: 'This permit is already in your dashboard' });
+    }
+    
+    const permit = new VendorPermit({
+      vendorBusinessId: req.user.vendorBusinessId,
+      permitTypeId: permitType._id,
+      jurisdictionId: jurisdiction._id,
+      status: 'missing'
+    });
+    
+    await permit.save();
+    
+    const populated = await VendorPermit.findById(permit._id)
+      .populate('permitTypeId')
+      .populate('jurisdictionId');
+    
+    res.status(201).json({ permit: populated });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Update permit
 app.put('/api/permits/:id', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
