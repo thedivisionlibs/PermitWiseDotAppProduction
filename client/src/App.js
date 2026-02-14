@@ -1169,20 +1169,28 @@ const ResetPasswordPage = ({ token, onSuccess }) => {
 const VerifyEmailPage = ({ token, onSuccess, onError }) => {
   const [status, setStatus] = useState('verifying'); // 'verifying', 'success', 'error'
   const [error, setError] = useState('');
+  const onSuccessRef = useRef(onSuccess);
+  onSuccessRef.current = onSuccess;
 
   useEffect(() => {
+    let cancelled = false;
     const verifyEmail = async () => {
       try {
         await api.post('/auth/verify-email', { token });
-        setStatus('success');
-        setTimeout(() => onSuccess(), 2000);
+        if (!cancelled) {
+          setStatus('success');
+          setTimeout(() => onSuccessRef.current(), 2000);
+        }
       } catch (err) {
-        setStatus('error');
-        setError(err.message || 'Verification failed');
+        if (!cancelled) {
+          setStatus('error');
+          setError(err.message || 'Verification failed');
+        }
       }
     };
     if (token) verifyEmail();
-  }, [token, onSuccess]);
+    return () => { cancelled = true; };
+  }, [token]);
 
   return (
     <div className="auth-page">
@@ -1768,7 +1776,7 @@ const PermitsPage = () => {
         </div>
       )}
       <AddCityModal isOpen={showCityModal} onClose={() => setShowCityModal(false)} onSuccess={fetchPermits} updateBusiness={updateBusiness} toast={toast} />
-      <AddPermitModal isOpen={showAddModal} onClose={() => setShowAddModal(false)} onSuccess={fetchPermits} toast={toast} />
+      <AddPermitModal isOpen={showAddModal} onClose={() => setShowAddModal(false)} onSuccess={fetchPermits} toast={toast} business={business} onAddCity={() => { setShowAddModal(false); setShowCityModal(true); }} />
       <PermitDetailModal permit={selectedPermit} onClose={() => setSelectedPermit(null)} onUpdate={fetchPermits} />
       
       {/* Suggested Permits Modal */}
@@ -1966,12 +1974,137 @@ const AddCityModal = ({ isOpen, onClose, onSuccess, updateBusiness, toast }) => 
   );
 };
 
-const AddPermitModal = ({ isOpen, onClose, onSuccess, toast }) => {
-  const [city, setCity] = useState(''); const [state, setState] = useState(''); const [vendorType, setVendorType] = useState('');
-  const [permitTypes, setPermitTypes] = useState([]); const [selectedPermit, setSelectedPermit] = useState(''); const [loading, setLoading] = useState(false);
-  const searchPermits = async () => { if (!city || !state || !vendorType) return; try { const data = await api.get(`/permit-types/required?city=${city}&state=${state}&vendorType=${vendorType}`); setPermitTypes(data.permitTypes || []); } catch (err) { console.error(err); } };
-  const handleAdd = async () => { if (!selectedPermit) return; setLoading(true); try { const pt = permitTypes.find(p => p._id === selectedPermit); await api.post('/permits', { permitTypeId: selectedPermit, jurisdictionId: pt.jurisdictionId._id, status: 'missing' }); onSuccess(); onClose(); toast?.success('Permit added!'); } catch (err) { toast?.error(err.message); } finally { setLoading(false); } };
-  return (<Modal isOpen={isOpen} onClose={onClose} title="Add Permit" size="lg"><div className="form-row"><Input label="City" value={city} onChange={(e) => setCity(e.target.value)} /><Select label="State" value={state} onChange={(e) => setState(e.target.value)} options={[{ value: '', label: 'Select' }, ...US_STATES.map(s => ({ value: s, label: s }))]} /></div><Select label="Business Type" value={vendorType} onChange={(e) => setVendorType(e.target.value)} options={[{ value: '', label: 'Select' }, ...VENDOR_TYPES]} /><Button onClick={searchPermits} variant="outline"><Icons.Search /> Search</Button>{permitTypes.length > 0 && <div className="permit-options">{permitTypes.map(pt => (<label key={pt._id} className={`permit-option ${selectedPermit === pt._id ? 'selected' : ''}`}><input type="radio" name="permit" value={pt._id} checked={selectedPermit === pt._id} onChange={(e) => setSelectedPermit(e.target.value)} /><span>{pt.name}</span></label>))}</div>}<div className="modal-actions"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={handleAdd} loading={loading} disabled={!selectedPermit}>Add Permit</Button></div></Modal>);
+const AddPermitModal = ({ isOpen, onClose, onSuccess, toast, business, onAddCity }) => {
+  const [selectedCity, setSelectedCity] = useState('');
+  const [permitTypes, setPermitTypes] = useState([]);
+  const [selectedPermit, setSelectedPermit] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [showCustom, setShowCustom] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customCity, setCustomCity] = useState('');
+  const [customState, setCustomState] = useState('');
+
+  const operatingCities = business?.operatingCities || [];
+  const vendorType = business?.primaryVendorType || '';
+
+  // Auto-search when city selected
+  useEffect(() => {
+    if (!selectedCity || !vendorType) return;
+    const [city, state] = selectedCity.split('||');
+    if (!city || !state) return;
+    setSearching(true);
+    setSearched(false);
+    setSelectedPermit('');
+    setPermitTypes([]);
+    api.get(`/permit-types/required?city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}&vendorType=${encodeURIComponent(vendorType)}`)
+      .then(data => { setPermitTypes(data.permitTypes || []); setSearched(true); })
+      .catch(err => { console.error(err); setSearched(true); })
+      .finally(() => setSearching(false));
+  }, [selectedCity, vendorType]);
+
+  // Reset on close
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedCity(''); setPermitTypes([]); setSelectedPermit(''); setSearched(false); setShowCustom(false); setCustomName(''); setCustomCity(''); setCustomState('');
+    }
+  }, [isOpen]);
+
+  const handleAdd = async () => {
+    if (!selectedPermit) return;
+    setLoading(true);
+    try {
+      const pt = permitTypes.find(p => p._id === selectedPermit);
+      await api.post('/permits', { permitTypeId: selectedPermit, jurisdictionId: pt.jurisdictionId._id || pt.jurisdictionId, status: 'missing' });
+      onSuccess(); onClose(); toast?.success('Permit added!');
+    } catch (err) { toast?.error(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const handleAddCustom = async () => {
+    if (!customName.trim()) return;
+    setLoading(true);
+    try {
+      // For custom permits, use the selected operating city or the custom city
+      let city, state;
+      if (selectedCity) {
+        [city, state] = selectedCity.split('||');
+      } else {
+        city = customCity; state = customState;
+      }
+      if (!city || !state) { toast?.error('Please select or enter a city'); setLoading(false); return; }
+      
+      // Create via custom permit endpoint
+      await api.post('/permits/custom', { name: customName.trim(), city, state });
+      onSuccess(); onClose(); toast?.success('Custom permit added!');
+    } catch (err) { toast?.error(err.message); }
+    finally { setLoading(false); }
+  };
+
+  const cityOptions = [
+    { value: '', label: 'Select an operating city' },
+    ...operatingCities.map(c => ({ value: `${c.city}||${c.state}`, label: `${c.city}, ${c.state}${c.isPrimary ? ' (Primary)' : ''}` }))
+  ];
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Add Permit" size="lg">
+      <Select label="Operating City" value={selectedCity} onChange={(e) => setSelectedCity(e.target.value)} options={cityOptions} />
+      {operatingCities.length === 0 ? (
+        <p style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', margin: '4px 0 16px' }}>You haven't added any operating cities yet. <a href="#" onClick={(e) => { e.preventDefault(); onAddCity(); }} style={{ color: 'var(--primary)' }}>Add a city first</a></p>
+      ) : (
+        <p style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', margin: '4px 0 16px' }}>Don't see your city? <a href="#" onClick={(e) => { e.preventDefault(); onAddCity(); }} style={{ color: 'var(--primary)' }}>Add a new operating city</a></p>
+      )}
+
+      {searching && <div style={{ textAlign: 'center', padding: '1rem' }}><LoadingSpinner /><p style={{ color: 'var(--gray-500)', marginTop: '0.5rem', fontSize: '0.875rem' }}>Finding required permits...</p></div>}
+
+      {searched && permitTypes.length > 0 && (
+        <div className="permit-options" style={{ marginTop: '0.5rem' }}>
+          <p style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.5rem' }}>Required permits for this city:</p>
+          {permitTypes.map(pt => (
+            <label key={pt._id} className={`permit-option ${selectedPermit === pt._id ? 'selected' : ''}`}>
+              <input type="radio" name="permit" value={pt._id} checked={selectedPermit === pt._id} onChange={(e) => setSelectedPermit(e.target.value)} />
+              <span>{pt.name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      {searched && permitTypes.length === 0 && (
+        <div style={{ background: 'var(--warning-bg, #fef3c7)', border: '1px solid var(--warning-border, #fcd34d)', borderRadius: '8px', padding: '12px 16px', margin: '8px 0' }}>
+          <p style={{ fontSize: '0.875rem', color: 'var(--gray-700)', margin: 0 }}>No predefined permits found for this city yet. You can add a custom permit below, or <a href="#" onClick={(e) => { e.preventDefault(); /* could link to suggestion */ }} style={{ color: 'var(--primary)' }}>suggest this city</a> to our team.</p>
+        </div>
+      )}
+
+      {(searched || !selectedCity) && (
+        <div style={{ borderTop: '1px solid var(--gray-200)', marginTop: '16px', paddingTop: '16px' }}>
+          {!showCustom ? (
+            <Button variant="outline" size="sm" onClick={() => setShowCustom(true)}>+ Add Custom Permit</Button>
+          ) : (
+            <div>
+              <p style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.5rem' }}>Custom Permit</p>
+              <Input label="Permit Name *" placeholder="e.g., Mobile Vending License" value={customName} onChange={(e) => setCustomName(e.target.value)} />
+              {!selectedCity && (
+                <div className="form-row" style={{ marginTop: '0.5rem' }}>
+                  <Input label="City *" value={customCity} onChange={(e) => setCustomCity(e.target.value)} />
+                  <Select label="State *" value={customState} onChange={(e) => setCustomState(e.target.value)} options={[{ value: '', label: 'Select' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+                </div>
+              )}
+              <div className="modal-actions" style={{ marginTop: '0.75rem' }}>
+                <Button variant="outline" size="sm" onClick={() => { setShowCustom(false); setCustomName(''); }}>Cancel</Button>
+                <Button size="sm" onClick={handleAddCustom} loading={loading} disabled={!customName.trim()}>Add Custom Permit</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="modal-actions">
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        {selectedPermit && <Button onClick={handleAdd} loading={loading}>Add Permit</Button>}
+      </div>
+    </Modal>
+  );
 };
 
 const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
