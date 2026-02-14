@@ -528,8 +528,13 @@ const permitTypeSchema = new mongoose.Schema({
 // Vendor Permit Schema
 const vendorPermitSchema = new mongoose.Schema({
   vendorBusinessId: { type: mongoose.Schema.Types.ObjectId, ref: 'VendorBusiness', required: true },
-  permitTypeId: { type: mongoose.Schema.Types.ObjectId, ref: 'PermitType', required: true },
-  jurisdictionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Jurisdiction', required: true },
+  permitTypeId: { type: mongoose.Schema.Types.ObjectId, ref: 'PermitType' },
+  jurisdictionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Jurisdiction' },
+  // Custom permit fields (user-created, not shared)
+  isCustom: { type: Boolean, default: false },
+  customName: { type: String },
+  customCity: { type: String },
+  customState: { type: String },
   status: { 
     type: String, 
     enum: ['missing', 'in_progress', 'active', 'expired', 'pending_renewal'],
@@ -3080,7 +3085,7 @@ app.post('/api/permits', authMiddleware, requireWriteAccess, async (req, res) =>
   }
 });
 
-// Add custom permit (user-defined name, finds or creates jurisdiction)
+// Add custom permit (user-only, does NOT create shared permit types or jurisdictions)
 app.post('/api/permits/custom', authMiddleware, requireWriteAccess, async (req, res) => {
   try {
     const { name, city, state } = req.body;
@@ -3089,66 +3094,30 @@ app.post('/api/permits/custom', authMiddleware, requireWriteAccess, async (req, 
       return res.status(400).json({ error: 'Permit name, city, and state are required' });
     }
     
-    // Find or create jurisdiction for this city/state
-    let jurisdiction = await Jurisdiction.findOne({
-      $or: [
-        { city: new RegExp(`^${city}$`, 'i'), state },
-        { name: new RegExp(`^${city}$`, 'i'), state }
-      ]
-    });
-    
-    if (!jurisdiction) {
-      jurisdiction = new Jurisdiction({
-        name: city,
-        type: 'city',
-        city,
-        state,
-        active: true
-      });
-      await jurisdiction.save();
-    }
-    
-    // Create a custom permit type (tagged as custom/user-created)
-    let permitType = await PermitType.findOne({
-      jurisdictionId: jurisdiction._id,
-      name: new RegExp(`^${name}$`, 'i')
-    });
-    
-    if (!permitType) {
-      permitType = new PermitType({
-        jurisdictionId: jurisdiction._id,
-        name: name.trim(),
-        description: 'Custom permit added by vendor',
-        vendorTypes: [req.user?.vendorBusinessId ? 'custom' : 'general'],
-        active: true
-      });
-      await permitType.save();
-    }
-    
-    // Check if permit already exists for this vendor
+    // Check for duplicate custom permit by name+city for this vendor
     const existing = await VendorPermit.findOne({
       vendorBusinessId: req.user.vendorBusinessId,
-      permitTypeId: permitType._id
+      isCustom: true,
+      customName: new RegExp(`^${name.trim()}$`, 'i'),
+      customCity: new RegExp(`^${city.trim()}$`, 'i'),
+      customState: state
     });
     
     if (existing) {
-      return res.status(400).json({ error: 'This permit is already in your dashboard' });
+      return res.status(400).json({ error: 'This custom permit is already in your dashboard' });
     }
     
     const permit = new VendorPermit({
       vendorBusinessId: req.user.vendorBusinessId,
-      permitTypeId: permitType._id,
-      jurisdictionId: jurisdiction._id,
+      isCustom: true,
+      customName: name.trim(),
+      customCity: city.trim(),
+      customState: state,
       status: 'missing'
     });
     
     await permit.save();
-    
-    const populated = await VendorPermit.findById(permit._id)
-      .populate('permitTypeId')
-      .populate('jurisdictionId');
-    
-    res.status(201).json({ permit: populated });
+    res.status(201).json({ permit });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -5473,14 +5442,17 @@ app.get('/api/attending-events', authMiddleware, async (req, res) => {
       const completedChecklist = (aeObj.complianceChecklist || []).filter(c => c.completed).length;
       const completedItems = completedPermits + completedChecklist;
       
-      // Auto-link vendor permits if permitTypeId matches
+      // Auto-link vendor permits if permitTypeId or vendorPermitId matches
       aeObj.requiredPermits = (aeObj.requiredPermits || []).map(rp => {
-        if (rp.permitTypeId) {
-          const vp = vendorPermits.find(vp => vp.permitTypeId?._id.toString() === rp.permitTypeId.toString());
-          if (vp) {
-            rp.linkedPermitStatus = vp.status;
-            rp.linkedPermitExpiry = vp.expiryDate;
-          }
+        let vp = null;
+        if (rp.vendorPermitId) {
+          vp = vendorPermits.find(v => v._id.toString() === rp.vendorPermitId.toString());
+        } else if (rp.permitTypeId) {
+          vp = vendorPermits.find(v => v.permitTypeId?._id.toString() === rp.permitTypeId.toString());
+        }
+        if (vp) {
+          rp.linkedPermitStatus = vp.status;
+          rp.linkedPermitExpiry = vp.expiryDate;
         }
         return rp;
       });
