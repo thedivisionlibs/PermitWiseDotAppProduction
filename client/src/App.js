@@ -2679,7 +2679,7 @@ const InspectionsPage = () => {
 };
 
 const EventsPage = () => {
-  const { user, subscription, isExpired, canWrite } = useAuth();
+  const { user, subscription, isExpired, canWrite, business } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const [events, setEvents] = useState([]); const [loading, setLoading] = useState(true);
@@ -2735,6 +2735,9 @@ const EventsPage = () => {
   const [showAddAttendingModal, setShowAddAttendingModal] = useState(false);
   const [editingAttendingEvent, setEditingAttendingEvent] = useState(null);
   const [attendingForm, setAttendingForm] = useState({ eventName: '', organizerName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', venueName: '', eventType: 'other', notes: '', requiredPermits: [], complianceChecklist: [] });
+  const [attendingCitySelection, setAttendingCitySelection] = useState(''); // 'city||state' or '__custom__'
+  const [attendingSuggestedPermits, setAttendingSuggestedPermits] = useState([]);
+  const [attendingSearchingPermits, setAttendingSearchingPermits] = useState(false);
   const [newPermitName, setNewPermitName] = useState('');
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [selectedAttendingEvent, setSelectedAttendingEvent] = useState(null);
@@ -4328,6 +4331,8 @@ const EventsPage = () => {
   // ====== ATTENDING EVENT FUNCTIONS ======
   const resetAttendingForm = () => {
     setAttendingForm({ eventName: '', organizerName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', venueName: '', eventType: 'other', notes: '', requiredPermits: [], complianceChecklist: [] });
+    setAttendingCitySelection('');
+    setAttendingSuggestedPermits([]);
     setNewPermitName('');
     setNewChecklistItem('');
     setEditingAttendingEvent(null);
@@ -4341,11 +4346,17 @@ const EventsPage = () => {
 
   const openEditAttendingModal = (ae) => {
     setEditingAttendingEvent(ae);
+    const city = ae.location?.city || '';
+    const state = ae.location?.state || '';
+    // Try to match an operating city
+    const opCities = business?.operatingCities || [];
+    const match = opCities.find(c => c.city.toLowerCase() === city.toLowerCase() && c.state === state);
+    setAttendingCitySelection(match ? `${match.city}||${match.state}` : (city ? '__custom__' : ''));
     setAttendingForm({
       eventName: ae.eventName || '', organizerName: ae.organizerName || '', description: ae.description || '',
       startDate: ae.startDate ? new Date(ae.startDate).toISOString().split('T')[0] : '',
       endDate: ae.endDate ? new Date(ae.endDate).toISOString().split('T')[0] : '',
-      city: ae.location?.city || '', state: ae.location?.state || '', address: ae.location?.address || '',
+      city, state, address: ae.location?.address || '',
       venueName: ae.location?.venueName || '', eventType: ae.eventType || 'other', notes: ae.notes || '',
       requiredPermits: (ae.requiredPermits || []).map(p => ({
         name: p.name || '', status: p.status || 'needed', notes: p.notes || '',
@@ -4357,6 +4368,46 @@ const EventsPage = () => {
     });
     setSelectedExistingPermit('');
     setShowAddAttendingModal(true);
+  };
+
+  const handleAttendingCityChange = async (selection) => {
+    setAttendingCitySelection(selection);
+    setAttendingSuggestedPermits([]);
+    if (!selection || selection === '__custom__') {
+      if (selection === '__custom__') {
+        setAttendingForm(f => ({ ...f, city: '', state: '' }));
+      }
+      return;
+    }
+    const [city, state] = selection.split('||');
+    setAttendingForm(f => ({ ...f, city, state }));
+    // Auto-search for available permits in this city
+    const vendorType = business?.primaryVendorType;
+    if (city && state && vendorType) {
+      setAttendingSearchingPermits(true);
+      try {
+        const data = await api.get(`/permit-types/required?city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}&vendorType=${encodeURIComponent(vendorType)}`);
+        setAttendingSuggestedPermits(data.permitTypes || []);
+      } catch (err) { console.error(err); }
+      finally { setAttendingSearchingPermits(false); }
+    }
+  };
+
+  const addSuggestedPermitToForm = (pt) => {
+    const alreadyAdded = attendingForm.requiredPermits.some(rp => rp.permitTypeId === pt._id);
+    if (alreadyAdded) return;
+    // Also check if vendor already has this permit
+    const vendorPermit = vendorPermitsList.find(vp => vp.permitTypeId?._id === pt._id);
+    setAttendingForm(f => ({
+      ...f,
+      requiredPermits: [...f.requiredPermits, {
+        name: pt.name,
+        status: vendorPermit?.status === 'active' ? 'obtained' : vendorPermit?.status === 'in_progress' ? 'in_progress' : 'needed',
+        permitTypeId: pt._id,
+        vendorPermitId: vendorPermit?._id || undefined,
+        notes: ''
+      }]
+    }));
   };
 
   const addExistingPermitToForm = () => {
@@ -5024,10 +5075,42 @@ const EventsPage = () => {
         <Input label="Event Name *" placeholder="Downtown Food Festival" value={attendingForm.eventName} onChange={(e) => setAttendingForm(f => ({ ...f, eventName: e.target.value }))} />
         <Input label="Organizer Name" placeholder="City Events Dept" value={attendingForm.organizerName} onChange={(e) => setAttendingForm(f => ({ ...f, organizerName: e.target.value }))} />
         <Input label="Venue Name" placeholder="Main Street Plaza" value={attendingForm.venueName} onChange={(e) => setAttendingForm(f => ({ ...f, venueName: e.target.value }))} />
-        <div className="form-row">
-          <Input label="City" placeholder="Austin" value={attendingForm.city} onChange={(e) => setAttendingForm(f => ({ ...f, city: e.target.value }))} />
-          <Select label="State" value={attendingForm.state} onChange={(e) => setAttendingForm(f => ({ ...f, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
-        </div>
+        <Select label="City / State" value={attendingCitySelection} onChange={(e) => handleAttendingCityChange(e.target.value)} options={[
+          { value: '', label: 'Select a city' },
+          ...(business?.operatingCities || []).map(c => ({ value: `${c.city}||${c.state}`, label: `${c.city}, ${c.state}${c.isPrimary ? ' (Primary)' : ''}` })),
+          { value: '__custom__', label: '— Enter custom city —' }
+        ]} />
+        {attendingCitySelection === '__custom__' && (
+          <>
+            <div className="form-row">
+              <Input label="City" placeholder="Austin" value={attendingForm.city} onChange={(e) => setAttendingForm(f => ({ ...f, city: e.target.value }))} />
+              <Select label="State" value={attendingForm.state} onChange={(e) => setAttendingForm(f => ({ ...f, state: e.target.value }))} options={[{ value: '', label: 'Select State' }, ...US_STATES.map(s => ({ value: s, label: s }))]} />
+            </div>
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '10px 14px', margin: '0 0 12px', fontSize: '0.8125rem', color: '#1e40af' }}>
+              💡 Tip: Add this city to your <strong>Operating Cities</strong> in Settings to get permit suggestions and tracking.
+            </div>
+          </>
+        )}
+        {!attendingCitySelection && (business?.operatingCities || []).length === 0 && (
+          <p style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', margin: '4px 0 8px' }}>No operating cities yet. Add cities in <strong>Settings → Cities</strong> to get permit suggestions.</p>
+        )}
+        {attendingSearchingPermits && <div style={{ textAlign: 'center', padding: '0.5rem' }}><LoadingSpinner /><p style={{ color: 'var(--gray-500)', fontSize: '0.8125rem' }}>Finding permits for this city...</p></div>}
+        {attendingSuggestedPermits.length > 0 && (
+          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '12px', margin: '0 0 12px' }}>
+            <p style={{ fontSize: '0.8125rem', fontWeight: 600, margin: '0 0 8px', color: '#166534' }}>Permits required in this city:</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {attendingSuggestedPermits.map(pt => {
+                const alreadyAdded = attendingForm.requiredPermits.some(rp => rp.permitTypeId === pt._id);
+                return (
+                  <button key={pt._id} type="button" disabled={alreadyAdded} onClick={() => addSuggestedPermitToForm(pt)}
+                    style={{ padding: '6px 12px', borderRadius: '6px', border: `1px solid ${alreadyAdded ? '#d1d5db' : '#10b981'}`, background: alreadyAdded ? '#f3f4f6' : '#ecfdf5', color: alreadyAdded ? '#9ca3af' : '#065f46', fontSize: '0.8125rem', cursor: alreadyAdded ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                    {alreadyAdded ? '✓ ' : '+ '}{pt.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <Input label="Address" placeholder="123 Main St" value={attendingForm.address} onChange={(e) => setAttendingForm(f => ({ ...f, address: e.target.value }))} />
         <div className="form-row">
           <Input label="Start Date *" type="date" value={attendingForm.startDate} onChange={(e) => setAttendingForm(f => ({ ...f, startDate: e.target.value }))} />
