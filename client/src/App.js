@@ -5292,7 +5292,7 @@ const OrganizerSettingsPage = () => {
     emailDigest: user?.organizerProfile?.notifications?.emailDigest ?? 'daily' // 'instant', 'daily', 'weekly', 'none'
   });
   
-  const [subscription, setSubscription] = useState(null);
+  // const [subscription, setSubscription] = useState(null);
   
   // Documents state
   const [documents, setDocuments] = useState([]);
