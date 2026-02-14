@@ -1875,10 +1875,10 @@ const PermitsScreen = ({ navigation }) => {
         renderItem={({ item }) => (
           <Card style={styles.permitCard} onPress={() => navigation.navigate('PermitDetail', { permit: item })}>
             <View style={styles.permitHeader}>
-              <Text style={styles.permitName}>{item.permitTypeId?.name}</Text>
+              <Text style={styles.permitName}>{item.isCustom ? item.customName : item.permitTypeId?.name}</Text>
               <Badge label={getStatusLabel(item.status)} variant={item.status === 'active' ? 'success' : item.status === 'expired' ? 'danger' : 'warning'} />
             </View>
-            <Text style={styles.permitJurisdiction}>{item.jurisdictionId?.name}, {item.jurisdictionId?.state}</Text>
+            <Text style={styles.permitJurisdiction}>{item.isCustom ? `${item.customCity}, ${item.customState}` : `${item.jurisdictionId?.name}, ${item.jurisdictionId?.state}`}</Text>
             {item.expiryDate && (
               <View style={styles.expiryRow}><Icons.Clock size={14} color={COLORS.gray500} /><Text style={styles.expiryText}>Expires {formatDate(item.expiryDate)}</Text></View>
             )}
@@ -2170,7 +2170,7 @@ const PermitDetailScreen = ({ route, navigation }) => {
   };
   
   // Early return if no permit data
-  if (!permit || !permit.permitTypeId) {
+  if (!permit || (!permit.permitTypeId && !permit.isCustom)) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -2306,13 +2306,15 @@ const PermitDetailScreen = ({ route, navigation }) => {
     }
   };
   
-  const importanceLabel = getImportanceLabel(permit.permitTypeId?.importanceLevel);
+  const importanceLabel = permit.isCustom ? null : getImportanceLabel(permit.permitTypeId?.importanceLevel);
+  const permitName = permit.isCustom ? permit.customName : permit.permitTypeId?.name;
+  const permitLocation = permit.isCustom ? `${permit.customCity}, ${permit.customState}` : `${permit.jurisdictionId?.name}, ${permit.jurisdictionId?.state}`;
   
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.detailScroll}>
         <View style={styles.detailHeader}>
-          <Text style={styles.detailTitle}>{permit.permitTypeId?.name}</Text>
+          <Text style={styles.detailTitle}>{permitName}</Text>
           <View style={styles.detailBadges}>
             <Badge label={getStatusLabel(permit.status)} variant={permit.status === 'active' ? 'success' : permit.status === 'expired' ? 'danger' : 'warning'} />
             {importanceLabel && (
@@ -2370,7 +2372,7 @@ const PermitDetailScreen = ({ route, navigation }) => {
         {/* Your Permit Details */}
         <Card style={styles.detailCard}>
           <Text style={styles.permitTypeInfoTitle}>Your Permit Details</Text>
-          <View style={styles.detailRow}><Text style={styles.detailLabel}>Jurisdiction</Text><Text style={styles.detailValue}>{permit.jurisdictionId?.name}, {permit.jurisdictionId?.state}</Text></View>
+          <View style={styles.detailRow}><Text style={styles.detailLabel}>Jurisdiction</Text><Text style={styles.detailValue}>{permitLocation}</Text></View>
           <View style={styles.detailRow}><Text style={styles.detailLabel}>Permit Number</Text><Text style={styles.detailValue}>{permit.permitNumber || 'Not entered'}</Text></View>
           <View style={styles.detailRow}><Text style={styles.detailLabel}>Issue Date</Text><Text style={styles.detailValue}>{formatDate(permit.issueDate)}</Text></View>
           <View style={styles.detailRow}><Text style={styles.detailLabel}>Expiry Date</Text><Text style={styles.detailValue}>{formatDate(permit.expiryDate)}</Text></View>
@@ -2445,7 +2447,7 @@ const PermitDetailScreen = ({ route, navigation }) => {
           </TouchableOpacity>
         </Card>
         
-        {subscription?.features?.autofill && (
+        {subscription?.features?.autofill && !permit.isCustom && (
           <Button 
             title={loadingAutofill ? 'Generating...' : 'Generate Application PDF'} 
             variant="outline" 
@@ -2623,8 +2625,8 @@ const EditPermitScreen = ({ route, navigation }) => {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.formScroll}>
         <Card style={styles.infoCard}>
-          <Text style={styles.infoCardTitle}>{permit.permitTypeId?.name}</Text>
-          <Text style={styles.infoCardSubtitle}>{permit.jurisdictionId?.name}, {permit.jurisdictionId?.state}</Text>
+          <Text style={styles.infoCardTitle}>{permit.isCustom ? permit.customName : permit.permitTypeId?.name}</Text>
+          <Text style={styles.infoCardSubtitle}>{permit.isCustom ? `${permit.customCity}, ${permit.customState}` : `${permit.jurisdictionId?.name}, ${permit.jurisdictionId?.state}`}</Text>
         </Card>
 
         <Input label="Permit Number" value={form.permitNumber} onChangeText={v => setForm(f => ({ ...f, permitNumber: v }))} placeholder="e.g., HP-2024-12345" />
@@ -6031,14 +6033,15 @@ const EventsScreen = () => {
 
   const addExistingPermitToForm = (permit) => {
     if (!permit) return;
-    const alreadyAdded = attendingForm.requiredPermits.some(rp => rp.vendorPermitId === permit._id || rp.permitTypeId === permit.permitTypeId?._id);
+    const alreadyAdded = attendingForm.requiredPermits.some(rp => rp.vendorPermitId === permit._id);
     if (alreadyAdded) return;
+    const permitName = permit.isCustom ? permit.customName : (permit.permitTypeId?.name || 'Unnamed Permit');
     setAttendingForm(f => ({
       ...f,
       requiredPermits: [...f.requiredPermits, {
-        name: permit.permitTypeId?.name || 'Unnamed Permit',
+        name: permitName,
         status: (permit.status === 'active') ? 'obtained' : (permit.status === 'in_progress') ? 'in_progress' : 'needed',
-        permitTypeId: permit.permitTypeId?._id,
+        permitTypeId: permit.permitTypeId?._id || undefined,
         vendorPermitId: permit._id,
         notes: ''
       }]
@@ -6791,7 +6794,7 @@ const EventsScreen = () => {
                   </TouchableOpacity>
                 </View>
               ))}
-              {vendorPermitsList.filter(p => p.permitTypeId?.name && !attendingForm.requiredPermits.some(rp => rp.vendorPermitId === p._id)).length > 0 && (
+              {vendorPermitsList.filter(p => (p.permitTypeId?.name || p.isCustom) && !attendingForm.requiredPermits.some(rp => rp.vendorPermitId === p._id)).length > 0 && (
                 <>
                   <TouchableOpacity onPress={() => setShowPermitPicker(true)} style={{ padding: 12, borderRadius: 8, borderWidth: 1, borderColor: COLORS.gray300, borderStyle: 'dashed', alignItems: 'center', marginBottom: 8, backgroundColor: '#f9fafb' }}>
                     <Text style={{ color: COLORS.primary, fontWeight: '500' }}>📋 Select from Your Permits</Text>
@@ -6804,10 +6807,10 @@ const EventsScreen = () => {
                           <TouchableOpacity onPress={() => setShowPermitPicker(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
                         </View>
                         <ScrollView style={styles.modalBody}>
-                          {vendorPermitsList.filter(p => p.permitTypeId?.name && !attendingForm.requiredPermits.some(rp => rp.vendorPermitId === p._id)).map(p => (
+                          {vendorPermitsList.filter(p => (p.permitTypeId?.name || p.isCustom) && !attendingForm.requiredPermits.some(rp => rp.vendorPermitId === p._id)).map(p => (
                             <TouchableOpacity key={p._id} onPress={() => addExistingPermitToForm(p)} style={{ padding: 14, borderBottomWidth: 1, borderBottomColor: COLORS.gray100 }}>
-                              <Text style={{ fontWeight: '500', fontSize: 15 }}>{p.permitTypeId?.name}</Text>
-                              <Text style={{ fontSize: 13, color: COLORS.gray500, marginTop: 2 }}>{p.jurisdictionId?.city || 'Unknown city'} — {p.status}</Text>
+                              <Text style={{ fontWeight: '500', fontSize: 15 }}>{p.isCustom ? p.customName : p.permitTypeId?.name}</Text>
+                              <Text style={{ fontSize: 13, color: COLORS.gray500, marginTop: 2 }}>{p.isCustom ? `${p.customCity || 'Custom'}` : `${p.jurisdictionId?.city || 'Unknown city'}`} — {p.status}</Text>
                             </TouchableOpacity>
                           ))}
                         </ScrollView>
