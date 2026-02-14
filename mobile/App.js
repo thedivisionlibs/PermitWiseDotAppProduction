@@ -12,7 +12,7 @@ import * as DocumentPicker from 'expo-document-picker';
 // ===========================================
 // CONFIGURATION
 // ===========================================
-const API_URL = 'https://permitwisedotappproduction-production.up.railway.app/api'; // Production URL
+const API_URL = 'https://permitwise.app/api'; // Production URL
 
 // ===========================================
 // ICONS
@@ -2463,106 +2463,207 @@ const PermitDetailScreen = ({ route, navigation }) => {
 };
 
 const AddPermitScreen = ({ navigation }) => {
-  const { business, canWrite, isExpired } = useAuth();
+  const { business, canWrite, isExpired, updateBusiness } = useAuth();
   const toast = useToast();
   const [loading, setLoading] = useState(false);
+  const [selectedCity, setSelectedCity] = useState('');
+  const [showCityPicker, setShowCityPicker] = useState(false);
   const [permitTypes, setPermitTypes] = useState([]);
-  const [jurisdictions, setJurisdictions] = useState([]);
-  const [selectedJurisdiction, setSelectedJurisdiction] = useState(null);
-  const [selectedPermitType, setSelectedPermitType] = useState(null);
-  const [showJurisdictionPicker, setShowJurisdictionPicker] = useState(false);
-  const [showPermitTypePicker, setShowPermitTypePicker] = useState(false);
-  const [form, setForm] = useState({ permitNumber: '', issueDate: '', expiryDate: '' });
+  const [selectedPermit, setSelectedPermit] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [showCustom, setShowCustom] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customCity, setCustomCity] = useState('');
+  const [customState, setCustomState] = useState('');
+  const [showCustomStatePicker, setShowCustomStatePicker] = useState(false);
+  const [showAddCityModal, setShowAddCityModal] = useState(false);
 
+  const operatingCities = business?.operatingCities || [];
+  const vendorType = business?.primaryVendorType || '';
+
+  // Auto-search when city selected
   useEffect(() => {
-    const fetchJurisdictions = async () => {
-      try {
-        const data = await api.get('/jurisdictions');
-        setJurisdictions(data.jurisdictions || []);
-      } catch (e) { console.error(e); }
-    };
-    fetchJurisdictions();
-  }, []);
+    if (!selectedCity || !vendorType) return;
+    const [city, state] = selectedCity.split('||');
+    if (!city || !state) return;
+    setSearching(true);
+    setSearched(false);
+    setSelectedPermit(null);
+    setPermitTypes([]);
+    api.get(`/permit-types/required?city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}&vendorType=${encodeURIComponent(vendorType)}`)
+      .then(data => { setPermitTypes(data.permitTypes || []); setSearched(true); })
+      .catch(err => { console.error(err); setSearched(true); })
+      .finally(() => setSearching(false));
+  }, [selectedCity, vendorType]);
 
-  const fetchPermitTypes = async (jurisdictionId) => {
-    try {
-      const data = await api.get(`/permit-types?jurisdictionId=${jurisdictionId}`);
-      setPermitTypes(data.permitTypes || []);
-    } catch (e) { console.error(e); }
+  const handleCitySelect = (val) => {
+    setSelectedCity(val);
+    setShowCityPicker(false);
+    setShowCustom(false);
+    setCustomName('');
   };
 
-  const handleJurisdictionSelect = (jId) => {
-    const j = jurisdictions.find(j => j._id === jId);
-    setSelectedJurisdiction(j);
-    setSelectedPermitType(null);
-    fetchPermitTypes(jId);
-  };
-
-  const handleSubmit = async () => {
-    // Check if user can write (subscription is active)
-    if (!canWrite) {
-      toast.error('Please upgrade your subscription to add new permits.');
-      return;
-    }
-    
-    if (!selectedJurisdiction || !selectedPermitType) {
-      toast.error('Please select jurisdiction and permit type');
-      return;
-    }
+  const handleAdd = async () => {
+    if (!selectedPermit) return;
+    if (!canWrite) { toast.error('Please upgrade your subscription to add permits.'); return; }
     setLoading(true);
     try {
-      await api.post('/permits', {
-        permitTypeId: selectedPermitType._id,
-        jurisdictionId: selectedJurisdiction._id,
-        vendorBusinessId: business._id,
-        permitNumber: form.permitNumber,
-        issueDate: form.issueDate || null,
-        expiryDate: form.expiryDate || null,
-        status: form.expiryDate ? 'active' : 'missing'
-      });
-      toast.success('Permit added');
+      const pt = permitTypes.find(p => p._id === selectedPermit);
+      await api.post('/permits', { permitTypeId: selectedPermit, jurisdictionId: pt.jurisdictionId._id || pt.jurisdictionId, status: 'missing' });
+      toast.success('Permit added!');
       navigation.goBack();
-    } catch (e) { 
-      // Handle subscription_expired error from server
-      if (e.message?.includes('subscription') || e.message?.includes('expired')) {
-        toast.error('Please upgrade your subscription to add new permits.');
-      } else {
-        toast.error(e.message); 
-      }
-    }
+    } catch (e) { toast.error(e.message); }
     finally { setLoading(false); }
   };
+
+  const handleAddCustom = async () => {
+    if (!customName.trim()) return;
+    if (!canWrite) { toast.error('Please upgrade your subscription to add permits.'); return; }
+    setLoading(true);
+    try {
+      let city, state;
+      if (selectedCity) {
+        [city, state] = selectedCity.split('||');
+      } else {
+        city = customCity; state = customState;
+      }
+      if (!city || !state) { toast.error('Please select or enter a city'); setLoading(false); return; }
+      await api.post('/permits/custom', { name: customName.trim(), city, state });
+      toast.success('Custom permit added!');
+      navigation.goBack();
+    } catch (e) { toast.error(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const cityLabel = selectedCity
+    ? operatingCities.find(c => `${c.city}||${c.state}` === selectedCity)
+      ? `${selectedCity.split('||')[0]}, ${selectedCity.split('||')[1]}`
+      : selectedCity.replace('||', ', ')
+    : '';
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.formScroll}>
-        <Text style={styles.label}>Jurisdiction *</Text>
-        <TouchableOpacity style={styles.pickerButton} onPress={() => setShowJurisdictionPicker(true)}>
-          <Text style={selectedJurisdiction ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
-            {selectedJurisdiction ? `${selectedJurisdiction.name}, ${selectedJurisdiction.state}` : 'Select jurisdiction'}
+        <Text style={styles.label}>Operating City</Text>
+        <TouchableOpacity style={styles.pickerButton} onPress={() => setShowCityPicker(true)}>
+          <Text style={cityLabel ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
+            {cityLabel || 'Select an operating city'}
           </Text>
+          <Icons.ChevronDown size={20} color={COLORS.gray500} />
         </TouchableOpacity>
 
-        <Text style={[styles.label, { marginTop: 16 }]}>Permit Type *</Text>
-        <TouchableOpacity style={styles.pickerButton} onPress={() => setShowPermitTypePicker(true)} disabled={!selectedJurisdiction}>
-          <Text style={selectedPermitType ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
-            {selectedPermitType ? selectedPermitType.name : (selectedJurisdiction ? 'Select permit type' : 'Select jurisdiction first')}
-          </Text>
-        </TouchableOpacity>
+        {operatingCities.length === 0 ? (
+          <View style={{ marginTop: 4, marginBottom: 16 }}>
+            <Text style={{ fontSize: 13, color: COLORS.gray500 }}>You haven't added any operating cities yet. </Text>
+            <TouchableOpacity onPress={() => setShowAddCityModal(true)}>
+              <Text style={{ fontSize: 13, color: COLORS.primary, textDecorationLine: 'underline', marginTop: 2 }}>Add a city first</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={{ flexDirection: 'row', marginTop: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+            <Text style={{ fontSize: 13, color: COLORS.gray500 }}>Don't see your city? </Text>
+            <TouchableOpacity onPress={() => setShowAddCityModal(true)}>
+              <Text style={{ fontSize: 13, color: COLORS.primary, textDecorationLine: 'underline' }}>Add a new operating city</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
-        <Input label="Permit Number (optional)" value={form.permitNumber} onChangeText={v => setForm(f => ({ ...f, permitNumber: v }))} placeholder="e.g., HP-2024-12345" />
-        <DateInput label="Issue Date (optional)" value={form.issueDate} onChangeText={v => setForm(f => ({ ...f, issueDate: v }))} />
-        <DateInput label="Expiry Date (optional)" value={form.expiryDate} onChangeText={v => setForm(f => ({ ...f, expiryDate: v }))} />
+        {searching && (
+          <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+            <ActivityIndicator size="small" color={COLORS.primary} />
+            <Text style={{ color: COLORS.gray500, marginTop: 8, fontSize: 14 }}>Finding required permits...</Text>
+          </View>
+        )}
 
-        <Button title="Add Permit" onPress={handleSubmit} loading={loading} style={{ marginTop: 24 }} />
+        {searched && permitTypes.length > 0 && (
+          <View style={{ marginBottom: 12 }}>
+            <Text style={{ fontSize: 14, fontWeight: '500', marginBottom: 8 }}>Required permits for this city:</Text>
+            {permitTypes.map(pt => (
+              <TouchableOpacity key={pt._id} onPress={() => setSelectedPermit(pt._id)}
+                style={{ flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 10, borderWidth: 1.5, borderColor: selectedPermit === pt._id ? COLORS.primary : COLORS.gray200, backgroundColor: selectedPermit === pt._id ? '#f0f0ff' : COLORS.white, marginBottom: 8 }}>
+                <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: selectedPermit === pt._id ? COLORS.primary : COLORS.gray300, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                  {selectedPermit === pt._id && <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: COLORS.primary }} />}
+                </View>
+                <Text style={{ fontSize: 15, fontWeight: selectedPermit === pt._id ? '600' : '400', color: COLORS.gray800 }}>{pt.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
-        <PickerModal visible={showJurisdictionPicker} onClose={() => setShowJurisdictionPicker(false)} title="Select Jurisdiction"
-          options={jurisdictions.map(j => ({ value: j._id, label: `${j.name}, ${j.state}` }))}
-          value={selectedJurisdiction?._id} onSelect={handleJurisdictionSelect} />
-        
-        <PickerModal visible={showPermitTypePicker} onClose={() => setShowPermitTypePicker(false)} title="Select Permit Type"
-          options={permitTypes.map(pt => ({ value: pt._id, label: pt.name }))}
-          value={selectedPermitType?._id} onSelect={v => setSelectedPermitType(permitTypes.find(pt => pt._id === v))} />
+        {searched && permitTypes.length === 0 && (
+          <View style={{ backgroundColor: '#fef3c7', borderWidth: 1, borderColor: '#fcd34d', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+            <Text style={{ fontSize: 14, color: COLORS.gray700 }}>No predefined permits found for this city yet. You can add a custom permit below.</Text>
+          </View>
+        )}
+
+        {(searched || !selectedCity) && (
+          <View style={{ borderTopWidth: 1, borderTopColor: COLORS.gray200, marginTop: 8, paddingTop: 16 }}>
+            {!showCustom ? (
+              <TouchableOpacity onPress={() => setShowCustom(true)}
+                style={{ flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: COLORS.gray300, borderStyle: 'dashed', backgroundColor: '#f9fafb' }}>
+                <Icons.Plus size={18} color={COLORS.primary} />
+                <Text style={{ color: COLORS.primary, fontWeight: '500', marginLeft: 8, fontSize: 14 }}>Add Custom Permit</Text>
+              </TouchableOpacity>
+            ) : (
+              <View>
+                <Text style={{ fontSize: 14, fontWeight: '500', marginBottom: 8 }}>Custom Permit</Text>
+                <Input label="Permit Name *" placeholder="e.g., Mobile Vending License" value={customName} onChangeText={setCustomName} />
+                {!selectedCity && (
+                  <>
+                    <View style={styles.row}>
+                      <View style={styles.halfInput}><Input label="City *" value={customCity} onChangeText={setCustomCity} /></View>
+                      <View style={styles.halfInput}>
+                        <Text style={styles.label}>State *</Text>
+                        <TouchableOpacity style={styles.pickerButton} onPress={() => setShowCustomStatePicker(true)}>
+                          <Text style={customState ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{customState || 'Select'}</Text>
+                          <Icons.ChevronDown size={20} color={COLORS.gray500} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                    <PickerModal visible={showCustomStatePicker} onClose={() => setShowCustomStatePicker(false)} title="Select State" options={US_STATES.map(s => ({ value: s, label: s }))} value={customState} onSelect={v => { setCustomState(v); setShowCustomStatePicker(false); }} />
+                  </>
+                )}
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                  <Button title="Cancel" variant="outline" onPress={() => { setShowCustom(false); setCustomName(''); }} style={{ flex: 1 }} />
+                  <Button title="Add Custom Permit" onPress={handleAddCustom} loading={loading} disabled={!customName.trim()} style={{ flex: 1 }} />
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
+        {selectedPermit && (
+          <Button title="Add Permit" onPress={handleAdd} loading={loading} style={{ marginTop: 24 }} />
+        )}
+
+        {/* City Picker Modal */}
+        <Modal visible={showCityPicker} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: '60%' }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select Operating City</Text>
+                <TouchableOpacity onPress={() => setShowCityPicker(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+              </View>
+              <ScrollView style={styles.modalBody}>
+                {operatingCities.map((c, idx) => (
+                  <TouchableOpacity key={idx} style={styles.pickerItem} onPress={() => handleCitySelect(`${c.city}||${c.state}`)}>
+                    <Text style={styles.pickerItemText}>{c.city}, {c.state}{c.isPrimary ? ' (Primary)' : ''}</Text>
+                    {selectedCity === `${c.city}||${c.state}` && <Icons.Check size={20} color={COLORS.primary} />}
+                  </TouchableOpacity>
+                ))}
+                {operatingCities.length === 0 && (
+                  <View style={{ padding: 20, alignItems: 'center' }}>
+                    <Text style={{ color: COLORS.gray500, fontSize: 14 }}>No operating cities added yet.</Text>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Add City Modal */}
+        <AddCityPermitsModal visible={showAddCityModal} onClose={() => setShowAddCityModal(false)} onSuccess={() => { setShowAddCityModal(false); }} updateBusiness={updateBusiness} />
       </ScrollView>
     </SafeAreaView>
   );
