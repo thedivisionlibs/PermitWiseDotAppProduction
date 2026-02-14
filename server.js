@@ -8583,6 +8583,92 @@ app.get('/api/stats/dashboard', authMiddleware, async (req, res) => {
 // HEALTH CHECK
 // ===========================================
 
+// ===========================================
+// ACCOUNT DELETION
+// ===========================================
+
+app.delete('/api/account', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // 1. Cancel Stripe subscriptions if they exist
+    const cancelledSubscriptions = [];
+
+    // Vendor subscription
+    const vendorSub = await Subscription.findOne({ userId });
+    if (vendorSub?.stripeSubscriptionId && stripe) {
+      try {
+        await stripe.subscriptions.cancel(vendorSub.stripeSubscriptionId);
+        cancelledSubscriptions.push('vendor');
+      } catch (stripeErr) {
+        // Subscription may already be cancelled - that's fine
+        if (stripeErr.code !== 'resource_missing') console.error('Stripe cancel vendor sub error:', stripeErr.message);
+      }
+    }
+
+    // Organizer subscription
+    const orgSub = await OrganizerSubscription.findOne({ userId });
+    if (orgSub?.stripeSubscriptionId && stripe) {
+      try {
+        await stripe.subscriptions.cancel(orgSub.stripeSubscriptionId);
+        cancelledSubscriptions.push('organizer');
+      } catch (stripeErr) {
+        if (stripeErr.code !== 'resource_missing') console.error('Stripe cancel org sub error:', stripeErr.message);
+      }
+    }
+
+    // 2. Delete all user data
+    const vendorBusinessId = user.vendorBusinessId;
+
+    if (vendorBusinessId) {
+      // Delete vendor-specific data
+      await VendorPermit.deleteMany({ vendorBusinessId });
+      await Document.deleteMany({ vendorBusinessId });
+      await VendorInspection.deleteMany({ vendorBusinessId });
+      await AttendingEvent.deleteMany({ vendorBusinessId });
+      await UserChecklist.deleteMany({ vendorBusinessId });
+
+      // Remove user from any event vendor applications/assignments
+      await Event.updateMany(
+        {},
+        { 
+          $pull: { 
+            vendorApplications: { vendorBusinessId },
+            assignedVendors: { vendorBusinessId }
+          }
+        }
+      );
+
+      // Delete the business (and any team members lose access)
+      await VendorBusiness.findByIdAndDelete(vendorBusinessId);
+    }
+
+    // Delete organizer events if user is organizer
+    if (user.isOrganizer) {
+      await Event.deleteMany({ organizerId: userId });
+    }
+
+    // Delete subscriptions, notifications, suggestions
+    await Subscription.deleteMany({ userId });
+    await OrganizerSubscription.deleteMany({ userId });
+    await Notification.deleteMany({ userId });
+    await Suggestion.deleteMany({ userId });
+
+    // Delete the user
+    await User.findByIdAndDelete(userId);
+
+    res.json({ 
+      message: 'Account permanently deleted',
+      cancelledSubscriptions
+    });
+  } catch (error) {
+    console.error('Account deletion error:', error);
+    res.status(500).json({ error: 'Failed to delete account. Please contact support.' });
+  }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
@@ -8627,13 +8713,21 @@ app.get('/verify-email', (req, res) => {
   }
 });
 
-// Legal pages served from server
+// Legal pages - serve standalone HTML files
 app.get('/privacy', (req, res) => {
-  res.redirect('/app#privacy');
+  if (process.env.NODE_ENV === 'production') {
+    res.sendFile(path.join(__dirname, 'client/build', 'privacy.html'));
+  } else {
+    res.sendFile(path.join(__dirname, 'client/public', 'privacy.html'));
+  }
 });
 
 app.get('/terms', (req, res) => {
-  res.redirect('/app#terms');
+  if (process.env.NODE_ENV === 'production') {
+    res.sendFile(path.join(__dirname, 'client/build', 'terms.html'));
+  } else {
+    res.sendFile(path.join(__dirname, 'client/public', 'terms.html'));
+  }
 });
 
 // Superadmin page - served as React SPA (case-insensitive)
