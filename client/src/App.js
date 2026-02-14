@@ -1769,7 +1769,7 @@ const PermitsPage = () => {
       
       {summary && <div className="permits-summary"><div className="summary-item"><span className="count">{summary.total}</span><span>Total</span></div><div className="summary-item green"><span className="count">{summary.active}</span><span>Active</span></div><div className="summary-item yellow"><span className="count">{summary.pendingRenewal}</span><span>Expiring</span></div><div className="summary-item red"><span className="count">{summary.expired}</span><span>Expired</span></div></div>}
       {permits.length > 0 ? (
-        <div className="permits-grid">{permits.map(permit => (<Card key={permit._id} className="permit-card" onClick={() => setSelectedPermit(permit)}><div className="permit-header"><h3>{permit.permitTypeId?.name}</h3><Badge variant={permit.status === 'active' ? 'success' : permit.status === 'expired' ? 'danger' : 'warning'}>{getStatusLabel(permit.status)}</Badge></div><p>{permit.jurisdictionId?.name}, {permit.jurisdictionId?.state}</p>{permit.expiryDate && <div className="expiry-info"><Icons.Clock /><span>Expires {formatDate(permit.expiryDate)}</span></div>}</Card>))}</div>
+        <div className="permits-grid">{permits.map(permit => (<Card key={permit._id} className="permit-card" onClick={() => setSelectedPermit(permit)}><div className="permit-header"><h3>{permit.isCustom ? permit.customName : permit.permitTypeId?.name}</h3><Badge variant={permit.status === 'active' ? 'success' : permit.status === 'expired' ? 'danger' : 'warning'}>{getStatusLabel(permit.status)}</Badge></div><p>{permit.isCustom ? `${permit.customCity}, ${permit.customState}` : `${permit.jurisdictionId?.name}, ${permit.jurisdictionId?.state}`}</p>{permit.expiryDate && <div className="expiry-info"><Icons.Clock /><span>Expires {formatDate(permit.expiryDate)}</span></div>}</Card>))}</div>
       ) : (
         <div className="empty-permits">
           <EmptyState icon={Icons.Permit} title="No permits yet" description="Add the permits you need to track or let us suggest them based on your city." action={<div className="empty-actions"><Button onClick={() => canWrite ? fetchSuggestedPermits() : setShowUpgradeModal(true)}><Icons.Search /> Get Suggestions</Button><Button variant="outline" onClick={() => setShowCityModal(true)}><Icons.MapPin /> Add City</Button></div>} />
@@ -2189,17 +2189,20 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
     if (level === 'event_required') return { text: 'Required for Events', variant: 'info' };
     return null;
   };
-  const importanceLabel = getImportanceLabel(localPermit.permitTypeId?.importanceLevel);
+  const importanceLabel = localPermit.isCustom ? null : getImportanceLabel(localPermit.permitTypeId?.importanceLevel);
+  const permitName = localPermit.isCustom ? localPermit.customName : localPermit.permitTypeId?.name;
+  const permitLocation = localPermit.isCustom ? `${localPermit.customCity}, ${localPermit.customState}` : `${localPermit.jurisdictionId?.name}, ${localPermit.jurisdictionId?.state}`;
 
   return (
-    <Modal isOpen={!!permit} onClose={onClose} title={localPermit.permitTypeId?.name} size="lg">
+    <Modal isOpen={!!permit} onClose={onClose} title={permitName} size="lg">
       <div className="permit-detail">
         <div className="detail-header">
           <div className="detail-badges">
             <Badge variant={localPermit.status === 'active' ? 'success' : localPermit.status === 'expired' ? 'danger' : 'warning'}>{getStatusLabel(localPermit.status)}</Badge>
             {importanceLabel && <Badge variant={importanceLabel.variant}>{importanceLabel.text}</Badge>}
+            {localPermit.isCustom && <Badge variant="primary">Custom</Badge>}
           </div>
-          <span>{localPermit.jurisdictionId?.name}, {localPermit.jurisdictionId?.state}</span>
+          <span>{permitLocation}</span>
         </div>
         
         {/* Missing Permit CTA */}
@@ -2293,7 +2296,7 @@ const PermitDetailModal = ({ permit, onClose, onUpdate }) => {
           {editing ? (
             <><Button variant="outline" onClick={() => setEditing(false)}>Cancel</Button><Button onClick={handleSave} loading={loading}>Save</Button></>
           ) : (
-            <>{subscription?.features?.autofill && <Button variant="outline" onClick={handleAutofill}><Icons.Download /> Generate Application</Button>}<Button onClick={() => setEditing(true)}><Icons.Edit /> Edit</Button></>
+            <>{subscription?.features?.autofill && !localPermit.isCustom && <Button variant="outline" onClick={handleAutofill}><Icons.Download /> Generate Application</Button>}<Button onClick={() => setEditing(true)}><Icons.Edit /> Edit</Button></>
           )}
         </div>
       </div>
@@ -4361,14 +4364,15 @@ const EventsPage = () => {
     const permit = vendorPermitsList.find(p => p._id === selectedExistingPermit);
     if (!permit) return;
     // Avoid duplicates
-    const alreadyAdded = attendingForm.requiredPermits.some(rp => rp.vendorPermitId === permit._id || rp.permitTypeId === permit.permitTypeId?._id);
+    const alreadyAdded = attendingForm.requiredPermits.some(rp => rp.vendorPermitId === permit._id);
     if (alreadyAdded) { setSelectedExistingPermit(''); return; }
+    const permitName = permit.isCustom ? permit.customName : (permit.permitTypeId?.name || 'Unnamed Permit');
     setAttendingForm(f => ({
       ...f,
       requiredPermits: [...f.requiredPermits, {
-        name: permit.permitTypeId?.name || 'Unnamed Permit',
+        name: permitName,
         status: (permit.status === 'active') ? 'obtained' : (permit.status === 'in_progress') ? 'in_progress' : 'needed',
-        permitTypeId: permit.permitTypeId?._id,
+        permitTypeId: permit.permitTypeId?._id || undefined,
         vendorPermitId: permit._id,
         notes: ''
       }]
@@ -5051,11 +5055,13 @@ const EventsPage = () => {
               options={[
                 { value: '', label: '— Select from your permits —' },
                 ...vendorPermitsList
-                  .filter(p => p.permitTypeId?.name)
+                  .filter(p => p.permitTypeId?.name || p.isCustom)
                   .filter(p => !attendingForm.requiredPermits.some(rp => rp.vendorPermitId === p._id))
                   .map(p => ({ 
                     value: p._id, 
-                    label: `${p.permitTypeId.name} (${p.jurisdictionId?.city || 'Unknown'}) — ${p.status}` 
+                    label: p.isCustom 
+                      ? `${p.customName} (${p.customCity || 'Custom'}) — ${p.status}`
+                      : `${p.permitTypeId.name} (${p.jurisdictionId?.city || 'Unknown'}) — ${p.status}` 
                   }))
               ]} 
             />
