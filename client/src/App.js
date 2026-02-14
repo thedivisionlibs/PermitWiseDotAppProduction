@@ -2051,9 +2051,9 @@ const AddPermitModal = ({ isOpen, onClose, onSuccess, toast, business, onAddCity
     <Modal isOpen={isOpen} onClose={onClose} title="Add Permit" size="lg">
       <Select label="Operating City" value={selectedCity} onChange={(e) => setSelectedCity(e.target.value)} options={cityOptions} />
       {operatingCities.length === 0 ? (
-        <p style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', margin: '4px 0 16px' }}>You haven't added any operating cities yet. <a href="#" onClick={(e) => { e.preventDefault(); onAddCity(); }} style={{ color: 'var(--primary)' }}>Add a city first</a></p>
+        <p style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', margin: '4px 0 16px' }}>You haven't added any operating cities yet. <button type="button" onClick={() => onAddCity()} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', cursor: 'pointer', font: 'inherit', textDecoration: 'underline' }}>Add a city first</button></p>
       ) : (
-        <p style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', margin: '4px 0 16px' }}>Don't see your city? <a href="#" onClick={(e) => { e.preventDefault(); onAddCity(); }} style={{ color: 'var(--primary)' }}>Add a new operating city</a></p>
+        <p style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', margin: '4px 0 16px' }}>Don't see your city? <button type="button" onClick={() => onAddCity()} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', cursor: 'pointer', font: 'inherit', textDecoration: 'underline' }}>Add a new operating city</button></p>
       )}
 
       {searching && <div style={{ textAlign: 'center', padding: '1rem' }}><LoadingSpinner /><p style={{ color: 'var(--gray-500)', marginTop: '0.5rem', fontSize: '0.875rem' }}>Finding required permits...</p></div>}
@@ -2072,7 +2072,7 @@ const AddPermitModal = ({ isOpen, onClose, onSuccess, toast, business, onAddCity
 
       {searched && permitTypes.length === 0 && (
         <div style={{ background: 'var(--warning-bg, #fef3c7)', border: '1px solid var(--warning-border, #fcd34d)', borderRadius: '8px', padding: '12px 16px', margin: '8px 0' }}>
-          <p style={{ fontSize: '0.875rem', color: 'var(--gray-700)', margin: 0 }}>No predefined permits found for this city yet. You can add a custom permit below, or <a href="#" onClick={(e) => { e.preventDefault(); /* could link to suggestion */ }} style={{ color: 'var(--primary)' }}>suggest this city</a> to our team.</p>
+          <p style={{ fontSize: '0.875rem', color: 'var(--gray-700)', margin: 0 }}>No predefined permits found for this city yet. You can add a custom permit below, or <button type="button" onClick={() => {}} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', cursor: 'pointer', font: 'inherit', textDecoration: 'underline' }}>suggest this city</button> to our team.</p>
         </div>
       )}
 
