@@ -5252,7 +5252,7 @@ const EventsPage = () => {
 // ORGANIZER SETTINGS PAGE
 // ===========================================
 const OrganizerSettingsPage = () => {
-  const { user, fetchUser, logout, subscription } = useAuth();
+  const { user, fetchUser, logout } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState('profile');
@@ -5292,7 +5292,7 @@ const OrganizerSettingsPage = () => {
     emailDigest: user?.organizerProfile?.notifications?.emailDigest ?? 'daily' // 'instant', 'daily', 'weekly', 'none'
   });
   
-  const [setSubscription] = useState(null);
+  const [subscription, setSubscription] = useState(null);
   
   // Documents state
   const [documents, setDocuments] = useState([]);
