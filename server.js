@@ -2782,9 +2782,9 @@ app.post('/api/permits/sync', authMiddleware, requireWriteAccess, async (req, re
       return res.status(404).json({ error: 'Business not found' });
     }
     
-    // Get user's existing permit type IDs
+    // Get user's existing permit type IDs (exclude custom permits which have no permitTypeId)
     const existingPermits = await VendorPermit.find({ vendorBusinessId: business._id });
-    const existingPermitTypeIds = new Set(existingPermits.map(p => p.permitTypeId.toString()));
+    const existingPermitTypeIds = new Set(existingPermits.filter(p => p.permitTypeId).map(p => p.permitTypeId.toString()));
     
     let addedCount = 0;
     const addedPermits = [];
@@ -2879,7 +2879,7 @@ app.post('/api/permits/sync-food-handling', authMiddleware, requireWriteAccess, 
     if (handlesFood) {
       // Adding food handling - find and add all food handling permit types
       const existingPermits = await VendorPermit.find({ vendorBusinessId: business._id });
-      const existingPermitTypeIds = new Set(existingPermits.map(p => p.permitTypeId.toString()));
+      const existingPermitTypeIds = new Set(existingPermits.filter(p => p.permitTypeId).map(p => p.permitTypeId.toString()));
       
       // Check each operating city for food handling permit types
       for (const city of (business.operatingCities || [])) {
