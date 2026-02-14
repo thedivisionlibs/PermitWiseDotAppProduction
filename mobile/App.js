@@ -8,11 +8,13 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Svg, { Path, Circle, Rect, Polyline, Line } from 'react-native-svg';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { WebView } from 'react-native-webview';
 
 // ===========================================
 // CONFIGURATION
 // ===========================================
-const API_URL = 'https://permitwise.app/api'; // Production URL
+const API_URL = 'https://permitwisedotappproduction-production.up.railway.app/api'; // Production URL
+const SITE_URL = API_URL.replace('/api', ''); // Base site URL for legal pages
 
 // ===========================================
 // ICONS
@@ -1201,13 +1203,30 @@ const LoginScreen = ({ navigation }) => {
   );
 };
 
+const LegalWebViewModal = ({ visible, onClose, url, title }) => (
+  <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+    <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.white }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.gray200 }}>
+        <Text style={{ fontSize: 17, fontWeight: '600', color: COLORS.gray800 }}>{title}</Text>
+        <TouchableOpacity onPress={onClose} style={{ padding: 4 }}>
+          <Icons.X size={24} color={COLORS.gray500} />
+        </TouchableOpacity>
+      </View>
+      <WebView source={{ uri: url }} style={{ flex: 1 }} startInLoadingState renderLoading={() => <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={COLORS.primary} /></View>} />
+    </SafeAreaView>
+  </Modal>
+);
+
 const RegisterScreen = ({ navigation }) => {
   const { register } = useAuth();
   const [form, setForm] = useState({ email: '', password: '', confirmPassword: '', firstName: '', lastName: '', phone: '', accountType: 'vendor' });
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [legalModal, setLegalModal] = useState(null); // 'terms' | 'privacy' | null
 
   const handleRegister = async () => {
     setError('');
+    if (!agreedToTerms) { setError('You must agree to the Terms of Service and Privacy Policy'); return; }
     if (form.password !== form.confirmPassword) { setError('Passwords do not match'); return; }
     if (form.password.length < 8) { setError('Password must be at least 8 characters'); return; }
     setLoading(true);
@@ -1263,10 +1282,28 @@ const RegisterScreen = ({ navigation }) => {
         <PasswordStrengthIndicator password={form.password} />
         <PasswordInput label="Confirm Password" value={form.confirmPassword} onChangeText={v => setForm(f => ({ ...f, confirmPassword: v }))} />
         <PasswordMatchIndicator password={form.password} confirmPassword={form.confirmPassword} />
-        <Button title="Create Account" onPress={handleRegister} loading={loading} style={{ marginTop: 8 }} />
+        <TouchableOpacity 
+          onPress={() => setAgreedToTerms(!agreedToTerms)} 
+          style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 12, marginBottom: 4 }}
+          activeOpacity={0.7}
+        >
+          <View style={{ width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: agreedToTerms ? COLORS.primary : COLORS.gray400, backgroundColor: agreedToTerms ? COLORS.primary : 'transparent', alignItems: 'center', justifyContent: 'center', marginTop: 1, flexShrink: 0 }}>
+            {agreedToTerms && <Icons.Check size={14} color={COLORS.white} />}
+          </View>
+          <Text style={{ fontSize: 13, color: COLORS.gray600, lineHeight: 20, flex: 1 }}>
+            I agree to the{' '}
+            <Text style={{ color: COLORS.primary, fontWeight: '500' }} onPress={() => setLegalModal('terms')}>Terms of Service</Text>
+            {' '}and{' '}
+            <Text style={{ color: COLORS.primary, fontWeight: '500' }} onPress={() => setLegalModal('privacy')}>Privacy Policy</Text>
+          </Text>
+        </TouchableOpacity>
+        <Button title="Create Account" onPress={handleRegister} loading={loading} disabled={!agreedToTerms} style={{ marginTop: 8, opacity: agreedToTerms ? 1 : 0.5 }} />
         <TouchableOpacity style={styles.authLink} onPress={() => navigation.navigate('Login')}>
           <Text style={styles.authLinkText}>Have an account? <Text style={styles.authLinkBold}>Log in</Text></Text>
         </TouchableOpacity>
+
+        <LegalWebViewModal visible={legalModal === 'terms'} onClose={() => setLegalModal(null)} url={`${SITE_URL}/terms`} title="Terms of Service" />
+        <LegalWebViewModal visible={legalModal === 'privacy'} onClose={() => setLegalModal(null)} url={`${SITE_URL}/privacy`} title="Privacy Policy" />
       </ScrollView>
     </SafeAreaView>
   );
@@ -3330,6 +3367,47 @@ const SettingsScreen = ({ navigation }) => {
   }, [subscription]);
 
   const handleLogout = () => { Alert.alert('Log Out', 'Are you sure?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Log Out', style: 'destructive', onPress: logout }]); };
+  
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      '⚠️ Delete Account Permanently',
+      'This action is PERMANENT and cannot be undone.\n\n• All your permits, documents, and business data will be deleted\n• Your subscription will be automatically cancelled\n• Team members will lose access\n• You will not be able to recover any data\n\nAre you absolutely sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete My Account', 
+          style: 'destructive', 
+          onPress: () => {
+            Alert.alert(
+              'Final Confirmation',
+              'This is your last chance. Your account and all data will be permanently erased and your subscription cancelled immediately.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { 
+                  text: 'Yes, Permanently Delete', 
+                  style: 'destructive', 
+                  onPress: async () => {
+                    setDeletingAccount(true);
+                    try {
+                      await api.delete('/account');
+                      Alert.alert('Account Deleted', 'Your account has been permanently deleted. We\'re sorry to see you go.');
+                      logout();
+                    } catch (err) {
+                      toast.error(err.message || 'Failed to delete account');
+                    } finally {
+                      setDeletingAccount(false);
+                    }
+                  }
+                }
+              ]
+            );
+          }
+        }
+      ]
+    );
+  };
+  
   const handleProfileSave = async () => { setLoading(true); try { await api.put('/auth/profile', profileData); await fetchUser(); toast.success('Profile updated'); setActiveSection(null); } catch (err) { toast.error(err.message); } finally { setLoading(false); } };
   
   const handlePasswordChange = async () => {
@@ -3783,6 +3861,19 @@ const SettingsScreen = ({ navigation }) => {
               <Text style={styles.legalLabel}>Contact Support</Text>
               <Icons.ChevronRight size={18} color={COLORS.gray400} />
             </TouchableOpacity>
+            
+            <View style={{ borderTopWidth: 1, borderTopColor: '#fee2e2', marginTop: 16, paddingTop: 16 }}>
+              <Text style={{ fontSize: 13, color: COLORS.gray500, marginBottom: 12 }}>
+                Permanently delete your account and all data.{subscription?.stripeSubscriptionId ? ' Your subscription will be automatically cancelled.' : ''} This cannot be undone.
+              </Text>
+              <TouchableOpacity 
+                onPress={handleDeleteAccount} 
+                disabled={deletingAccount}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: COLORS.danger, backgroundColor: deletingAccount ? '#fee2e2' : COLORS.white }}>
+                {deletingAccount ? <ActivityIndicator size="small" color={COLORS.danger} /> : <Icons.Alert size={18} color={COLORS.danger} />}
+                <Text style={{ color: COLORS.danger, fontWeight: '600', fontSize: 14 }}>Delete Account Permanently</Text>
+              </TouchableOpacity>
+            </View>
           </Card>
         )}
 
