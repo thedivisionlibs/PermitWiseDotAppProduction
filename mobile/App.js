@@ -4468,6 +4468,9 @@ const EventsScreen = () => {
   const [selectedAttendingEvent, setSelectedAttendingEvent] = useState(null);
   const [showAttendingStatePicker, setShowAttendingStatePicker] = useState(false);
   const [showAttendingTypePicker, setShowAttendingTypePicker] = useState(false);
+  const [attendingCitySelection, setAttendingCitySelection] = useState(''); // 'city||state' or '__custom__'
+  const [showAttendingCityPicker, setShowAttendingCityPicker] = useState(false);
+  const [attendingSuggestedPermits, setAttendingSuggestedPermits] = useState([]);
   const [vendorPermitsList, setVendorPermitsList] = useState([]);
   const [selectedExistingPermit, setSelectedExistingPermit] = useState(null);
   const [showPermitPicker, setShowPermitPicker] = useState(false);
@@ -6003,6 +6006,8 @@ const EventsScreen = () => {
   // ====== ATTENDING EVENT FUNCTIONS ======
   const resetAttendingForm = () => {
     setAttendingForm({ eventName: '', organizerName: '', description: '', startDate: '', endDate: '', city: '', state: '', address: '', venueName: '', eventType: 'other', notes: '', requiredPermits: [], complianceChecklist: [] });
+    setAttendingCitySelection('');
+    setAttendingSuggestedPermits([]);
     setNewPermitName('');
     setNewChecklistItem('');
     setEditingAttendingEvent(null);
@@ -6010,9 +6015,49 @@ const EventsScreen = () => {
   };
 
   const openAddAttendingModal = () => { resetAttendingForm(); setShowAddAttendingModal(true); };
+
+  const handleAttendingCityChange = async (selection) => {
+    setAttendingCitySelection(selection);
+    setShowAttendingCityPicker(false);
+    setAttendingSuggestedPermits([]);
+    if (!selection || selection === '__custom__') {
+      if (selection === '__custom__') setAttendingForm(f => ({ ...f, city: '', state: '' }));
+      return;
+    }
+    const [city, state] = selection.split('||');
+    setAttendingForm(f => ({ ...f, city, state }));
+    const vendorType = business?.primaryVendorType;
+    if (city && state && vendorType) {
+      try {
+        const data = await api.get(`/permit-types/required?city=${encodeURIComponent(city)}&state=${encodeURIComponent(state)}&vendorType=${encodeURIComponent(vendorType)}`);
+        setAttendingSuggestedPermits(data.permitTypes || []);
+      } catch (err) { console.error(err); }
+    }
+  };
+
+  const addSuggestedPermitToForm = (pt) => {
+    const alreadyAdded = attendingForm.requiredPermits.some(rp => rp.permitTypeId === pt._id);
+    if (alreadyAdded) return;
+    const vendorPermit = vendorPermitsList.find(vp => vp.permitTypeId?._id === pt._id);
+    setAttendingForm(f => ({
+      ...f,
+      requiredPermits: [...f.requiredPermits, {
+        name: pt.name,
+        status: vendorPermit?.status === 'active' ? 'obtained' : vendorPermit?.status === 'in_progress' ? 'in_progress' : 'needed',
+        permitTypeId: pt._id,
+        vendorPermitId: vendorPermit?._id || undefined,
+        notes: ''
+      }]
+    }));
+  };
   
   const openEditAttendingModal = (ae) => {
     setEditingAttendingEvent(ae);
+    const city = ae.location?.city || '';
+    const state = ae.location?.state || '';
+    const opCities = business?.operatingCities || [];
+    const match = opCities.find(c => c.city.toLowerCase() === city.toLowerCase() && c.state === state);
+    setAttendingCitySelection(match ? `${match.city}||${match.state}` : (city ? '__custom__' : ''));
     setAttendingForm({
       eventName: ae.eventName || '', organizerName: ae.organizerName || '', description: ae.description || '',
       startDate: ae.startDate ? new Date(ae.startDate).toISOString().split('T')[0] : '',
@@ -6751,14 +6796,77 @@ const EventsScreen = () => {
               <Input label="Event Name *" placeholder="Downtown Food Festival" value={attendingForm.eventName} onChangeText={v => setAttendingForm(f => ({ ...f, eventName: v }))} />
               <Input label="Organizer Name" placeholder="City Events Dept" value={attendingForm.organizerName} onChangeText={v => setAttendingForm(f => ({ ...f, organizerName: v }))} />
               <Input label="Venue Name" placeholder="Main Street Plaza" value={attendingForm.venueName} onChangeText={v => setAttendingForm(f => ({ ...f, venueName: v }))} />
-              <View style={styles.row}>
-                <View style={styles.halfInput}><Input label="City" placeholder="Austin" value={attendingForm.city} onChangeText={v => setAttendingForm(f => ({ ...f, city: v }))} /></View>
-                <View style={styles.halfInput}><Input label="State" placeholder="TX" value={attendingForm.state} onChangeText={v => setAttendingForm(f => ({ ...f, state: v }))} /></View>
-              </View>
+              
+              <Text style={styles.label}>City / State</Text>
+              <TouchableOpacity style={styles.pickerButton} onPress={() => setShowAttendingCityPicker(true)}>
+                <Text style={attendingCitySelection ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>
+                  {attendingCitySelection === '__custom__' ? 'Custom City' : attendingCitySelection ? attendingCitySelection.replace('||', ', ') : 'Select a city'}
+                </Text>
+                <Icons.ChevronDown size={20} color={COLORS.gray500} />
+              </TouchableOpacity>
+              <Modal visible={showAttendingCityPicker} animationType="slide" transparent>
+                <View style={styles.modalOverlay}>
+                  <View style={[styles.modalContent, { maxHeight: '60%' }]}>
+                    <View style={styles.modalHeader}>
+                      <Text style={styles.modalTitle}>Select City</Text>
+                      <TouchableOpacity onPress={() => setShowAttendingCityPicker(false)}><Icons.X size={24} color={COLORS.gray500} /></TouchableOpacity>
+                    </View>
+                    <ScrollView style={styles.modalBody}>
+                      {(business?.operatingCities || []).map((c, idx) => (
+                        <TouchableOpacity key={idx} style={styles.pickerItem} onPress={() => handleAttendingCityChange(`${c.city}||${c.state}`)}>
+                          <Text style={styles.pickerItemText}>{c.city}, {c.state}{c.isPrimary ? ' (Primary)' : ''}</Text>
+                          {attendingCitySelection === `${c.city}||${c.state}` && <Icons.Check size={20} color={COLORS.primary} />}
+                        </TouchableOpacity>
+                      ))}
+                      <TouchableOpacity style={[styles.pickerItem, { borderTopWidth: 1, borderTopColor: COLORS.gray200 }]} onPress={() => handleAttendingCityChange('__custom__')}>
+                        <Text style={[styles.pickerItemText, { color: COLORS.primary }]}>— Enter custom city —</Text>
+                        {attendingCitySelection === '__custom__' && <Icons.Check size={20} color={COLORS.primary} />}
+                      </TouchableOpacity>
+                    </ScrollView>
+                  </View>
+                </View>
+              </Modal>
+              
+              {attendingCitySelection === '__custom__' && (
+                <>
+                  <View style={styles.row}>
+                    <View style={styles.halfInput}><Input label="City" placeholder="Austin" value={attendingForm.city} onChangeText={v => setAttendingForm(f => ({ ...f, city: v }))} /></View>
+                    <View style={styles.halfInput}>
+                      <Text style={styles.label}>State</Text>
+                      <TouchableOpacity style={styles.pickerButton} onPress={() => setShowAttendingStatePicker(true)}>
+                        <Text style={attendingForm.state ? styles.pickerButtonText : styles.pickerButtonPlaceholder}>{attendingForm.state || 'Select'}</Text>
+                        <Icons.ChevronDown size={20} color={COLORS.gray500} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <PickerModal visible={showAttendingStatePicker} onClose={() => setShowAttendingStatePicker(false)} title="Select State" options={US_STATES.map(s => ({ value: s, label: s }))} value={attendingForm.state} onSelect={v => { setAttendingForm(f => ({ ...f, state: v })); setShowAttendingStatePicker(false); }} />
+                  <View style={{ backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                    <Text style={{ color: '#1e40af', fontSize: 13 }}>💡 Add this city to your Operating Cities in Settings to get permit suggestions and tracking.</Text>
+                  </View>
+                </>
+              )}
+              
+              {attendingSuggestedPermits.length > 0 && (
+                <View style={{ backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: '#166534', marginBottom: 8 }}>Permits required in this city:</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {attendingSuggestedPermits.map(pt => {
+                      const alreadyAdded = attendingForm.requiredPermits.some(rp => rp.permitTypeId === pt._id);
+                      return (
+                        <TouchableOpacity key={pt._id} disabled={alreadyAdded} onPress={() => addSuggestedPermitToForm(pt)}
+                          style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, borderWidth: 1, borderColor: alreadyAdded ? '#d1d5db' : '#10b981', backgroundColor: alreadyAdded ? '#f3f4f6' : '#ecfdf5' }}>
+                          <Text style={{ fontSize: 13, color: alreadyAdded ? '#9ca3af' : '#065f46' }}>{alreadyAdded ? '✓ ' : '+ '}{pt.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+              
               <Input label="Address" placeholder="123 Main St" value={attendingForm.address} onChangeText={v => setAttendingForm(f => ({ ...f, address: v }))} />
               <View style={styles.row}>
-                <View style={styles.halfInput}><Input label="Start Date *" placeholder="YYYY-MM-DD" value={attendingForm.startDate} onChangeText={v => setAttendingForm(f => ({ ...f, startDate: v }))} /></View>
-                <View style={styles.halfInput}><Input label="End Date" placeholder="YYYY-MM-DD" value={attendingForm.endDate} onChangeText={v => setAttendingForm(f => ({ ...f, endDate: v }))} /></View>
+                <View style={styles.halfInput}><DateInput label="Start Date *" required value={attendingForm.startDate} onChangeText={v => setAttendingForm(f => ({ ...f, startDate: v }))} /></View>
+                <View style={styles.halfInput}><DateInput label="End Date" value={attendingForm.endDate} onChangeText={v => setAttendingForm(f => ({ ...f, endDate: v }))} /></View>
               </View>
               <Input label="Notes" placeholder="Any notes about this event..." value={attendingForm.notes} onChangeText={v => setAttendingForm(f => ({ ...f, notes: v }))} multiline />
               
