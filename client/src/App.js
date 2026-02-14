@@ -1026,6 +1026,7 @@ const RegisterPage = ({ onSwitch, onSuccess, defaultOrganizer = false }) => {
   const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '', firstName: '', lastName: '', phone: '', accountType: defaultOrganizer ? 'organizer' : 'vendor' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState(''); const [loading, setLoading] = useState(false);
 
   const passwordsMatch = formData.password && formData.confirmPassword && formData.password === formData.confirmPassword;
@@ -1033,6 +1034,7 @@ const RegisterPage = ({ onSwitch, onSuccess, defaultOrganizer = false }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setError('');
+    if (!agreedToTerms) { setError('You must agree to the Terms of Service and Privacy Policy'); return; }
     if (formData.password !== formData.confirmPassword) { setError('Passwords do not match'); return; }
     if (formData.password.length < 8) { setError('Password must be at least 8 characters'); return; }
     setLoading(true);
@@ -1079,7 +1081,11 @@ const RegisterPage = ({ onSwitch, onSuccess, defaultOrganizer = false }) => {
         </div>
         {passwordsMatch && <div className="password-match success"><Icons.Check /> Passwords match</div>}
         {passwordsDontMatch && <div className="password-match error"><Icons.X /> Passwords do not match</div>}
-        <Button type="submit" loading={loading} className="full-width">Create Account</Button>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', margin: '12px 0 4px', cursor: 'pointer', fontSize: '0.8125rem', color: 'var(--gray-600)', lineHeight: '1.5' }}>
+          <input type="checkbox" checked={agreedToTerms} onChange={(e) => setAgreedToTerms(e.target.checked)} style={{ marginTop: '3px', flexShrink: 0, width: '16px', height: '16px', accentColor: 'var(--primary)' }} />
+          <span>I agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', fontWeight: 500 }}>Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', fontWeight: 500 }}>Privacy Policy</a></span>
+        </label>
+        <Button type="submit" loading={loading} className="full-width" disabled={!agreedToTerms}>Create Account</Button>
       </form>
       <div className="auth-footer"><p>Have an account? <button onClick={() => onSwitch('login')}>Log in</button></p></div>
     </div></div>
@@ -5246,7 +5252,7 @@ const EventsPage = () => {
 // ORGANIZER SETTINGS PAGE
 // ===========================================
 const OrganizerSettingsPage = () => {
-  const { user, fetchUser } = useAuth();
+  const { user, fetchUser, logout, subscription } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState('profile');
@@ -5366,6 +5372,31 @@ const OrganizerSettingsPage = () => {
       if (data.url) window.location.href = data.url;
       else if (data.message) toast.info(data.message);
     } catch (err) { toast.error(err.message); }
+  };
+
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const handleDeleteAccount = async () => {
+    const confirmed = await confirm({
+      title: '⚠️ Delete Account Permanently',
+      message: 'This action is PERMANENT and cannot be undone.\n\n• All your events, vendor data, and documents will be deleted\n• Your subscription will be automatically cancelled\n• You will not be able to recover any data\n\nAre you absolutely sure?',
+      confirmText: 'Delete My Account',
+      variant: 'danger'
+    });
+    if (!confirmed) return;
+    const doubleConfirm = await confirm({
+      title: 'Final Confirmation',
+      message: 'This is your last chance. Type-confirm: your account and all data will be permanently erased and your subscription cancelled immediately.',
+      confirmText: 'Yes, Permanently Delete',
+      variant: 'danger'
+    });
+    if (!doubleConfirm) return;
+    setDeletingAccount(true);
+    try {
+      await api.delete('/account');
+      toast.success('Account deleted. We\'re sorry to see you go.');
+      logout();
+    } catch (err) { toast.error(err.message || 'Failed to delete account'); }
+    finally { setDeletingAccount(false); }
   };
   
   const handleManageBilling = async () => {
@@ -5714,6 +5745,16 @@ const OrganizerSettingsPage = () => {
                   </>
                 )}
               </Card>
+
+              <div style={{ borderTop: '1px solid var(--danger-bg, #fee2e2)', marginTop: '32px', paddingTop: '24px' }}>
+                <h3 style={{ color: 'var(--danger)', margin: '0 0 8px' }}>Danger Zone</h3>
+                <p style={{ fontSize: '0.875rem', color: 'var(--gray-600)', margin: '0 0 16px' }}>
+                  Permanently delete your account and all associated data. {subscription?.stripeSubscriptionId ? 'Your subscription will be automatically cancelled.' : ''} This action cannot be undone.
+                </p>
+                <Button variant="danger" onClick={handleDeleteAccount} loading={deletingAccount}>
+                  <Icons.Alert /> Delete Account Permanently
+                </Button>
+              </div>
             </div>
           )}
         </div>
@@ -5765,7 +5806,7 @@ const ChangePasswordForm = () => {
 };
 
 const SettingsPage = () => {
-  const { user, business, subscription, fetchUser, updateBusiness, isOwner, isManager, canManageTeam, canManageSubscription, canManageBusiness } = useAuth();
+  const { user, business, subscription, fetchUser, updateBusiness, isOwner, isManager, canManageTeam, canManageSubscription, canManageBusiness, logout } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState('profile'); const [loading, setLoading] = useState(false); const [message, setMessage] = useState('');
@@ -5863,6 +5904,32 @@ const SettingsPage = () => {
     if (!canManageSubscription) { toast.error('Only the business owner can manage billing'); return; }
     try { const data = await api.post('/subscription/portal'); if (data.url) window.location.href = data.url; else if (data.message) toast.info(data.message); } catch (err) { toast.error(err.message); }
   };
+
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const handleDeleteAccount = async () => {
+    const confirmed = await confirm({
+      title: '⚠️ Delete Account Permanently',
+      message: 'This action is PERMANENT and cannot be undone.\n\n• All your permits, documents, and business data will be deleted\n• Your subscription will be automatically cancelled\n• Team members will lose access\n• You will not be able to recover any data\n\nAre you absolutely sure?',
+      confirmText: 'Delete My Account',
+      variant: 'danger'
+    });
+    if (!confirmed) return;
+    const doubleConfirm = await confirm({
+      title: 'Final Confirmation',
+      message: 'This is your last chance. Your account and all data will be permanently erased and your subscription cancelled immediately.',
+      confirmText: 'Yes, Permanently Delete',
+      variant: 'danger'
+    });
+    if (!doubleConfirm) return;
+    setDeletingAccount(true);
+    try {
+      await api.delete('/account');
+      toast.success('Account deleted. We\'re sorry to see you go.');
+      logout();
+    } catch (err) { toast.error(err.message || 'Failed to delete account'); }
+    finally { setDeletingAccount(false); }
+  };
+
   // Handle Stripe checkout success/cancel URL params
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -6147,6 +6214,16 @@ const SettingsPage = () => {
                     </Card>
                   );
                 })}
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--danger-bg, #fee2e2)', marginTop: '32px', paddingTop: '24px' }}>
+                <h3 style={{ color: 'var(--danger)', margin: '0 0 8px' }}>Danger Zone</h3>
+                <p style={{ fontSize: '0.875rem', color: 'var(--gray-600)', margin: '0 0 16px' }}>
+                  Permanently delete your account and all associated data. {subscription?.stripeSubscriptionId ? 'Your subscription will be automatically cancelled.' : ''} This action cannot be undone.
+                </p>
+                <Button variant="danger" onClick={handleDeleteAccount} loading={deletingAccount}>
+                  <Icons.Alert /> Delete Account Permanently
+                </Button>
               </div>
             </div>
           )}
