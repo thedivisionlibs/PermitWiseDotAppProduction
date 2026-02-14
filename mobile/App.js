@@ -7221,7 +7221,7 @@ const styles = StyleSheet.create({
   summaryLabel: { fontSize: 12, color: COLORS.gray500, marginTop: 2 },
   listContent: { padding: 20, paddingTop: 0 },
   permitCard: { flexDirection: 'column' },
-  permitHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
+  permitHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   permitName: { fontSize: 16, fontWeight: '600', color: COLORS.gray800, flex: 1, marginRight: 8 },
   permitJurisdiction: { fontSize: 14, color: COLORS.gray500, marginBottom: 8 },
   expiryRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
