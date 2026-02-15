@@ -3,6 +3,7 @@ import React, { useState, useEffect, createContext, useContext, useCallback } fr
 import { View, Text, TextInput, TouchableOpacity, ScrollView, SafeAreaView, ActivityIndicator, Alert, Modal, RefreshControl, StatusBar, Platform, Image, FlatList, StyleSheet, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer, useNavigation } from '@react-navigation/native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Svg, { Path, Circle, Rect, Polyline, Line } from 'react-native-svg';
@@ -7235,12 +7236,14 @@ const PermitsStack = () => (
 );
 
 // Vendor tabs - full access
-const VendorTabs = () => (
+const VendorTabs = () => {
+  const insets = useSafeAreaInsets();
+  return (
   <Tab.Navigator screenOptions={({ route }) => ({
     headerShown: false,
     tabBarActiveTintColor: COLORS.primary,
     tabBarInactiveTintColor: COLORS.gray400,
-    tabBarStyle: { backgroundColor: COLORS.white, borderTopColor: COLORS.gray200, paddingBottom: Platform.OS === 'ios' ? 20 : 8, height: Platform.OS === 'ios' ? 85 : 65 },
+    tabBarStyle: { backgroundColor: COLORS.white, borderTopColor: COLORS.gray200, paddingBottom: Math.max(insets.bottom, 8), height: 56 + Math.max(insets.bottom, 8) },
     tabBarIcon: ({ color, size }) => {
       const icons = { Dashboard: Icons.Dashboard, Permits: Icons.Permit, Documents: Icons.Document, Inspections: Icons.Checklist, Events: Icons.Event, Settings: Icons.Settings };
       const Icon = icons[route.name];
@@ -7254,15 +7257,18 @@ const VendorTabs = () => (
     <Tab.Screen name="Events" component={EventsScreen} />
     <Tab.Screen name="Settings" component={SettingsScreen} />
   </Tab.Navigator>
-);
+  );
+};
 
 // Organizer tabs - Events and Settings only
-const OrganizerTabs = () => (
+const OrganizerTabs = () => {
+  const insets = useSafeAreaInsets();
+  return (
   <Tab.Navigator screenOptions={({ route }) => ({
     headerShown: false,
     tabBarActiveTintColor: COLORS.primary,
     tabBarInactiveTintColor: COLORS.gray400,
-    tabBarStyle: { backgroundColor: COLORS.white, borderTopColor: COLORS.gray200, paddingBottom: Platform.OS === 'ios' ? 20 : 8, height: Platform.OS === 'ios' ? 85 : 65 },
+    tabBarStyle: { backgroundColor: COLORS.white, borderTopColor: COLORS.gray200, paddingBottom: Math.max(insets.bottom, 8), height: 56 + Math.max(insets.bottom, 8) },
     tabBarIcon: ({ color, size }) => {
       const icons = { Events: Icons.Event, Settings: Icons.Settings };
       const Icon = icons[route.name];
@@ -7272,7 +7278,8 @@ const OrganizerTabs = () => (
     <Tab.Screen name="Events" component={EventsScreen} />
     <Tab.Screen name="Settings" component={OrganizerSettingsScreen} />
   </Tab.Navigator>
-);
+  );
+};
 
 // Dynamic tabs based on user type
 const MainTabs = () => {
@@ -7366,16 +7373,18 @@ const AppContent = () => {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <ToastProvider>
-        <ConfirmProvider>
-          <NavigationContainer>
-            <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
-            <AppContent />
-          </NavigationContainer>
-        </ConfirmProvider>
-      </ToastProvider>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <ToastProvider>
+          <ConfirmProvider>
+            <NavigationContainer>
+              <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} translucent={false} />
+              <AppContent />
+            </NavigationContainer>
+          </ConfirmProvider>
+        </ToastProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 
