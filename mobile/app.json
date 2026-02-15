@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "PermitWise",
+    "slug": "PermitWise",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "navigationBar": {
+        "backgroundColor": "#000000",
+        "barStyle": "light-content"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.umbraglobal.permitwise"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "02ac8422-7b84-428e-bafd-029ec87dfa5d"
+      }
+    },
+    "plugins": [
+      "react-native-iap"
+    ]
+  }
+}
