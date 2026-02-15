@@ -13,7 +13,11 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "PermitWise needs camera access to photograph permits, inspections, and business documents.",
+        "NSPhotoLibraryUsageDescription": "PermitWise needs photo library access to upload permit documents and inspection photos."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -24,8 +28,12 @@
         "backgroundColor": "#000000",
         "barStyle": "light-content"
       },
-      "edgeToEdgeEnabled": true,
-      "package": "com.umbraglobal.permitwise"
+      "package": "com.umbraglobal.permitwise",
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -36,7 +44,16 @@
       }
     },
     "plugins": [
-      "react-native-iap"
+      "react-native-iap",
+      "expo-navigation-bar",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "PermitWise needs camera access to photograph permits, inspections, and business documents.",
+          "photosPermission": "PermitWise needs photo library access to upload permit documents and inspection photos."
+        }
+      ],
+      "expo-document-picker"
     ]
   }
 }
