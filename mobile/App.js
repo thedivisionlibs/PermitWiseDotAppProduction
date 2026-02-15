@@ -15,7 +15,7 @@ import { WebView } from 'react-native-webview';
 // ===========================================
 // CONFIGURATION
 // ===========================================
-const API_URL = 'https://permitwise.app/api'; // Production URL
+const API_URL = 'https://permitwisedotappproduction-production.up.railway.app/api'; // Production URL
 const SITE_URL = API_URL.replace('/api', ''); // Base site URL for legal pages
 
 // ===========================================
@@ -7369,8 +7369,8 @@ const AppContent = () => {
 export default function App() {
   useEffect(() => {
     if (Platform.OS === 'android') {
-      NavigationBar.setBackgroundColorAsync('#000000');
-      NavigationBar.setButtonStyleAsync('light');
+      NavigationBar.setVisibilityAsync('hidden');
+      NavigationBar.setBehaviorAsync('overlay-swipe');
     }
   }, []);
 
@@ -8064,4 +8064,3 @@ const styles = StyleSheet.create({
   settingsCardExpired: { borderWidth: 1, borderColor: '#fca5a5', backgroundColor: '#fef2f2' },
   settingsHint: { fontSize: 12, color: COLORS.gray500 },
 });
-
