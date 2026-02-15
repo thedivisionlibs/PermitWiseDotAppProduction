@@ -15,7 +15,7 @@ import { WebView } from 'react-native-webview';
 // ===========================================
 // CONFIGURATION
 // ===========================================
-const API_URL = 'https://permitwise.app/api'; // Production URL
+const API_URL = 'https://permitwisedotappproduction-production.up.railway.app/api'; // Production URL
 const SITE_URL = API_URL.replace('/api', ''); // Base site URL for legal pages
 
 // ===========================================
@@ -7237,12 +7237,14 @@ const PermitsStack = () => (
 );
 
 // Vendor tabs - full access
-const VendorTabs = () => (
+const VendorTabs = () => {
+  const insets = useSafeAreaInsets();
+  return (
   <Tab.Navigator screenOptions={({ route }) => ({
     headerShown: false,
     tabBarActiveTintColor: COLORS.primary,
     tabBarInactiveTintColor: COLORS.gray400,
-    tabBarStyle: { backgroundColor: COLORS.white, borderTopColor: COLORS.gray200, paddingBottom: Platform.OS === 'ios' ? 20 : 8, height: Platform.OS === 'ios' ? 85 : 65 },
+    tabBarStyle: { backgroundColor: COLORS.white, borderTopColor: COLORS.gray200, paddingBottom: Math.max(insets.bottom, Platform.OS === 'ios' ? 20 : 8), height: 56 + Math.max(insets.bottom, Platform.OS === 'ios' ? 20 : 8) },
     tabBarIcon: ({ color, size }) => {
       const icons = { Dashboard: Icons.Dashboard, Permits: Icons.Permit, Documents: Icons.Document, Inspections: Icons.Checklist, Events: Icons.Event, Settings: Icons.Settings };
       const Icon = icons[route.name];
@@ -7256,15 +7258,18 @@ const VendorTabs = () => (
     <Tab.Screen name="Events" component={EventsScreen} />
     <Tab.Screen name="Settings" component={SettingsScreen} />
   </Tab.Navigator>
-);
+  );
+};
 
 // Organizer tabs - Events and Settings only
-const OrganizerTabs = () => (
+const OrganizerTabs = () => {
+  const insets = useSafeAreaInsets();
+  return (
   <Tab.Navigator screenOptions={({ route }) => ({
     headerShown: false,
     tabBarActiveTintColor: COLORS.primary,
     tabBarInactiveTintColor: COLORS.gray400,
-    tabBarStyle: { backgroundColor: COLORS.white, borderTopColor: COLORS.gray200, paddingBottom: Platform.OS === 'ios' ? 20 : 8, height: Platform.OS === 'ios' ? 85 : 65 },
+    tabBarStyle: { backgroundColor: COLORS.white, borderTopColor: COLORS.gray200, paddingBottom: Math.max(insets.bottom, Platform.OS === 'ios' ? 20 : 8), height: 56 + Math.max(insets.bottom, Platform.OS === 'ios' ? 20 : 8) },
     tabBarIcon: ({ color, size }) => {
       const icons = { Events: Icons.Event, Settings: Icons.Settings };
       const Icon = icons[route.name];
@@ -7274,7 +7279,8 @@ const OrganizerTabs = () => (
     <Tab.Screen name="Events" component={EventsScreen} />
     <Tab.Screen name="Settings" component={OrganizerSettingsScreen} />
   </Tab.Navigator>
-);
+  );
+};
 
 // Dynamic tabs based on user type
 const MainTabs = () => {
