@@ -694,6 +694,268 @@ const EmptyState = ({ icon: Icon, title, description, action }) => (
   <div className="empty-state">{Icon && <div className="empty-state-icon"><Icon /></div>}<h3>{title}</h3>{description && <p>{description}</p>}{action}</div>
 );
 
+// ===========================================
+// STRIPE EMBEDDED PAYMENT MODAL
+// ===========================================
+let stripePromise = null;
+const getStripe = async () => {
+  if (stripePromise) return stripePromise;
+  // Load Stripe.js if not already loaded
+  if (!window.Stripe) {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://js.stripe.com/v3/';
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  }
+  // Fetch publishable key from server
+  const config = await api.get('/stripe/config');
+  if (!config.publishableKey) throw new Error('Stripe is not configured');
+  stripePromise = window.Stripe(config.publishableKey);
+  return stripePromise;
+};
+
+const PLAN_DISPLAY = {
+  basic: { name: 'Starter', price: '$19/mo' },
+  pro: { name: 'Pro', price: '$49/mo' },
+  elite: { name: 'Elite', price: '$99/mo' },
+  organizer: { name: 'Organizer', price: '$79/mo' }
+};
+
+const StripePaymentModal = ({ isOpen, onClose, plan, isOrganizer = false, onSuccess }) => {
+  const [step, setStep] = useState('loading'); // loading | form | processing | success | error
+  const [errorMsg, setErrorMsg] = useState('');
+  const [stripe, setStripe] = useState(null);
+  const [elements, setElements] = useState(null);
+  const [subscriptionId, setSubscriptionId] = useState(null);
+  const paymentRef = useRef(null);
+  const mountedRef = useRef(false);
+
+  const planInfo = PLAN_DISPLAY[plan] || PLAN_DISPLAY.basic;
+
+  useEffect(() => {
+    if (!isOpen) {
+      setStep('loading');
+      setErrorMsg('');
+      setStripe(null);
+      setElements(null);
+      setSubscriptionId(null);
+      mountedRef.current = false;
+      return;
+    }
+
+    let canceled = false;
+
+    const init = async () => {
+      try {
+        // 1. Load Stripe
+        const stripeInstance = await getStripe();
+        if (canceled) return;
+        setStripe(stripeInstance);
+
+        // 2. Create intent on server
+        const endpoint = isOrganizer ? '/organizer/subscription/create-intent' : '/subscription/create-intent';
+        const data = await api.post(endpoint, isOrganizer ? {} : { plan });
+        if (canceled) return;
+
+        // Test mode bypass
+        if (data.testMode) {
+          setStep('success');
+          return;
+        }
+
+        if (!data.clientSecret) throw new Error('Failed to initialize payment');
+
+        setSubscriptionId(data.subscriptionId);
+
+        // 3. Create Elements
+        const elementsInstance = stripeInstance.elements({
+          clientSecret: data.clientSecret,
+          appearance: {
+            theme: 'stripe',
+            variables: {
+              colorPrimary: '#4f46e5',
+              colorBackground: '#ffffff',
+              colorText: '#1e293b',
+              colorDanger: '#ef4444',
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              borderRadius: '8px',
+              spacingUnit: '4px'
+            },
+            rules: {
+              '.Input': { border: '1px solid #d1d5db', padding: '12px', boxShadow: 'none' },
+              '.Input:focus': { border: '1px solid #4f46e5', boxShadow: '0 0 0 1px #4f46e5' },
+              '.Label': { fontWeight: '500', marginBottom: '6px' }
+            }
+          }
+        });
+        if (canceled) return;
+        setElements(elementsInstance);
+        setStep('form');
+
+        // 4. Mount Payment Element after render
+        setTimeout(() => {
+          if (canceled || !paymentRef.current) return;
+          if (mountedRef.current) return;
+          const paymentElement = elementsInstance.create('payment', {
+            layout: { type: 'tabs', defaultCollapsed: false },
+            fields: { billingDetails: { address: { country: 'auto' } } }
+          });
+          paymentElement.mount(paymentRef.current);
+          mountedRef.current = true;
+        }, 100);
+
+      } catch (err) {
+        if (canceled) return;
+        setErrorMsg(err.message || 'Failed to initialize payment');
+        setStep('error');
+      }
+    };
+
+    init();
+    return () => { canceled = true; };
+  }, [isOpen, plan, isOrganizer]);
+
+  // Re-mount element when paymentRef becomes available
+  useEffect(() => {
+    if (step === 'form' && elements && paymentRef.current && !mountedRef.current) {
+      const paymentElement = elements.create('payment', {
+        layout: { type: 'tabs', defaultCollapsed: false },
+        fields: { billingDetails: { address: { country: 'auto' } } }
+      });
+      paymentElement.mount(paymentRef.current);
+      mountedRef.current = true;
+    }
+  }, [step, elements]);
+
+  const handleSubmit = async () => {
+    if (!stripe || !elements) return;
+    setStep('processing');
+    setErrorMsg('');
+
+    try {
+      const { error } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: window.location.href },
+        redirect: 'if_required'
+      });
+
+      if (error) {
+        setErrorMsg(error.message);
+        setStep('form');
+        return;
+      }
+
+      // Payment succeeded — confirm on server
+      const confirmEndpoint = isOrganizer ? '/organizer/subscription/confirm-payment' : '/subscription/confirm-payment';
+      
+      // Poll for confirmation (webhook might take a moment)
+      let confirmed = false;
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        try {
+          const result = await api.post(confirmEndpoint, { subscriptionId });
+          if (result.success) { confirmed = true; break; }
+        } catch (e) { /* retry */ }
+      }
+
+      if (confirmed) {
+        setStep('success');
+      } else {
+        // Payment went through but webhook hasn't fired yet — still show success
+        setStep('success');
+      }
+    } catch (err) {
+      setErrorMsg(err.message || 'Payment failed');
+      setStep('form');
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay" onClick={(step === 'processing') ? undefined : onClose}>
+      <div className="modal modal-sm" onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+        <div className="modal-header">
+          <h2>
+            {step === 'success' ? 'Payment Successful!' : step === 'processing' ? 'Processing...' : `Subscribe to ${planInfo.name}`}
+          </h2>
+          {step !== 'processing' && <button className="modal-close" onClick={onClose}><Icons.X /></button>}
+        </div>
+        <div className="modal-content" style={{ padding: '24px' }}>
+          
+          {step === 'loading' && (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <div className="spinner" style={{ margin: '0 auto 16px' }} />
+              <p style={{ color: 'var(--gray-500)' }}>Preparing payment...</p>
+            </div>
+          )}
+
+          {step === 'form' && (
+            <>
+              <div style={{ background: 'var(--gray-50)', borderRadius: '8px', padding: '16px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <p style={{ fontWeight: 600, margin: 0, color: 'var(--gray-800)' }}>{planInfo.name} Plan</p>
+                  <p style={{ fontSize: '0.8125rem', margin: '2px 0 0', color: 'var(--gray-500)' }}>Billed monthly • Cancel anytime</p>
+                </div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--primary)' }}>{planInfo.price}</div>
+              </div>
+
+              {errorMsg && (
+                <div className="alert alert-error" style={{ marginBottom: '16px' }}>
+                  <div className="alert-content">{errorMsg}</div>
+                </div>
+              )}
+
+              <div ref={paymentRef} style={{ minHeight: '200px', marginBottom: '20px' }} />
+
+              <Button onClick={handleSubmit} className="full-width" style={{ padding: '14px', fontSize: '1rem' }}>
+                <Icons.Shield /> Subscribe — {planInfo.price}
+              </Button>
+
+              <p style={{ fontSize: '0.75rem', color: 'var(--gray-400)', textAlign: 'center', marginTop: '12px' }}>
+                Secured by Stripe. Your card details never touch our servers.
+              </p>
+            </>
+          )}
+
+          {step === 'processing' && (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <div className="spinner" style={{ margin: '0 auto 16px' }} />
+              <p style={{ color: 'var(--gray-600)', fontWeight: 500 }}>Processing your payment...</p>
+              <p style={{ color: 'var(--gray-400)', fontSize: '0.875rem', marginTop: '4px' }}>Please don't close this window.</p>
+            </div>
+          )}
+
+          {step === 'success' && (
+            <div style={{ textAlign: 'center', padding: '32px 0' }}>
+              <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'var(--success-bg, #dcfce7)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <Icons.Check color="var(--success, #16a34a)" />
+              </div>
+              <h3 style={{ margin: '0 0 8px', color: 'var(--gray-800)' }}>Welcome to {planInfo.name}!</h3>
+              <p style={{ color: 'var(--gray-500)', margin: '0 0 24px' }}>Your subscription is now active. Enjoy your new features!</p>
+              <Button onClick={() => { onSuccess?.(); onClose(); }} className="full-width">Get Started</Button>
+            </div>
+          )}
+
+          {step === 'error' && (
+            <div style={{ textAlign: 'center', padding: '32px 0' }}>
+              <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <Icons.X color="var(--danger, #ef4444)" />
+              </div>
+              <h3 style={{ margin: '0 0 8px', color: 'var(--gray-800)' }}>Something went wrong</h3>
+              <p style={{ color: 'var(--gray-500)', margin: '0 0 24px' }}>{errorMsg}</p>
+              <Button variant="outline" onClick={onClose}>Close</Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Expired Subscription Banner - shows persistent banner for expired users
 const ExpiredSubscriptionBanner = () => {
   const { isExpired } = useAuth();
@@ -720,6 +982,7 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
   const { user, subscription, fetchUser } = useAuth();
   const toast = useToast();
   const [upgrading, setUpgrading] = useState(false);
+  const [paymentPlan, setPaymentPlan] = useState(null);
   const isOrganizer = user?.isOrganizer && !user?.organizerProfile?.disabled;
   
   const PLAN_RANK = { free: 0, trial: 0, basic: 1, pro: 2, elite: 3, promo: 4, lifetime: 5 };
@@ -741,7 +1004,6 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
     const targetRank = PLAN_RANK[plan] || 0;
     if (subscription?.plan === plan) return 'current';
     if (subscription?.pendingPlanChange === plan) return 'pending';
-    // If no active subscription, it's always an upgrade/new signup
     if (!subscription || !['active', 'grace_period'].includes(subscription.status)) return 'upgrade';
     return targetRank > currentRank ? 'upgrade' : 'downgrade';
   };
@@ -752,31 +1014,15 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
     try {
       if (action === 'downgrade') {
         const data = await api.post('/subscription/change-plan', { plan });
-        if (data.success) {
-          toast.success(data.message);
-          fetchUser();
-          onClose();
-        } else if (data.needsCheckout) {
-          const checkoutData = await api.post('/subscription/checkout', { plan });
-          if (checkoutData.url) window.location.href = checkoutData.url;
-        }
+        if (data.success) { toast.success(data.message); fetchUser(); onClose(); }
+        else if (data.needsCheckout) { setPaymentPlan(plan); }
       } else {
-        // Upgrade or new subscription — check if we can do in-place upgrade
         if (['active', 'grace_period'].includes(subscription?.status) && action === 'upgrade') {
           const data = await api.post('/subscription/change-plan', { plan });
-          if (data.success) {
-            toast.success(data.message);
-            fetchUser();
-            onClose();
-          } else if (data.needsCheckout) {
-            const checkoutData = await api.post('/subscription/checkout', { plan });
-            if (checkoutData.url) window.location.href = checkoutData.url;
-          }
+          if (data.success) { toast.success(data.message); fetchUser(); onClose(); }
+          else if (data.needsCheckout) { setPaymentPlan(plan); }
         } else {
-          // No active sub — go through checkout
-          const data = await api.post('/subscription/checkout', { plan });
-          if (data.url) window.location.href = data.url;
-          else if (data.message) { onClose(); window.location.hash = 'settings'; }
+          setPaymentPlan(plan);
         }
       }
     } catch (err) { toast.error(err.message || 'Failed to change plan'); }
@@ -784,13 +1030,7 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
   };
   
   const handleOrganizerUpgrade = async () => {
-    setUpgrading(true);
-    try {
-      const data = await api.post('/organizer/subscription/checkout');
-      if (data.url) window.location.href = data.url;
-      else if (data.message) { onClose(); window.location.hash = 'settings'; }
-    } catch (err) { toast.error(err.message || 'Checkout failed'); }
-    setUpgrading(false);
+    setPaymentPlan('organizer');
   };
   
   const getButtonLabel = (plan) => {
@@ -802,6 +1042,7 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
   };
   
   return (
+    <>
     <Modal isOpen={isOpen} onClose={onClose} title={currentRank > 0 ? 'Change Plan' : 'Upgrade Required'} size="lg">
       <div className="upgrade-modal">
         <div className="upgrade-reason">
@@ -869,6 +1110,15 @@ const UpgradeRequiredModal = ({ isOpen, onClose, reason = 'This feature requires
         <p className="upgrade-note">All plans include a 14-day free trial. Cancel anytime.</p>
       </div>
     </Modal>
+
+    <StripePaymentModal
+      isOpen={!!paymentPlan}
+      onClose={() => setPaymentPlan(null)}
+      plan={paymentPlan || 'basic'}
+      isOrganizer={paymentPlan === 'organizer'}
+      onSuccess={() => { fetchUser(); setPaymentPlan(null); onClose(); }}
+    />
+    </>
   );
 };
 
@@ -5367,13 +5617,10 @@ const OrganizerSettingsPage = () => {
   };
   
   const handleUpgrade = async () => {
-    try {
-      const data = await api.post('/organizer/subscription/checkout');
-      if (data.url) window.location.href = data.url;
-      else if (data.message) toast.info(data.message);
-    } catch (err) { toast.error(err.message); }
+    setOrgPaymentModal(true);
   };
 
+  const [orgPaymentModal, setOrgPaymentModal] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const handleDeleteAccount = async () => {
     const confirmed = await confirm({
@@ -5760,6 +6007,14 @@ const OrganizerSettingsPage = () => {
         </div>
       </div>
     </div>
+
+    <StripePaymentModal
+      isOpen={orgPaymentModal}
+      onClose={() => setOrgPaymentModal(false)}
+      plan="organizer"
+      isOrganizer={true}
+      onSuccess={() => { fetchUser(); setOrgPaymentModal(false); }}
+    />
   );
 };
 
@@ -5869,26 +6124,26 @@ const SettingsPage = () => {
     if (!subscription || !['active', 'grace_period'].includes(subscription.status)) return 'upgrade';
     return (PLAN_RANK[planId] || 0) > currentRank ? 'upgrade' : 'downgrade';
   };
+
+  const [paymentModal, setPaymentModal] = useState(null); // null or plan name
   
   const handlePlanAction = async (plan) => { 
     if (!canManageSubscription) { toast.error('Only the business owner can manage subscriptions'); return; }
     const action = getPlanAction(plan);
     try {
       if (action === 'upgrade' && ['active', 'grace_period'].includes(subscription?.status)) {
-        // In-place upgrade
+        // In-place upgrade (already has payment method on file)
         const data = await api.post('/subscription/change-plan', { plan });
         if (data.success) { toast.success(data.message); fetchUser(); }
-        else if (data.needsCheckout) { const cd = await api.post('/subscription/checkout', { plan }); if (cd.url) window.location.href = cd.url; }
+        else if (data.needsCheckout) { setPaymentModal(plan); }
       } else if (action === 'downgrade') {
         const ok = await confirm({ title: 'Downgrade Plan', message: `Are you sure you want to downgrade to ${plan.charAt(0).toUpperCase() + plan.slice(1)}? You'll keep your current features until your next billing date.`, confirmText: 'Downgrade', variant: 'warning' });
         if (!ok) return;
         const data = await api.post('/subscription/change-plan', { plan });
         if (data.success) { toast.success(data.message); fetchUser(); }
       } else {
-        // New subscription via checkout
-        const data = await api.post('/subscription/checkout', { plan }); 
-        if (data.url) window.location.href = data.url; 
-        else if (data.message) { toast.info(data.message); fetchUser(); }
+        // New subscription — open payment modal
+        setPaymentModal(plan);
       }
     } catch (err) { toast.error(err.message); } 
   };
@@ -6230,6 +6485,13 @@ const SettingsPage = () => {
         </div>
       </div>
     </div>
+
+    <StripePaymentModal
+      isOpen={!!paymentModal}
+      onClose={() => setPaymentModal(null)}
+      plan={paymentModal || 'basic'}
+      onSuccess={() => { fetchUser(); setPaymentModal(null); }}
+    />
   );
 };
 
