@@ -6270,6 +6270,7 @@ const SettingsPage = () => {
   if (canManageSubscription) tabs.push('billing');
 
   return (
+    <>
     <div className="settings-page">
       <div className="page-header"><h1>Settings</h1></div>
       <div className="settings-layout">
@@ -6494,6 +6495,7 @@ const SettingsPage = () => {
       plan={paymentModal || 'basic'}
       onSuccess={() => { fetchUser(); setPaymentModal(null); }}
     />
+    </>
   );
 };
 
