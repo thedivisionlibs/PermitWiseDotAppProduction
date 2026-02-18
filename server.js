@@ -32,6 +32,7 @@ const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/permitwise';
 const JWT_SECRET = process.env.JWT_SECRET || (IS_PRODUCTION ? undefined : 'permitwise-dev-secret-key');
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
@@ -5812,7 +5813,275 @@ app.get('/api/subscription/status', authMiddleware, async (req, res) => {
   }
 });
 
-// Create checkout session
+// ===========================================
+// STRIPE EMBEDDED PAYMENT (Web)
+// ===========================================
+
+// Return Stripe publishable key to client
+app.get('/api/stripe/config', (req, res) => {
+  res.json({ publishableKey: STRIPE_PUBLISHABLE_KEY || null });
+});
+
+// Create subscription with incomplete payment — returns clientSecret for embedded Payment Element
+app.post('/api/subscription/create-intent', authMiddleware, requireRole('owner'), async (req, res) => {
+  try {
+    const { plan } = req.body;
+    if (!['basic', 'pro', 'elite'].includes(plan)) {
+      return res.status(400).json({ error: 'Invalid plan' });
+    }
+
+    if (!STRIPE_ENABLED || !stripe) {
+      if (!STRIPE_ENABLED) {
+        console.warn(`[STRIPE BYPASS] Vendor create-intent skipped — activating plan=${plan} directly`);
+        await Subscription.findOneAndUpdate(
+          { vendorBusinessId: req.user.vendorBusinessId },
+          {
+            vendorBusinessId: req.user.vendorBusinessId, userId: req.userId, plan,
+            status: 'active', features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
+            currentPeriodStart: new Date(), currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            pendingPlanChange: null, pendingPlanChangeDate: null,
+            gracePeriodEndsAt: null, lastPaymentFailedAt: null, paymentFailureCount: 0, updatedAt: new Date()
+          },
+          { upsert: true, new: true }
+        );
+        return res.json({ success: true, testMode: true });
+      }
+      return res.status(400).json({ error: 'Stripe not configured' });
+    }
+
+    const priceId = STRIPE_PRICES[plan];
+    if (!priceId) {
+      return res.status(400).json({ error: 'Stripe price not configured for this plan' });
+    }
+
+    const user = await User.findById(req.userId);
+    let subscription = await Subscription.findOne({ vendorBusinessId: req.user.vendorBusinessId });
+
+    // Create or get Stripe customer
+    let customerId = subscription?.stripeCustomerId;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user.email,
+        name: `${user.firstName} ${user.lastName}`,
+        metadata: { vendorBusinessId: req.user.vendorBusinessId.toString(), userId: req.userId.toString() }
+      });
+      customerId = customer.id;
+      if (subscription) {
+        subscription.stripeCustomerId = customerId;
+        await subscription.save();
+      }
+    }
+
+    // If user already has an active Stripe subscription, cancel it first
+    if (subscription?.stripeSubscriptionId) {
+      try {
+        const existing = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+        if (['active', 'past_due', 'trialing'].includes(existing.status)) {
+          await stripe.subscriptions.cancel(subscription.stripeSubscriptionId);
+        }
+      } catch (e) { /* subscription may already be canceled */ }
+    }
+
+    // Create subscription with incomplete payment
+    const stripeSubscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: priceId }],
+      payment_behavior: 'default_incomplete',
+      payment_settings: { save_default_payment_method: 'on_subscription' },
+      expand: ['latest_invoice.payment_intent'],
+      metadata: {
+        plan,
+        vendorBusinessId: req.user.vendorBusinessId.toString(),
+        userId: req.userId.toString()
+      }
+    });
+
+    // Save subscription ID immediately (status will be updated by webhook)
+    await Subscription.findOneAndUpdate(
+      { vendorBusinessId: req.user.vendorBusinessId },
+      {
+        vendorBusinessId: req.user.vendorBusinessId,
+        userId: req.userId,
+        plan,
+        status: 'incomplete',
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: stripeSubscription.id,
+        stripePriceId: priceId,
+        features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
+        updatedAt: new Date()
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({
+      subscriptionId: stripeSubscription.id,
+      clientSecret: stripeSubscription.latest_invoice.payment_intent.client_secret
+    });
+  } catch (error) {
+    console.error('Create intent error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Confirm subscription was activated after payment (client polls this)
+app.post('/api/subscription/confirm-payment', authMiddleware, requireRole('owner'), async (req, res) => {
+  try {
+    const { subscriptionId } = req.body;
+    
+    if (!STRIPE_ENABLED || !stripe) {
+      return res.json({ success: true, status: 'active' });
+    }
+
+    const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+    
+    let ourStatus = 'incomplete';
+    if (stripeSubscription.status === 'active') ourStatus = 'active';
+    else if (stripeSubscription.status === 'past_due') ourStatus = 'grace_period';
+    else if (stripeSubscription.status === 'canceled') ourStatus = 'canceled';
+
+    const plan = stripeSubscription.metadata?.plan || 'basic';
+
+    if (ourStatus === 'active') {
+      await Subscription.findOneAndUpdate(
+        { stripeSubscriptionId: subscriptionId },
+        {
+          status: 'active',
+          plan,
+          features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
+          currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
+          currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+          pendingPlanChange: null, pendingPlanChangeDate: null,
+          gracePeriodEndsAt: null, lastPaymentFailedAt: null, paymentFailureCount: 0,
+          updatedAt: new Date()
+        }
+      );
+    }
+
+    res.json({ success: ourStatus === 'active', status: ourStatus });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Organizer embedded payment intent
+app.post('/api/organizer/subscription/create-intent', authMiddleware, async (req, res) => {
+  try {
+    if (!req.user.isOrganizer) {
+      return res.status(403).json({ error: 'Organizer access required' });
+    }
+
+    if (!STRIPE_ENABLED || !stripe) {
+      if (!STRIPE_ENABLED) {
+        console.warn('[STRIPE BYPASS] Organizer create-intent skipped — activating directly');
+        await OrganizerSubscription.findOneAndUpdate(
+          { userId: req.userId },
+          { userId: req.userId, plan: 'organizer', status: 'active', currentPeriodStart: new Date(), currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), updatedAt: new Date() },
+          { upsert: true, new: true }
+        );
+        return res.json({ success: true, testMode: true });
+      }
+      return res.status(400).json({ error: 'Stripe not configured' });
+    }
+
+    let subscription = await OrganizerSubscription.findOne({ userId: req.userId });
+    let customerId = subscription?.stripeCustomerId;
+
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: req.user.email,
+        name: `${req.user.firstName} ${req.user.lastName}`,
+        metadata: { userId: req.userId.toString(), type: 'organizer' }
+      });
+      customerId = customer.id;
+      if (subscription) {
+        subscription.stripeCustomerId = customerId;
+        await subscription.save();
+      }
+    }
+
+    // Cancel existing subscription if any
+    if (subscription?.stripeSubscriptionId) {
+      try {
+        const existing = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+        if (['active', 'past_due', 'trialing'].includes(existing.status)) {
+          await stripe.subscriptions.cancel(subscription.stripeSubscriptionId);
+        }
+      } catch (e) { /* may already be canceled */ }
+    }
+
+    const organizerPriceId = process.env.STRIPE_PRICE_ORGANIZER;
+    const items = organizerPriceId
+      ? [{ price: organizerPriceId }]
+      : [{
+          price_data: {
+            currency: 'usd',
+            product_data: { name: 'PermitWise Organizer Plan', description: 'Unlimited events, vendor management, compliance tracking' },
+            unit_amount: 7900,
+            recurring: { interval: 'month' }
+          }
+        }];
+
+    const stripeSubscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items,
+      payment_behavior: 'default_incomplete',
+      payment_settings: { save_default_payment_method: 'on_subscription' },
+      expand: ['latest_invoice.payment_intent'],
+      metadata: { userId: req.userId.toString(), type: 'organizer' }
+    });
+
+    await OrganizerSubscription.findOneAndUpdate(
+      { userId: req.userId },
+      {
+        userId: req.userId, plan: 'organizer', status: 'incomplete',
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: stripeSubscription.id,
+        updatedAt: new Date()
+      },
+      { upsert: true, new: true }
+    );
+
+    res.json({
+      subscriptionId: stripeSubscription.id,
+      clientSecret: stripeSubscription.latest_invoice.payment_intent.client_secret
+    });
+  } catch (error) {
+    console.error('Organizer create intent error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Organizer confirm payment
+app.post('/api/organizer/subscription/confirm-payment', authMiddleware, async (req, res) => {
+  try {
+    const { subscriptionId } = req.body;
+
+    if (!STRIPE_ENABLED || !stripe) {
+      return res.json({ success: true, status: 'active' });
+    }
+
+    const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+    let ourStatus = stripeSubscription.status === 'active' ? 'active' : 'incomplete';
+
+    if (ourStatus === 'active') {
+      await OrganizerSubscription.findOneAndUpdate(
+        { stripeSubscriptionId: subscriptionId },
+        {
+          status: 'active',
+          currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
+          currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+          updatedAt: new Date()
+        }
+      );
+    }
+
+    res.json({ success: ourStatus === 'active', status: ourStatus });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create checkout session (legacy redirect — kept as fallback)
 app.post('/api/subscription/checkout', authMiddleware, requireRole('owner'), async (req, res) => {
   try {
     const { plan } = req.body;
