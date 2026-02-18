@@ -5658,6 +5658,7 @@ const OrganizerSettingsPage = () => {
   const tabs = ['profile', 'organization', 'documents', 'notifications', 'billing'];
   
   return (
+    <>
     <div className="settings-page organizer-settings">
       <div className="page-header">
         <div>
@@ -6015,6 +6016,7 @@ const OrganizerSettingsPage = () => {
       isOrganizer={true}
       onSuccess={() => { fetchUser(); setOrgPaymentModal(false); }}
     />
+    </>
   );
 };
 
