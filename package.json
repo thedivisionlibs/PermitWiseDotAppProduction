@@ -13,8 +13,9 @@
     "seed:jurisdictions": "node seeds/seed_jurisdictions.js",
     "seed:permits": "node seeds/seed_permit_library.js",
     "seed:additional": "node seeds/seed_additions_100.js",
+    "seed:nepa": "node seeds/nepa_expansion.js",
     "seed:checklists": "node seeds/seed_inspection_checklists.js",
-    "seed:all": "npm run seed:jurisdictions && npm run seed:permits && npm run seed:checklists && npm run seed:additional",
+    "seed:all": "npm run seed:jurisdictions && npm run seed:permits && npm run seed:checklists && npm run seed:additional && npm run seed:nepa",
     "seed": "node -e \"require('./server.js')\" --seed"
   },
   "keywords": [
