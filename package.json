@@ -12,8 +12,9 @@
     "install:all": "npm install && cd client && npm install && cd ../mobile && npm install",
     "seed:jurisdictions": "node seeds/seed_jurisdictions.js",
     "seed:permits": "node seeds/seed_permit_library.js",
+    "seed:additional": "node seeds/seed_additions_100.js",
     "seed:checklists": "node seeds/seed_inspection_checklists.js",
-    "seed:all": "npm run seed:jurisdictions && npm run seed:permits && npm run seed:checklists",
+    "seed:all": "npm run seed:jurisdictions && npm run seed:permits && npm run seed:checklists && npm run seed:additional",
     "seed": "node -e \"require('./server.js')\" --seed"
   },
   "keywords": [
