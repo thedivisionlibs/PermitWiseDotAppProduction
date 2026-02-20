@@ -7241,7 +7241,7 @@ const SuperAdminPage = ({ onBack }) => {
           <h1>PermitWise</h1>
           <span className="admin-badge">SUPER ADMIN</span>
         </div>
-        <Button variant="outline" onClick={handleAdminLogout}><Icons.LogOut /> Logout</Button>
+        <Button variant="outline" onClick={handleAdminLogout}><Icons.Logout /> Logout</Button>
       </div>
       {message && <Alert type="info" onClose={() => setMessage('')}>{message}</Alert>}
       
