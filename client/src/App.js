@@ -6671,6 +6671,12 @@ const SuperAdminPage = ({ onBack }) => {
   const [subscriptionAction, setSubscriptionAction] = useState(''); // 'extend', 'grant', 'revoke'
   const [subscriptionForm, setSubscriptionForm] = useState({ days: 30, plan: 'promo', durationDays: 90, note: '' });
   
+  // User management state
+  const [managingUser, setManagingUser] = useState(null);
+  const [userAction, setUserAction] = useState(''); // 'reset-password', 'send-reset-email', 'edit'
+  const [resetPasswordValue, setResetPasswordValue] = useState('');
+  const [userSearchTerm, setUserSearchTerm] = useState('');
+  
   // Checklist management state
   const [newChecklist, setNewChecklist] = useState({ name: '', description: '', jurisdictionId: '', vendorTypes: [], category: 'health', items: [{ itemText: '', description: '', required: true }] });
   const [editingChecklist, setEditingChecklist] = useState(null);
@@ -6751,7 +6757,7 @@ const SuperAdminPage = ({ onBack }) => {
     return result;
   };
 
-  const fetchData = async (type) => {
+  const fetchData = async (type, overrideStatus) => {
     setLoading(true);
     try {
       if (type === 'users') { const result = await adminApi('/admin/users'); setData(d => ({ ...d, users: result.users || [] })); }
@@ -6762,7 +6768,7 @@ const SuperAdminPage = ({ onBack }) => {
       else if (type === 'permitTypes') { const result = await adminApi('/admin/permit-types'); setData(d => ({ ...d, permitTypes: result.permitTypes || [] })); }
       else if (type === 'checklists') { const result = await adminApi('/admin/checklists'); setData(d => ({ ...d, checklists: result.checklists || [] })); }
       else if (type === 'events') { const result = await adminApi('/admin/events'); setData(d => ({ ...d, events: result.events || [] })); }
-      else if (type === 'suggestions') { const result = await adminApi(`/admin/suggestions?status=${suggestionFilter}`); setSuggestions(result.suggestions || []); }
+      else if (type === 'suggestions') { const filterStatus = overrideStatus || suggestionFilter; const result = await adminApi(`/admin/suggestions?status=${filterStatus}`); setSuggestions(result.suggestions || []); }
       else if (type === 'stats') { const result = await adminApi('/admin/stats'); setData(d => ({ ...d, stats: result })); }
     } catch (err) { setMessage(err.message); }
     finally { setLoading(false); }
@@ -6918,9 +6924,52 @@ const SuperAdminPage = ({ onBack }) => {
   };
 
   const deleteUser = async (id) => { 
-    const confirmed = await confirm({ title: 'Delete User', message: 'Are you sure you want to delete this user?', confirmText: 'Delete', variant: 'danger' });
+    const confirmed = await confirm({ title: 'Delete User', message: 'Are you sure you want to delete this user? This action cannot be undone.', confirmText: 'Delete', variant: 'danger' });
     if (confirmed) { try { await adminApi(`/admin/users/${id}`, 'DELETE'); fetchData('users'); toast.success('User deleted'); } catch (err) { toast.error(err.message); } } 
   };
+  
+  const resetUserPassword = async () => {
+    if (!managingUser || !resetPasswordValue) return;
+    if (resetPasswordValue.length < 8) { toast.error('Password must be at least 8 characters'); return; }
+    try {
+      const result = await adminApi(`/admin/users/${managingUser._id}/reset-password`, 'POST', { newPassword: resetPasswordValue });
+      toast.success(result.message);
+      setManagingUser(null);
+      setUserAction('');
+      setResetPasswordValue('');
+    } catch (err) { toast.error(err.message); }
+  };
+  
+  const sendResetEmail = async () => {
+    if (!managingUser) return;
+    try {
+      const result = await adminApi(`/admin/users/${managingUser._id}/send-reset-email`, 'POST');
+      toast.success(result.message);
+      setManagingUser(null);
+      setUserAction('');
+    } catch (err) { toast.error(err.message); }
+  };
+  
+  const toggleEmailVerified = async (user) => {
+    try {
+      await adminApi(`/admin/users/${user._id}`, 'PUT', { emailVerified: !user.emailVerified });
+      fetchData('users');
+      toast.success(`Email ${!user.emailVerified ? 'verified' : 'unverified'} for ${user.email}`);
+    } catch (err) { toast.error(err.message); }
+  };
+  
+  const openUserManager = (user) => {
+    setManagingUser(user);
+    setUserAction('');
+    setResetPasswordValue('');
+  };
+  
+  // Filtered users
+  const filteredUsers = data.users.filter(u => {
+    if (!userSearchTerm) return true;
+    const search = userSearchTerm.toLowerCase();
+    return (u.email?.toLowerCase().includes(search) || u.firstName?.toLowerCase().includes(search) || u.lastName?.toLowerCase().includes(search));
+  });
   const deleteBusiness = async (id) => { 
     const confirmed = await confirm({ title: 'Delete Business', message: 'Are you sure you want to delete this business?', confirmText: 'Delete', variant: 'danger' });
     if (confirmed) { try { await adminApi(`/admin/businesses/${id}`, 'DELETE'); fetchData('businesses'); toast.success('Business deleted'); } catch (err) { toast.error(err.message); } } 
@@ -6977,14 +7026,16 @@ const SuperAdminPage = ({ onBack }) => {
   // Suggestion functions
   const updateSuggestion = async (id, status, adminNotes) => {
     try {
-      await adminApi(`/admin/suggestions/${id}`, 'PUT', { status, adminNotes });
-      fetchData('suggestions');
-      toast.success(`Suggestion marked as ${status}`);
+      const result = await adminApi(`/admin/suggestions/${id}`, 'PUT', { status, adminNotes });
+      // Re-fetch suggestions with current filter
+      const listResult = await adminApi(`/admin/suggestions?status=${suggestionFilter}`);
+      setSuggestions(listResult.suggestions || []);
+      toast.success(`Suggestion marked as ${status.replace('_', ' ')}`);
     } catch (err) { toast.error(err.message); }
   };
   const deleteSuggestion = async (id) => { 
     const confirmed = await confirm({ title: 'Delete Suggestion', message: 'Are you sure you want to delete this suggestion?', confirmText: 'Delete', variant: 'danger' });
-    if (confirmed) { try { await adminApi(`/admin/suggestions/${id}`, 'DELETE'); fetchData('suggestions'); toast.success('Suggestion deleted'); } catch (err) { toast.error(err.message); } } 
+    if (confirmed) { try { await adminApi(`/admin/suggestions/${id}`, 'DELETE'); const result = await adminApi(`/admin/suggestions?status=${suggestionFilter}`); setSuggestions(result.suggestions || []); toast.success('Suggestion deleted'); } catch (err) { toast.error(err.message); } } 
   };
 
   // Event CRUD functions
@@ -7186,15 +7237,30 @@ const SuperAdminPage = ({ onBack }) => {
     <div className="admin-page">
       <div className="admin-header">
         <button className="back-link" onClick={onBack}><Icons.X /> Exit</button>
-        <h1>PermitWise Super Admin</h1>
-        <Button variant="outline" onClick={handleAdminLogout}>Logout</Button>
+        <div className="admin-header-brand">
+          <h1>PermitWise</h1>
+          <span className="admin-badge">SUPER ADMIN</span>
+        </div>
+        <Button variant="outline" onClick={handleAdminLogout}><Icons.LogOut /> Logout</Button>
       </div>
       {message && <Alert type="info" onClose={() => setMessage('')}>{message}</Alert>}
       
       <div className="admin-tabs">
-        {['stats', 'users', 'businesses', 'organizers', 'verifications', 'jurisdictions', 'permitTypes', 'checklists', 'events', 'suggestions'].map(tab => (
-          <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>
-            {tab === 'permitTypes' ? 'Permit Types' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+        {[
+          { key: 'stats', label: 'Dashboard', icon: '📊' },
+          { key: 'users', label: 'Users', icon: '👤' },
+          { key: 'businesses', label: 'Businesses', icon: '🏢' },
+          { key: 'organizers', label: 'Organizers', icon: '🎪' },
+          { key: 'verifications', label: 'Verifications', icon: '✅' },
+          { key: 'jurisdictions', label: 'Jurisdictions', icon: '🏛️' },
+          { key: 'permitTypes', label: 'Permit Types', icon: '📋' },
+          { key: 'checklists', label: 'Checklists', icon: '☑️' },
+          { key: 'events', label: 'Events', icon: '📅' },
+          { key: 'suggestions', label: 'Suggestions', icon: '💡' }
+        ].map(tab => (
+          <button key={tab.key} className={activeTab === tab.key ? 'active' : ''} onClick={() => setActiveTab(tab.key)}>
+            <span className="tab-icon">{tab.icon}</span>
+            <span className="tab-label">{tab.label}</span>
           </button>
         ))}
       </div>
@@ -7205,77 +7271,106 @@ const SuperAdminPage = ({ onBack }) => {
         {activeTab === 'stats' && data.stats && (
           <div className="admin-stats">
             <div className="stats-grid">
-              <Card className="stat-card"><span className="stat-value">{data.stats.totalUsers || 0}</span><span className="stat-label">Total Users</span></Card>
-              <Card className="stat-card"><span className="stat-value">{data.stats.totalBusinesses || 0}</span><span className="stat-label">Businesses</span></Card>
-              <Card className="stat-card"><span className="stat-value">{data.stats.totalPermits || 0}</span><span className="stat-label">Permits Tracked</span></Card>
-              <Card className="stat-card"><span className="stat-value">{data.stats.activeSubscriptions || 0}</span><span className="stat-label">Active Subscriptions</span></Card>
-              <Card className="stat-card"><span className="stat-value">{data.stats.totalJurisdictions || 0}</span><span className="stat-label">Jurisdictions</span></Card>
-              <Card className="stat-card"><span className="stat-value">{data.stats.totalPermitTypes || 0}</span><span className="stat-label">Permit Types</span></Card>
+              <Card className="stat-card stat-primary"><span className="stat-icon">👤</span><div className="stat-content"><span className="stat-value">{data.stats.totalUsers || 0}</span><span className="stat-label">Total Users</span></div></Card>
+              <Card className="stat-card stat-success"><span className="stat-icon">🏢</span><div className="stat-content"><span className="stat-value">{data.stats.totalBusinesses || 0}</span><span className="stat-label">Businesses</span></div></Card>
+              <Card className="stat-card stat-info"><span className="stat-icon">📋</span><div className="stat-content"><span className="stat-value">{data.stats.totalPermits || 0}</span><span className="stat-label">Permits Tracked</span></div></Card>
+              <Card className="stat-card stat-warning"><span className="stat-icon">⭐</span><div className="stat-content"><span className="stat-value">{data.stats.activeSubscriptions || 0}</span><span className="stat-label">Active Subscriptions</span></div></Card>
+              <Card className="stat-card stat-purple"><span className="stat-icon">🏛️</span><div className="stat-content"><span className="stat-value">{data.stats.totalJurisdictions || 0}</span><span className="stat-label">Jurisdictions</span></div></Card>
+              <Card className="stat-card stat-teal"><span className="stat-icon">📝</span><div className="stat-content"><span className="stat-value">{data.stats.totalPermitTypes || 0}</span><span className="stat-label">Permit Types</span></div></Card>
             </div>
-            <Card className="recent-signups">
-              <h3>Recent Activity</h3>
-              <p>New users today: {data.stats.newUsersToday || 0}</p>
-              <p>New users this week: {data.stats.newUsersThisWeek || 0}</p>
-              <p>MRR: ${data.stats.mrr || 0}</p>
-            </Card>
+            <div className="stats-detail-row">
+              <Card className="recent-signups">
+                <h3>📈 Activity Overview</h3>
+                <div className="activity-grid">
+                  <div className="activity-item"><span className="activity-value">{data.stats.newUsersToday || 0}</span><span className="activity-label">New Users Today</span></div>
+                  <div className="activity-item"><span className="activity-value">{data.stats.newUsersThisWeek || 0}</span><span className="activity-label">New This Week</span></div>
+                  <div className="activity-item"><span className="activity-value">${data.stats.mrr || 0}</span><span className="activity-label">Monthly Revenue</span></div>
+                </div>
+              </Card>
+            </div>
           </div>
         )}
 
         {activeTab === 'users' && (
-          <div className="admin-table-container">
-            <table className="admin-table">
-              <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Verified</th><th>Created</th><th>Actions</th></tr></thead>
-              <tbody>
-                {data.users.map(user => (
-                  <tr key={user._id}>
-                    <td>{user.firstName} {user.lastName}</td>
-                    <td>{user.email}</td>
-                    <td><Badge variant={user.role === 'admin' ? 'primary' : 'default'}>{user.role}</Badge></td>
-                    <td>{user.emailVerified ? '✓' : '✗'}</td>
-                    <td>{formatDate(user.createdAt)}</td>
-                    <td><button className="delete-btn" onClick={() => deleteUser(user._id)}><Icons.Trash /></button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div>
+            <div className="admin-section-header">
+              <h3>👤 User Management ({data.users.length})</h3>
+              <div className="admin-search-inline">
+                <input type="text" className="admin-search-input" placeholder="Search users by name or email..." value={userSearchTerm} onChange={(e) => setUserSearchTerm(e.target.value)} />
+              </div>
+            </div>
+            <div className="admin-table-container">
+              <table className="admin-table">
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Verified</th><th>Created</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {filteredUsers.length === 0 ? (
+                    <tr><td colSpan="6" className="empty-row">{userSearchTerm ? 'No matching users found' : 'No users yet'}</td></tr>
+                  ) : filteredUsers.map(user => (
+                    <tr key={user._id}>
+                      <td><strong>{user.firstName} {user.lastName}</strong></td>
+                      <td className="email-cell">{user.email}</td>
+                      <td><Badge variant={user.role === 'admin' ? 'primary' : user.isOrganizer ? 'info' : 'default'}>{user.isOrganizer ? 'organizer' : user.role}</Badge></td>
+                      <td>
+                        <button className={`verify-toggle ${user.emailVerified ? 'verified' : 'unverified'}`} onClick={() => toggleEmailVerified(user)} title={user.emailVerified ? 'Click to unverify' : 'Click to verify'}>
+                          {user.emailVerified ? '✓ Verified' : '✗ Unverified'}
+                        </button>
+                      </td>
+                      <td>{formatDate(user.createdAt)}</td>
+                      <td className="actions-cell">
+                        <button className="action-btn edit" onClick={() => openUserManager(user)} title="Manage User"><Icons.Settings /></button>
+                        <button className="delete-btn" onClick={() => deleteUser(user._id)} title="Delete"><Icons.Trash /></button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
         {activeTab === 'businesses' && (
-          <div className="admin-table-container">
-            <table className="admin-table">
-              <thead><tr><th>Business Name</th><th>Owner</th><th>Type</th><th>Cities</th><th>Plan / Status</th><th>Expires</th><th>Actions</th></tr></thead>
-              <tbody>
-                {data.businesses.map(biz => {
-                  const sub = biz.subscription;
-                  const statusColor = getSubscriptionStatusColor(sub);
-                  const expiryDate = sub?.promoExpiresAt || sub?.trialEndsAt || sub?.currentPeriodEnd;
-                  const isExpired = expiryDate && new Date(expiryDate) < new Date();
-                  return (
-                    <tr key={biz._id}>
-                      <td><strong>{biz.businessName}</strong></td>
-                      <td>{biz.ownerId?.email || 'N/A'}</td>
-                      <td>{biz.primaryVendorType}</td>
-                      <td>{biz.operatingCities?.map(c => c.city).join(', ') || 'None'}</td>
-                      <td>
-                        <Badge variant={statusColor === 'green' ? 'success' : statusColor === 'red' ? 'danger' : statusColor === 'purple' ? 'primary' : 'warning'}>
-                          {sub?.plan?.toUpperCase() || 'TRIAL'}
-                        </Badge>
-                        {sub?.promoNote && <span className="promo-note" title={sub.promoNote}>🎁</span>}
-                      </td>
-                      <td className={isExpired ? 'text-danger' : ''}>
-                        {sub?.status === 'lifetime' ? '∞ Never' : (expiryDate ? formatDate(expiryDate) : 'N/A')}
-                        {isExpired && sub?.status !== 'lifetime' && ' (Expired)'}
-                      </td>
-                      <td className="actions-cell">
-                        <button className="action-btn edit" onClick={() => openSubscriptionManager(biz)} title="Manage Subscription"><Icons.Settings /></button>
-                        <button className="delete-btn" onClick={() => deleteBusiness(biz._id)} title="Delete"><Icons.Trash /></button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div>
+            <div className="admin-section-header">
+              <h3>🏢 Business Management ({data.businesses.length})</h3>
+            </div>
+            <div className="admin-table-container">
+              <table className="admin-table">
+                <thead><tr><th>Business Name</th><th>Owner</th><th>Type</th><th>Cities</th><th>Plan / Status</th><th>Expires</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {data.businesses.length === 0 ? (
+                    <tr><td colSpan="7" className="empty-row">No businesses yet</td></tr>
+                  ) : data.businesses.map(biz => {
+                    const sub = biz.subscription;
+                    const statusColor = getSubscriptionStatusColor(sub);
+                    const isLifetimeOrAdmin = sub?.status === 'lifetime' || (sub?.promoGrantedBy === 'admin' && !sub?.promoExpiresAt && ['active', 'promo'].includes(sub?.status));
+                    const expiryDate = isLifetimeOrAdmin ? null : (sub?.promoExpiresAt || sub?.trialEndsAt || sub?.currentPeriodEnd);
+                    const isExpired = !isLifetimeOrAdmin && expiryDate && new Date(expiryDate) < new Date();
+                    return (
+                      <tr key={biz._id} className={isExpired ? 'expired-row' : ''}>
+                        <td><strong>{biz.businessName}</strong></td>
+                        <td className="email-cell">{biz.ownerId?.email || 'N/A'}</td>
+                        <td><Badge variant="default">{biz.primaryVendorType?.replace(/_/g, ' ')}</Badge></td>
+                        <td>{biz.operatingCities?.map(c => c.city).join(', ') || '—'}</td>
+                        <td>
+                          <Badge variant={statusColor === 'green' ? 'success' : statusColor === 'red' ? 'danger' : statusColor === 'purple' ? 'primary' : 'warning'}>
+                            {sub?.plan?.toUpperCase() || 'TRIAL'}
+                          </Badge>
+                          {sub?.promoGrantedBy === 'admin' && <span className="promo-note" title={sub.promoNote || 'Admin granted'}>🎁</span>}
+                        </td>
+                        <td className={isExpired ? 'text-danger' : ''}>
+                          {isLifetimeOrAdmin ? <span className="lifetime-badge">∞ Permanent</span> : (expiryDate ? formatDate(expiryDate) : 'N/A')}
+                          {isExpired && ' (Expired)'}
+                        </td>
+                        <td className="actions-cell">
+                          <button className="action-btn edit" onClick={() => openSubscriptionManager(biz)} title="Manage Subscription"><Icons.Settings /></button>
+                          <button className="delete-btn" onClick={() => deleteBusiness(biz._id)} title="Delete"><Icons.Trash /></button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -8104,62 +8199,78 @@ const SuperAdminPage = ({ onBack }) => {
         {activeTab === 'suggestions' && (
           <div>
             <div className="admin-section-header">
-              <h3>📬 User Suggestions & Requests</h3>
+              <h3>💡 User Suggestions & Requests</h3>
               <div className="filter-tabs">
-                {['pending', 'in_progress', 'completed', 'rejected'].map(status => (
+                {[
+                  { key: 'all', label: 'All' },
+                  { key: 'pending', label: '⏳ Pending' },
+                  { key: 'in_progress', label: '🔄 In Progress' },
+                  { key: 'completed', label: '✅ Completed' },
+                  { key: 'rejected', label: '❌ Rejected' }
+                ].map(f => (
                   <button 
-                    key={status} 
-                    className={suggestionFilter === status ? 'active' : ''} 
-                    onClick={() => { setSuggestionFilter(status); fetchData('suggestions'); }}
+                    key={f.key} 
+                    className={suggestionFilter === f.key ? 'active' : ''} 
+                    onClick={() => { setSuggestionFilter(f.key); fetchData('suggestions', f.key); }}
                   >
-                    {status.replace('_', ' ').charAt(0).toUpperCase() + status.replace('_', ' ').slice(1)}
+                    {f.label}
                   </button>
                 ))}
               </div>
             </div>
             <div className="admin-table-container">
               <table className="admin-table">
-                <thead><tr><th>Type</th><th>Title</th><th>User</th><th>Business</th><th>Details</th><th>Date</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Type</th><th>Title</th><th>User</th><th>Business</th><th>Details</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
                 <tbody>
                   {suggestions.length === 0 ? (
-                    <tr><td colSpan="7" className="empty-row">No {suggestionFilter} suggestions</td></tr>
+                    <tr><td colSpan="8" className="empty-row">No {suggestionFilter === 'all' ? '' : suggestionFilter.replace('_', ' ')} suggestions</td></tr>
                   ) : suggestions.map(s => (
                     <tr key={s._id}>
-                      <td><Badge variant={s.type === 'city_request' ? 'primary' : s.type === 'checklist_request' ? 'warning' : s.type === 'event_request' ? 'success' : 'default'}>{s.type.replace(/_/g, ' ')}</Badge></td>
-                      <td><strong>{s.title}</strong>{s.description && <><br /><small>{s.description.substring(0, 80)}...</small></>}</td>
-                      <td>{s.userId?.firstName} {s.userId?.lastName}<br /><small>{s.userId?.email}</small></td>
-                      <td>{s.vendorBusinessId?.businessName || 'N/A'}</td>
+                      <td><Badge variant={s.type === 'city_request' ? 'primary' : s.type === 'checklist_request' ? 'warning' : s.type === 'event_request' ? 'success' : s.type === 'permit_type_request' ? 'info' : 'default'}>{s.type.replace(/_/g, ' ')}</Badge></td>
+                      <td><strong>{s.title}</strong>{s.description && <><br /><small className="text-muted">{s.description.substring(0, 100)}{s.description.length > 100 ? '...' : ''}</small></>}</td>
+                      <td>{s.userId?.firstName} {s.userId?.lastName}<br /><small className="text-muted">{s.userId?.email}</small></td>
+                      <td>{s.vendorBusinessId?.businessName || '—'}</td>
                       <td>
-                        {s.cityDetails && <small>City: {s.cityDetails.city}, {s.cityDetails.state}</small>}
-                        {s.checklistDetails?.name && <small>Checklist: {s.checklistDetails.name}</small>}
+                        {s.cityDetails && <small>📍 {s.cityDetails.city}, {s.cityDetails.state}</small>}
+                        {s.checklistDetails?.name && <small>☑️ {s.checklistDetails.name}</small>}
                         {s.eventDetails && (
                           <div className="event-request-details">
                             <small><strong>{s.eventDetails.eventName}</strong></small><br />
-                            <small>{s.eventDetails.city}, {s.eventDetails.state}</small><br />
-                            {s.eventDetails.startDate && <small>Date: {formatDate(s.eventDetails.startDate)}</small>}
-                            {s.eventDetails.organizerName && <><br /><small>Organizer: {s.eventDetails.organizerName}</small></>}
-                            {s.eventDetails.website && <><br /><small><a href={s.eventDetails.website} target="_blank" rel="noopener noreferrer">Website</a></small></>}
+                            <small>📍 {s.eventDetails.city}, {s.eventDetails.state}</small>
+                            {s.eventDetails.startDate && <><br /><small>📅 {formatDate(s.eventDetails.startDate)}</small></>}
+                            {s.eventDetails.organizerName && <><br /><small>👤 {s.eventDetails.organizerName}</small></>}
+                            {s.eventDetails.website && <><br /><small><a href={s.eventDetails.website} target="_blank" rel="noopener noreferrer">🔗 Website</a></small></>}
                           </div>
                         )}
+                        {s.adminNotes && <div className="admin-notes-inline"><small>📝 {s.adminNotes}</small></div>}
                       </td>
-                      <td>{formatDate(s.createdAt)}</td>
-                      <td className="actions-cell">
-                        {suggestionFilter === 'pending' && (
+                      <td>
+                        <Badge variant={s.status === 'pending' ? 'warning' : s.status === 'in_progress' ? 'info' : s.status === 'completed' ? 'success' : 'danger'}>
+                          {s.status === 'pending' ? '⏳ Pending' : s.status === 'in_progress' ? '🔄 In Progress' : s.status === 'completed' ? '✅ Done' : '❌ Rejected'}
+                        </Badge>
+                      </td>
+                      <td className="date-cell">{formatDate(s.createdAt)}</td>
+                      <td className="actions-cell suggestion-actions">
+                        {/* Convert event request to event (available for pending & in_progress) */}
+                        {s.type === 'event_request' && s.eventDetails && ['pending', 'in_progress'].includes(s.status) && (
+                          <button className="action-btn primary" onClick={() => convertEventRequestToEvent(s)} title="Convert to Event"><Icons.Plus /></button>
+                        )}
+                        {/* Status transition buttons based on current status */}
+                        {s.status === 'pending' && (
                           <>
-                            {s.type === 'event_request' && s.eventDetails && (
-                              <button className="action-btn primary" onClick={() => convertEventRequestToEvent(s)} title="Convert to Event"><Icons.Plus /></button>
-                            )}
-                            <button className="action-btn edit" onClick={() => updateSuggestion(s._id, 'in_progress')} title="Mark In Progress"><Icons.Clock /></button>
+                            <button className="action-btn progress" onClick={() => updateSuggestion(s._id, 'in_progress')} title="Mark In Progress"><Icons.Clock /></button>
                             <button className="action-btn success" onClick={() => updateSuggestion(s._id, 'completed')} title="Mark Completed"><Icons.Check /></button>
+                            <button className="action-btn reject" onClick={() => updateSuggestion(s._id, 'rejected')} title="Reject"><Icons.X /></button>
                           </>
                         )}
-                        {suggestionFilter === 'in_progress' && (
+                        {s.status === 'in_progress' && (
                           <>
-                            {s.type === 'event_request' && s.eventDetails && (
-                              <button className="action-btn primary" onClick={() => convertEventRequestToEvent(s)} title="Convert to Event"><Icons.Plus /></button>
-                            )}
                             <button className="action-btn success" onClick={() => updateSuggestion(s._id, 'completed')} title="Mark Completed"><Icons.Check /></button>
+                            <button className="action-btn reject" onClick={() => updateSuggestion(s._id, 'rejected')} title="Reject"><Icons.X /></button>
                           </>
+                        )}
+                        {(s.status === 'completed' || s.status === 'rejected') && (
+                          <button className="action-btn reopen" onClick={() => updateSuggestion(s._id, 'pending')} title="Re-open">↩</button>
                         )}
                         <button className="delete-btn" onClick={() => deleteSuggestion(s._id)} title="Delete"><Icons.Trash /></button>
                       </td>
@@ -8246,27 +8357,32 @@ const SuperAdminPage = ({ onBack }) => {
       </Modal>
       
       {/* Subscription Management Modal */}
-      <Modal isOpen={!!managingSubscription} onClose={() => { setManagingSubscription(null); setSubscriptionAction(''); }} title={`Manage Subscription: ${managingSubscription?.businessName}`} size="lg">
+      <Modal isOpen={!!managingSubscription} onClose={() => { setManagingSubscription(null); setSubscriptionAction(''); }} title={`Manage Subscription`} size="lg">
         {managingSubscription && (
           <div className="subscription-manager">
+            <div className="sub-business-header">
+              <h3>{managingSubscription.businessName}</h3>
+              <p className="text-muted">{managingSubscription.ownerId?.email}</p>
+            </div>
             <div className="sub-current-status">
-              <h4>Current Status</h4>
+              <h4>Current Subscription</h4>
               <div className="sub-info-grid">
-                <div><span className="sub-label">Plan:</span> <Badge variant={getSubscriptionStatusColor(managingSubscription.subscription) === 'green' ? 'success' : 'primary'}>{managingSubscription.subscription?.plan?.toUpperCase() || 'TRIAL'}</Badge></div>
-                <div><span className="sub-label">Status:</span> {managingSubscription.subscription?.status || 'trial'}</div>
-                <div><span className="sub-label">Expires:</span> {managingSubscription.subscription?.status === 'lifetime' ? 'Never' : formatDate(managingSubscription.subscription?.promoExpiresAt || managingSubscription.subscription?.trialEndsAt || managingSubscription.subscription?.currentPeriodEnd)}</div>
-                {managingSubscription.subscription?.promoNote && <div><span className="sub-label">Note:</span> {managingSubscription.subscription.promoNote}</div>}
+                <div className="sub-info-item"><span className="sub-label">Plan</span> <Badge variant={getSubscriptionStatusColor(managingSubscription.subscription) === 'green' ? 'success' : getSubscriptionStatusColor(managingSubscription.subscription) === 'purple' ? 'primary' : 'warning'}>{managingSubscription.subscription?.plan?.toUpperCase() || 'TRIAL'}</Badge></div>
+                <div className="sub-info-item"><span className="sub-label">Status</span> <span className="sub-value">{managingSubscription.subscription?.status || 'trial'}</span></div>
+                <div className="sub-info-item"><span className="sub-label">Expires</span> <span className="sub-value">{managingSubscription.subscription?.status === 'lifetime' || (managingSubscription.subscription?.promoGrantedBy === 'admin' && !managingSubscription.subscription?.promoExpiresAt) ? '∞ Never' : formatDate(managingSubscription.subscription?.promoExpiresAt || managingSubscription.subscription?.trialEndsAt || managingSubscription.subscription?.currentPeriodEnd)}</span></div>
+                {managingSubscription.subscription?.promoNote && <div className="sub-info-item full-width"><span className="sub-label">Admin Note</span> <span className="sub-value">{managingSubscription.subscription.promoNote}</span></div>}
+                {managingSubscription.subscription?.promoGrantedBy && <div className="sub-info-item"><span className="sub-label">Granted By</span> <span className="sub-value">🎁 Admin ({formatDate(managingSubscription.subscription.promoGrantedAt)})</span></div>}
               </div>
             </div>
             
             <div className="sub-actions">
-              <h4>Actions</h4>
+              <h4>Quick Actions</h4>
               <div className="sub-action-buttons">
                 <Button variant={subscriptionAction === 'extend' ? 'primary' : 'outline'} onClick={() => setSubscriptionAction('extend')}>
                   <Icons.Clock /> Extend Trial
                 </Button>
                 <Button variant={subscriptionAction === 'grant' ? 'primary' : 'outline'} onClick={() => setSubscriptionAction('grant')}>
-                  <Icons.Check /> Grant Promo/Lifetime
+                  <Icons.Check /> Grant Plan
                 </Button>
                 <Button variant={subscriptionAction === 'revoke' ? 'danger' : 'outline'} onClick={() => setSubscriptionAction('revoke')}>
                   <Icons.X /> Revoke Access
@@ -8289,13 +8405,14 @@ const SuperAdminPage = ({ onBack }) => {
             
             {subscriptionAction === 'grant' && (
               <div className="sub-action-form">
-                <h4>🎁 Grant Promotional Subscription</h4>
-                <p className="form-hint">Give the user free access to paid features.</p>
+                <h4>🎁 Grant Subscription</h4>
+                <p className="form-hint">Give the user free access to paid features. Basic, Pro, Elite, and Lifetime grants are permanent unless revoked.</p>
                 <Select label="Plan Type" value={subscriptionForm.plan} onChange={(e) => setSubscriptionForm(f => ({ ...f, plan: e.target.value }))} options={[
                   { value: 'promo', label: '🎉 Promo (Time-Limited Full Access)' },
-                  { value: 'lifetime', label: '♾️ Lifetime (Permanent Full Access)' },
-                  { value: 'pro', label: '⭐ Pro Plan Features' },
-                  { value: 'elite', label: '👑 Elite Plan Features' }
+                  { value: 'basic', label: '📋 Basic Plan (Permanent)' },
+                  { value: 'pro', label: '⭐ Pro Plan (Permanent)' },
+                  { value: 'elite', label: '👑 Elite Plan (Permanent)' },
+                  { value: 'lifetime', label: '♾️ Lifetime (Permanent Full Access)' }
                 ]} />
                 {subscriptionForm.plan === 'promo' && (
                   <Input label="Duration (days)" type="number" min="1" max="3650" value={subscriptionForm.durationDays} onChange={(e) => setSubscriptionForm(f => ({ ...f, durationDays: parseInt(e.target.value) || 90 }))} />
@@ -8313,11 +8430,66 @@ const SuperAdminPage = ({ onBack }) => {
             {subscriptionAction === 'revoke' && (
               <div className="sub-action-form">
                 <h4>⚠️ Revoke Subscription</h4>
-                <p className="form-hint" style={{ color: 'var(--danger)' }}>This will remove the user's paid access and reset them to an expired trial. They will need to subscribe to regain access.</p>
+                <p className="form-hint" style={{ color: 'var(--danger)' }}>This will remove the user's paid access and reset them to an expired trial.</p>
                 <Input label="Reason (required)" placeholder="e.g., Refund processed, Abuse detected" value={subscriptionForm.note} onChange={(e) => setSubscriptionForm(f => ({ ...f, note: e.target.value }))} />
                 <div className="modal-actions">
                   <Button variant="outline" onClick={() => setSubscriptionAction('')}>Cancel</Button>
                   <Button variant="danger" onClick={revokeSubscription} disabled={!subscriptionForm.note}>Revoke Access</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+      
+      {/* User Management Modal */}
+      <Modal isOpen={!!managingUser} onClose={() => { setManagingUser(null); setUserAction(''); setResetPasswordValue(''); }} title="Manage User" size="lg">
+        {managingUser && (
+          <div className="user-manager">
+            <div className="user-info-header">
+              <div className="user-avatar">{(managingUser.firstName?.[0] || managingUser.email[0]).toUpperCase()}</div>
+              <div className="user-info-details">
+                <h3>{managingUser.firstName} {managingUser.lastName}</h3>
+                <p className="text-muted">{managingUser.email}</p>
+                <div className="user-meta">
+                  <Badge variant={managingUser.role === 'admin' ? 'primary' : 'default'}>{managingUser.role}</Badge>
+                  <Badge variant={managingUser.emailVerified ? 'success' : 'danger'}>{managingUser.emailVerified ? '✓ Verified' : '✗ Unverified'}</Badge>
+                  <span className="text-muted">Joined {formatDate(managingUser.createdAt)}</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="user-action-buttons">
+              <Button variant={userAction === 'reset-password' ? 'primary' : 'outline'} onClick={() => setUserAction('reset-password')}>
+                🔑 Set New Password
+              </Button>
+              <Button variant={userAction === 'send-reset-email' ? 'primary' : 'outline'} onClick={() => setUserAction('send-reset-email')}>
+                ✉️ Send Reset Email
+              </Button>
+              <Button variant="outline" onClick={() => toggleEmailVerified(managingUser)}>
+                {managingUser.emailVerified ? '✗ Unverify Email' : '✓ Verify Email'}
+              </Button>
+            </div>
+            
+            {userAction === 'reset-password' && (
+              <div className="sub-action-form">
+                <h4>🔑 Set New Password</h4>
+                <p className="form-hint">Manually set a new password for this user. They will be able to use it immediately.</p>
+                <Input label="New Password" type="password" placeholder="Minimum 8 characters" value={resetPasswordValue} onChange={(e) => setResetPasswordValue(e.target.value)} />
+                <div className="modal-actions">
+                  <Button variant="outline" onClick={() => { setUserAction(''); setResetPasswordValue(''); }}>Cancel</Button>
+                  <Button onClick={resetUserPassword} disabled={resetPasswordValue.length < 8}>Set Password</Button>
+                </div>
+              </div>
+            )}
+            
+            {userAction === 'send-reset-email' && (
+              <div className="sub-action-form">
+                <h4>✉️ Send Password Reset Email</h4>
+                <p className="form-hint">Send a password reset link to <strong>{managingUser.email}</strong>. The link will expire in 24 hours.</p>
+                <div className="modal-actions">
+                  <Button variant="outline" onClick={() => setUserAction('')}>Cancel</Button>
+                  <Button onClick={sendResetEmail}>Send Reset Email</Button>
                 </div>
               </div>
             )}
