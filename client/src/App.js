@@ -7026,7 +7026,7 @@ const SuperAdminPage = ({ onBack }) => {
   // Suggestion functions
   const updateSuggestion = async (id, status, adminNotes) => {
     try {
-      const result = await adminApi(`/admin/suggestions/${id}`, 'PUT', { status, adminNotes });
+      await adminApi(`/admin/suggestions/${id}`, 'PUT', { status, adminNotes });
       // Re-fetch suggestions with current filter
       const listResult = await adminApi(`/admin/suggestions?status=${suggestionFilter}`);
       setSuggestions(listResult.suggestions || []);
