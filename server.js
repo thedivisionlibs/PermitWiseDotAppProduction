@@ -1106,6 +1106,14 @@ const isSubscriptionActive = (subscription) => {
   // Check basic status
   if (!activeStatuses.includes(subscription.status)) return false;
   
+  // Lifetime subscriptions are ALWAYS active — never expire
+  if (subscription.status === 'lifetime') return true;
+  
+  // Admin-granted subscriptions (promoGrantedBy === 'admin') with no promoExpiresAt are permanent
+  if (subscription.promoGrantedBy === 'admin' && !subscription.promoExpiresAt && ['active', 'promo'].includes(subscription.status)) {
+    return true;
+  }
+  
   // Check trial expiration
   if (subscription.status === 'trial' && subscription.trialEndsAt) {
     if (new Date(subscription.trialEndsAt) < now) return false;
@@ -1129,6 +1137,12 @@ const isSubscriptionActive = (subscription) => {
   return true;
 };
 
+// Helper: Check if a subscription was admin-granted and should be protected from webhook overwrites
+const isAdminGrantedAndProtected = (subscription) => {
+  if (!subscription) return false;
+  return subscription.promoGrantedBy === 'admin' && ['active', 'lifetime', 'promo'].includes(subscription.status);
+};
+
 // Helper: Get subscription status details for API responses
 const getSubscriptionStatus = async (vendorBusinessId) => {
   const subscription = await Subscription.findOne({ vendorBusinessId });
@@ -1149,10 +1163,23 @@ const getSubscriptionStatus = async (vendorBusinessId) => {
   const now = new Date();
   
   let expirationDate = null;
-  if (subscription.status === 'trial') expirationDate = subscription.trialEndsAt;
-  else if (subscription.status === 'promo') expirationDate = subscription.promoExpiresAt;
-  else if (subscription.status === 'grace_period') expirationDate = subscription.gracePeriodEndsAt;
-  else if (subscription.status === 'active') expirationDate = subscription.currentPeriodEnd;
+  if (subscription.status === 'lifetime') {
+    expirationDate = null; // Lifetime never expires
+  } else if (subscription.status === 'trial') {
+    expirationDate = subscription.trialEndsAt;
+  } else if (subscription.status === 'promo') {
+    expirationDate = subscription.promoExpiresAt;
+  } else if (subscription.status === 'grace_period') {
+    expirationDate = subscription.gracePeriodEndsAt;
+  } else if (subscription.status === 'active') {
+    expirationDate = subscription.currentPeriodEnd;
+  }
+  
+  // For admin-granted permanent subscriptions, don't show a misleading expiration
+  const isAdminGrantedPermanent = subscription.promoGrantedBy === 'admin' && !subscription.promoExpiresAt;
+  if (isAdminGrantedPermanent && expirationDate && new Date(expirationDate).getFullYear() >= 2090) {
+    expirationDate = null; // Treat as permanent
+  }
   
   const daysUntilExpiration = expirationDate ? Math.ceil((new Date(expirationDate) - now) / (1000 * 60 * 60 * 24)) : null;
   
@@ -1167,6 +1194,7 @@ const getSubscriptionStatus = async (vendorBusinessId) => {
     daysUntilExpiration,
     features: subscription.features,
     gracePeriodEndsAt: subscription.gracePeriodEndsAt,
+    isAdminGranted: !!subscription.promoGrantedBy,
     message: isActive ? null : 'Your subscription has expired. Upgrade to continue using premium features.'
   };
 };
@@ -6746,6 +6774,17 @@ app.post('/webhooks/google-play', express.json(), async (req, res) => {
     }
     const SubModel = isOrgSub ? OrganizerSubscription : Subscription;
 
+    // GUARD: Do not let store webhooks overwrite admin-granted subscriptions.
+    // When admin grants a sub, IAP tokens should be cleared — but for existing
+    // records that predate the fix, this guard prevents the 14-day trial expiry
+    // from Google Play from overwriting the admin grant.
+    if (!isOrgSub && sub.promoGrantedBy === 'admin' && ['active', 'lifetime', 'promo'].includes(sub.status)) {
+      console.log(`Google RTDN: SKIPPING update — subscription is admin-granted (plan=${sub.plan}, status=${sub.status})`);
+      // Clear the IAP token so this doesn't happen again
+      await SubModel.findByIdAndUpdate(sub._id, { iapPurchaseToken: null });
+      return res.json({ received: true });
+    }
+
     // For active/renewed events, fetch latest status from Google Play
     if (androidPublisher && [1, 2, 4, 5, 6, 7].includes(notificationType)) {
       try {
@@ -6869,6 +6908,17 @@ app.post('/webhooks/apple', express.json(), async (req, res) => {
       return res.json({ received: true });
     }
     const SubModel = isOrgSub ? OrganizerSubscription : Subscription;
+
+    // GUARD: Do not let store webhooks overwrite admin-granted subscriptions.
+    // When admin grants a sub, IAP tokens should be cleared — but for existing
+    // records that predate the fix, this guard prevents the trial expiry
+    // from Apple from overwriting the admin grant.
+    if (!isOrgSub && foundSub.promoGrantedBy === 'admin' && ['active', 'lifetime', 'promo'].includes(foundSub.status)) {
+      console.log(`Apple notification: SKIPPING update — subscription is admin-granted (plan=${foundSub.plan}, status=${foundSub.status})`);
+      // Clear the IAP token so this doesn't happen again
+      await SubModel.findByIdAndUpdate(foundSub._id, { iapOriginalTransactionId: null });
+      return res.json({ received: true });
+    }
 
     const expiresDate = txnInfo.expiresDate ? new Date(txnInfo.expiresDate) : null;
 
@@ -7019,6 +7069,12 @@ app.post('/webhook', async (req, res) => {
         const vendorSub = await Subscription.findOne({ stripeCustomerId: invoice.customer });
         
         if (vendorSub) {
+          // GUARD: Skip if admin-granted — don't let Stripe overwrite admin grants
+          if (isAdminGrantedAndProtected(vendorSub)) {
+            console.log(`Invoice paid for admin-granted sub, SKIPPING Stripe update (customer=${invoice.customer})`);
+            await Subscription.findByIdAndUpdate(vendorSub._id, { stripeCustomerId: null, stripeSubscriptionId: null });
+            break;
+          }
           const updateFields = {
             status: 'active',
             gracePeriodEndsAt: null,
@@ -7073,6 +7129,12 @@ app.post('/webhook', async (req, res) => {
         const subscription = await Subscription.findOne({ stripeCustomerId: invoice.customer });
         
         if (subscription) {
+          // GUARD: Skip if admin-granted — don't let Stripe overwrite admin grants
+          if (isAdminGrantedAndProtected(subscription)) {
+            console.log(`Payment failed for admin-granted sub, SKIPPING (customer=${invoice.customer})`);
+            await Subscription.findByIdAndUpdate(subscription._id, { stripeCustomerId: null, stripeSubscriptionId: null });
+            break;
+          }
           const failureCount = (subscription.paymentFailureCount || 0) + 1;
           const now = new Date();
           
@@ -7124,6 +7186,14 @@ app.post('/webhook', async (req, res) => {
         else if (stripeSubscription.status === 'paused') ourStatus = 'paused';
         else if (stripeSubscription.status === 'active') ourStatus = 'active';
         
+        // GUARD: Check if admin-granted before updating
+        const existingVendorSub = await Subscription.findOne({ stripeSubscriptionId: stripeSubscription.id });
+        if (existingVendorSub && isAdminGrantedAndProtected(existingVendorSub)) {
+          console.log(`Subscription updated for admin-granted sub, SKIPPING (${stripeSubscription.id})`);
+          await Subscription.findByIdAndUpdate(existingVendorSub._id, { stripeSubscriptionId: null, stripeCustomerId: null });
+          break;
+        }
+        
         // Try vendor subscription first
         const vendorSub = await Subscription.findOneAndUpdate(
           { stripeSubscriptionId: stripeSubscription.id },
@@ -7153,6 +7223,13 @@ app.post('/webhook', async (req, res) => {
       
       case 'customer.subscription.deleted': {
         const stripeSubscription = event.data.object;
+        // GUARD: Check if admin-granted before canceling
+        const existingVendor = await Subscription.findOne({ stripeSubscriptionId: stripeSubscription.id });
+        if (existingVendor && isAdminGrantedAndProtected(existingVendor)) {
+          console.log(`Subscription deleted for admin-granted sub, SKIPPING (${stripeSubscription.id})`);
+          await Subscription.findByIdAndUpdate(existingVendor._id, { stripeSubscriptionId: null, stripeCustomerId: null });
+          break;
+        }
         // Try vendor subscription first
         const vendorSub = await Subscription.findOneAndUpdate(
           { stripeSubscriptionId: stripeSubscription.id },
@@ -7469,7 +7546,7 @@ app.get('/api/admin/stats', masterAdminMiddleware, async (req, res) => {
       User.countDocuments(),
       VendorBusiness.countDocuments(),
       VendorPermit.countDocuments(),
-      Subscription.countDocuments({ status: { $in: ['active', 'trial'] } }),
+      Subscription.countDocuments({ status: { $in: ['active', 'trial', 'promo', 'lifetime'] } }),
       Jurisdiction.countDocuments(),
       PermitType.countDocuments(),
       User.countDocuments({ createdAt: { $gte: todayStart } }),
@@ -7504,6 +7581,90 @@ app.delete('/api/admin/users/:id', masterAdminMiddleware, async (req, res) => {
   try {
     await User.findByIdAndDelete(req.params.id);
     res.json({ message: 'User deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Reset User Password
+app.post('/api/admin/users/:id/reset-password', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    user.password = hashedPassword;
+    user.resetPasswordToken = null;
+    user.resetPasswordExpires = null;
+    user.updatedAt = new Date();
+    await user.save();
+    
+    res.json({ success: true, message: `Password reset for ${user.email}` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Send Password Reset Email to User
+app.post('/api/admin/users/:id/send-reset-email', masterAdminMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const resetToken = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '24h' });
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpires = Date.now() + 86400000; // 24 hours
+    await user.save();
+    
+    const resetUrl = `${CLIENT_URL}/reset-password?token=${resetToken}`;
+    const emailHtml = emailTemplate({
+      heading: 'Password Reset Request',
+      body: `
+        <p>Hi ${user.firstName || 'there'},</p>
+        <p>An administrator has requested a password reset for your PermitWise account. Click the button below to set a new password.</p>
+        <p>This link will expire in 24 hours.</p>
+      `,
+      buttonText: 'Reset My Password',
+      buttonUrl: resetUrl,
+      footerText: 'If you did not expect this email, please contact support.'
+    });
+    
+    await sendEmail(user.email, 'PermitWise — Password Reset', emailHtml);
+    
+    res.json({ success: true, message: `Password reset email sent to ${user.email}` });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin Update User (email verification, role, etc.)
+app.put('/api/admin/users/:id', masterAdminMiddleware, async (req, res) => {
+  try {
+    const { emailVerified, role, firstName, lastName } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (emailVerified !== undefined) user.emailVerified = emailVerified;
+    if (role) user.role = role;
+    if (firstName !== undefined) user.firstName = firstName;
+    if (lastName !== undefined) user.lastName = lastName;
+    user.updatedAt = new Date();
+    
+    await user.save();
+    
+    res.json({ success: true, user: { _id: user._id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role, emailVerified: user.emailVerified } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -8043,9 +8204,9 @@ app.post('/api/admin/subscriptions/:businessId/grant-promo', masterAdminMiddlewa
   try {
     const { plan, durationDays, note } = req.body;
     
-    // plan can be 'promo' (time-limited) or 'lifetime' (permanent)
-    if (!['promo', 'lifetime', 'pro', 'elite'].includes(plan)) {
-      return res.status(400).json({ error: 'Plan must be promo, lifetime, pro, or elite' });
+    // plan can be 'promo' (time-limited), 'lifetime' (permanent), or 'basic'/'pro'/'elite' (permanent with plan features)
+    if (!['promo', 'lifetime', 'basic', 'pro', 'elite'].includes(plan)) {
+      return res.status(400).json({ error: 'Plan must be promo, lifetime, basic, pro, or elite' });
     }
     
     const subscription = await Subscription.findOne({ vendorBusinessId: req.params.businessId });
@@ -8053,26 +8214,52 @@ app.post('/api/admin/subscriptions/:businessId/grant-promo', masterAdminMiddlewa
       return res.status(404).json({ error: 'Subscription not found' });
     }
     
-    // Set expiration for promo plans
+    // Set expiration for promo plans only
     let promoExpires = null;
     if (plan === 'promo' && durationDays) {
       promoExpires = new Date();
       promoExpires.setDate(promoExpires.getDate() + parseInt(durationDays));
     }
     
-    // Use appropriate features
+    // Determine the feature set to apply
     const featurePlan = plan === 'lifetime' ? 'lifetime' : (plan === 'promo' ? 'promo' : plan);
     
+    // For lifetime and elite/pro/basic admin grants, use 'lifetime' status to prevent any expiry checks
+    // For promo (time-limited), use 'promo' status
+    let newStatus;
+    if (plan === 'lifetime') {
+      newStatus = 'lifetime';
+    } else if (plan === 'promo') {
+      newStatus = 'promo';
+    } else {
+      // Basic/Pro/Elite admin grants — mark as 'active' with permanent currentPeriodEnd
+      newStatus = 'active';
+    }
+    
     subscription.plan = plan;
-    subscription.status = plan === 'lifetime' ? 'lifetime' : (plan === 'promo' ? 'promo' : 'active');
+    subscription.status = newStatus;
     subscription.features = PLAN_FEATURES[featurePlan];
     subscription.promoGrantedBy = 'admin';
     subscription.promoGrantedAt = new Date();
     subscription.promoNote = note || `Granted ${plan} subscription`;
     subscription.promoExpiresAt = promoExpires;
-    subscription.currentPeriodEnd = promoExpires || new Date('2099-12-31'); // Far future for lifetime
-    subscription.trialEndsAt = null;
+    subscription.currentPeriodStart = new Date();
+    subscription.currentPeriodEnd = promoExpires || new Date('2099-12-31'); // Far future for permanent grants
+    subscription.trialEndsAt = null; // Clear any old trial dates
+    subscription.gracePeriodEndsAt = null; // Clear any grace period
+    subscription.lastPaymentFailedAt = null;
+    subscription.paymentFailureCount = 0;
     subscription.updatedAt = new Date();
+    
+    // CRITICAL: Clear store payment identifiers so that IAP/Stripe webhooks
+    // from the old trial/subscription cannot overwrite this admin grant.
+    // Without this, when the original 14-day trial expires, Google/Apple/Stripe
+    // sends an EXPIRED webhook that finds this sub by token and resets status to 'expired'.
+    subscription.iapPurchaseToken = null;
+    subscription.iapOriginalTransactionId = null;
+    subscription.stripeSubscriptionId = null;
+    subscription.stripeCustomerId = null;
+    subscription.stripePriceId = null;
     
     await subscription.save();
     
@@ -8570,8 +8757,8 @@ app.get('/api/admin/suggestions', masterAdminMiddleware, async (req, res) => {
   try {
     const { status, type } = req.query;
     const query = {};
-    if (status) query.status = status;
-    if (type) query.type = type;
+    if (status && status !== 'all') query.status = status;
+    if (type && type !== 'all') query.type = type;
     
     const suggestions = await Suggestion.find(query)
       .populate('userId', 'firstName lastName email')
@@ -8593,12 +8780,20 @@ app.put('/api/admin/suggestions/:id', masterAdminMiddleware, async (req, res) =>
       return res.status(404).json({ error: 'Suggestion not found' });
     }
     
+    // Validate status if provided
+    const validStatuses = ['pending', 'in_progress', 'completed', 'rejected'];
+    if (status && !validStatuses.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+    
     if (status) suggestion.status = status;
     if (adminNotes !== undefined) suggestion.adminNotes = adminNotes;
     
     if (status === 'completed' || status === 'rejected') {
-      suggestion.resolvedBy = req.userId;
       suggestion.resolvedAt = new Date();
+    } else if (status === 'pending' || status === 'in_progress') {
+      // Re-opening: clear resolved fields
+      suggestion.resolvedAt = null;
     }
     
     suggestion.updatedAt = new Date();
