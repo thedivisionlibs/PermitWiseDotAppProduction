@@ -15,7 +15,7 @@ import { WebView } from 'react-native-webview';
 // ===========================================
 // CONFIGURATION
 // ===========================================
-const API_URL = 'https://permitwisedotappproduction-production.up.railway.app/api'; // Production URL
+const API_URL = 'https://permitwise.app/api'; // Production URL
 const SITE_URL = API_URL.replace('/api', ''); // Base site URL for legal pages
 
 // ===========================================
