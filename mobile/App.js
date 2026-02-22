@@ -363,13 +363,15 @@ const getSecureFileUrl = async (fileUrl) => {
 // Google Play: Create subscriptions in Play Console
 // App Store: Create subscriptions in App Store Connect
 
-// Import react-native-iap (must be installed: npm install react-native-iap)
-// import * as RNIap from 'react-native-iap';
+// Import react-native-iap v13+ (Nitro-based)
+// v13 renames: getSubscriptions → fetchProducts, requestSubscription → requestPurchase
 let RNIap = null;
 try {
   RNIap = require('react-native-iap');
+  console.log('[IAP] react-native-iap loaded. Available:', typeof RNIap.initConnection === 'function');
+  console.log('[IAP] fetchProducts:', typeof RNIap.fetchProducts, '| requestPurchase:', typeof RNIap.requestPurchase);
 } catch (e) {
-  console.warn('react-native-iap not installed. IAP will fall back to Stripe checkout.');
+  console.warn('[IAP] react-native-iap FAILED to load:', e.message);
 }
 
 const SUBSCRIPTION_SKUS = {
@@ -390,98 +392,203 @@ const ORGANIZER_PLAN_DETAILS = {
 };
 
 // Billing service - handles Google Play, App Store, and Stripe fallback
+// Uses react-native-iap v13 imperative API (fetchProducts, requestPurchase)
 const BillingService = {
-  isNativeIAPAvailable: !!RNIap && (Platform.OS === 'android' || Platform.OS === 'ios'),
+  isNativeIAPAvailable: !!RNIap && typeof RNIap.initConnection === 'function' && (Platform.OS === 'android' || Platform.OS === 'ios'),
   _initialized: false,
   _purchaseListener: null,
   _errorListener: null,
+  _offerTokens: {},
+  _onPurchaseSuccess: null,
+  _onPurchaseError: null,
   
   // Initialize billing - call on app start
   async initialize() {
+    console.log('[IAP] ========== BILLING SERVICE INIT ==========');
+    console.log('[IAP] RNIap loaded:', !!RNIap);
+    console.log('[IAP] Platform.OS:', Platform.OS);
+    console.log('[IAP] isNativeIAPAvailable:', this.isNativeIAPAvailable);
+    
     if (!this.isNativeIAPAvailable) {
-      console.log('Native IAP not available, using Stripe checkout fallback');
+      console.log('[IAP] Native IAP NOT available — using Stripe fallback');
       return true;
     }
     
     try {
-      await RNIap.initConnection();
+      console.log('[IAP] Calling initConnection()...');
+      const result = await RNIap.initConnection();
+      console.log('[IAP] initConnection() result:', JSON.stringify(result));
       this._initialized = true;
       
       // Listen for purchase updates
       this._purchaseListener = RNIap.purchaseUpdatedListener(async (purchase) => {
+        console.log('[IAP] ===== purchaseUpdatedListener FIRED =====');
+        console.log('[IAP] Purchase:', JSON.stringify(purchase, null, 2));
         try {
-          const receipt = purchase.transactionReceipt;
-          if (receipt) {
-            // Determine plan from productId
+          // v13: no transactionReceipt field — use purchaseToken (Android) or dataAndroid
+          const hasValidPurchase = Platform.OS === 'android' 
+            ? !!purchase.purchaseToken 
+            : !!(purchase.transactionReceipt || purchase.dataAndroid);
+          console.log('[IAP] Has valid purchase:', hasValidPurchase, '| purchaseToken:', !!purchase.purchaseToken);
+          
+          if (hasValidPurchase) {
             const planEntry = Object.entries(SUBSCRIPTION_SKUS).find(([_, sku]) => sku === purchase.productId);
             const plan = planEntry ? planEntry[0] : null;
+            console.log('[IAP] Matched plan:', plan);
             
             if (Platform.OS === 'android') {
-              // Verify with our server
+              console.log('[IAP] Verifying with server (Google)...');
               await api.post('/subscription/verify-google', {
                 purchaseToken: purchase.purchaseToken,
                 productId: purchase.productId,
                 packageName: purchase.packageNameAndroid
               });
+              console.log('[IAP] Server verify SUCCESS');
+              
+              // Acknowledge if not already acknowledged
+              if (!purchase.isAcknowledgedAndroid) {
+                console.log('[IAP] Acknowledging purchase...');
+                await RNIap.acknowledgePurchaseAndroid({ token: purchase.purchaseToken });
+                console.log('[IAP] Acknowledge SUCCESS');
+              }
             } else {
-              // iOS - verify receipt with server
+              console.log('[IAP] Verifying with server (Apple)...');
               await api.post('/subscription/verify-apple', {
-                receiptData: receipt,
+                receiptData: purchase.transactionReceipt || purchase.dataAndroid,
                 productId: purchase.productId
               });
+              console.log('[IAP] Server verify SUCCESS');
             }
             
-            // Acknowledge the purchase (required for Google Play)
-            if (Platform.OS === 'android') {
-              await RNIap.acknowledgePurchaseAndroid({ token: purchase.purchaseToken });
-            }
-            // Finish the transaction (required for both platforms)
+            console.log('[IAP] Finishing transaction...');
             await RNIap.finishTransaction({ purchase, isConsumable: false });
+            console.log('[IAP] Transaction finished');
+            
+            if (this._onPurchaseSuccess) {
+              this._onPurchaseSuccess(plan);
+            }
+          } else {
+            console.warn('[IAP] Purchase has no token/receipt — skipping verification');
           }
         } catch (err) {
-          console.error('Purchase verification error:', err);
+          console.error('[IAP] Purchase verification error:', err.message);
+          
+          // The purchase succeeded on Google's side even if our server verification failed.
+          // We should still acknowledge and finish the transaction to prevent Google auto-refund.
+          try {
+            if (Platform.OS === 'android' && purchase.purchaseToken && !purchase.isAcknowledgedAndroid) {
+              console.log('[IAP] Server verify failed but acknowledging purchase anyway...');
+              await RNIap.acknowledgePurchaseAndroid({ token: purchase.purchaseToken });
+              console.log('[IAP] Acknowledge SUCCESS (despite server verify failure)');
+            }
+            await RNIap.finishTransaction({ purchase, isConsumable: false });
+            console.log('[IAP] Transaction finished (despite server verify failure)');
+          } catch (ackErr) {
+            console.error('[IAP] Failed to acknowledge after verify error:', ackErr.message);
+          }
+          
+          // Still notify success since Google processed the payment
+          // The server can reconcile later via Google Play Developer API / RTDN
+          const planEntry = Object.entries(SUBSCRIPTION_SKUS).find(([_, sku]) => sku === purchase.productId);
+          const plan = planEntry ? planEntry[0] : null;
+          if (this._onPurchaseSuccess) {
+            this._onPurchaseSuccess(plan);
+          }
         }
       });
       
       // Listen for purchase errors
       this._errorListener = RNIap.purchaseErrorListener((error) => {
-        if (error.code !== 'E_USER_CANCELLED') {
-          console.error('Purchase error:', error);
+        const cancelCodes = ['E_USER_CANCELLED', 'user-cancelled'];
+        if (cancelCodes.includes(error.code)) {
+          console.log('[IAP] User cancelled purchase');
+          if (this._onPurchaseError) {
+            this._onPurchaseError(null); // null = cancelled, not error
+          }
+          return;
+        }
+        
+        console.error('[IAP] Purchase error:', JSON.stringify(error));
+        
+        // Map Google Play error codes to user-friendly messages
+        const errorMessages = {
+          'billing-unavailable': 'Payment was declined. Please check your payment method and try again.',
+          'already-owned': 'You already have an active subscription for this plan.',
+          'developer-error': 'A configuration error occurred. Please try again.',
+          'item-unavailable': 'This subscription is temporarily unavailable.',
+          'network-error': 'Network error. Please check your connection and try again.',
+          'service-disconnected': 'Google Play connection lost. Please restart the app.',
+        };
+        
+        const friendlyMessage = errorMessages[error.code] || error.message || 'Purchase failed. Please try again.';
+        
+        if (this._onPurchaseError) {
+          this._onPurchaseError(friendlyMessage);
         }
       });
       
-      console.log('Native IAP initialized successfully');
+      console.log('[IAP] ========== IAP INITIALIZED SUCCESSFULLY ==========');
       return true;
     } catch (err) {
-      console.error('IAP initialization failed:', err);
+      console.error('[IAP] ========== IAP INIT FAILED ==========');
+      console.error('[IAP] Error:', err.message);
       this.isNativeIAPAvailable = false;
       return false;
     }
   },
 
   // Get available subscriptions with prices from the store
+  // v13: uses fetchProducts() instead of getSubscriptions()
   async getSubscriptions() {
+    console.log('[IAP] getSubscriptions() called. native:', this.isNativeIAPAvailable, 'init:', this._initialized);
     if (this.isNativeIAPAvailable && this._initialized) {
       try {
         const skus = Object.values(SUBSCRIPTION_SKUS);
-        const subscriptions = await RNIap.getSubscriptions({ skus });
-        return subscriptions.map(sub => {
-          const planEntry = Object.entries(SUBSCRIPTION_SKUS).find(([_, sku]) => sku === sub.productId);
-          const planKey = planEntry ? planEntry[0] : 'basic';
-          const planInfo = PLAN_DETAILS[planKey] || {};
-          return {
-            productId: sub.productId,
-            ...planInfo,
-            // Use store price (localized) instead of hardcoded
-            localizedPrice: sub.localizedPrice || planInfo.price,
-            price: sub.localizedPrice || planInfo.price,
-          };
-        });
+        console.log('[IAP] Calling fetchProducts() with SKUs:', JSON.stringify(skus));
+        
+        // v13 API: fetchProducts replaces getSubscriptions
+        const products = await RNIap.fetchProducts({ skus, type: 'subs' });
+        console.log('[IAP] fetchProducts returned', products?.length, 'products');
+        console.log('[IAP] Raw products:', JSON.stringify(products, null, 2));
+        
+        if (products && products.length > 0) {
+          return products.map(sub => {
+            // v13 uses 'id' not 'productId'
+            const productId = sub.id || sub.productId;
+            const planEntry = Object.entries(SUBSCRIPTION_SKUS).find(([_, sku]) => sku === productId);
+            const planKey = planEntry ? planEntry[0] : 'basic';
+            const planInfo = PLAN_DETAILS[planKey] || {};
+            
+            // v13 uses subscriptionOfferDetailsAndroid (not subscriptionOfferDetails)
+            const offerDetails = sub.subscriptionOfferDetailsAndroid || sub.subscriptionOfferDetails || [];
+            
+            // Cache offerToken for Android (required for Google Play Billing v5+)
+            if (Platform.OS === 'android' && offerDetails.length > 0) {
+              // Prefer the base plan offer (no offerId = base), fall back to first offer
+              const baseOffer = offerDetails.find(o => !o.offerId) || offerDetails[0];
+              this._offerTokens[productId] = baseOffer.offerToken;
+              console.log('[IAP] Cached offerToken for', productId, '(offer:', baseOffer.offerId || 'base', ')');
+            } else if (Platform.OS === 'android') {
+              console.warn('[IAP] NO offerDetails for', productId);
+            }
+            
+            // Extract localized price — v13 has top-level displayPrice
+            const displayPrice = sub.displayPrice || planInfo.price;
+            
+            console.log('[IAP] Plan:', planKey, '| ID:', productId, '| Price:', displayPrice);
+            return {
+              productId: productId,
+              ...planInfo,
+              localizedPrice: displayPrice,
+              price: displayPrice,
+            };
+          });
+        }
       } catch (err) {
-        console.error('Failed to get subscriptions from store:', err);
+        console.error('[IAP] fetchProducts FAILED:', err.message);
       }
     }
-    // Fallback: return hardcoded plan details
+    console.log('[IAP] Using fallback hardcoded plan details');
     return Object.entries(PLAN_DETAILS).map(([key, plan]) => ({
       productId: SUBSCRIPTION_SKUS[key],
       ...plan,
@@ -490,59 +597,96 @@ const BillingService = {
   },
 
   // Purchase subscription
+  // v13: uses requestPurchase() instead of requestSubscription()
   async purchaseSubscription(sku, plan) {
+    console.log('[IAP] ===== purchaseSubscription() =====');
+    console.log('[IAP] SKU:', sku, '| Plan:', plan);
+    console.log('[IAP] native:', this.isNativeIAPAvailable, '| init:', this._initialized);
+    
     if (this.isNativeIAPAvailable && this._initialized) {
-      // Native IAP purchase - verification handled by purchaseUpdatedListener
       if (Platform.OS === 'android') {
-        await RNIap.requestSubscription({ sku });
+        let token = this._offerTokens[sku];
+        console.log('[IAP] Cached offerToken:', token ? 'YES' : 'NOT FOUND');
+        
+        if (!token) {
+          console.log('[IAP] Fetching subscriptions to get offerToken...');
+          await this.getSubscriptions();
+          token = this._offerTokens[sku];
+          console.log('[IAP] After fetch, offerToken:', token ? 'YES' : 'STILL NOT FOUND');
+        }
+        
+        if (!token) {
+          console.error('[IAP] No offerToken available. Cached tokens:', JSON.stringify(Object.keys(this._offerTokens)));
+          throw new Error('Unable to retrieve subscription offer from Google Play. Check that product IDs are active in Play Console.');
+        }
+        
+        console.log('[IAP] Calling requestPurchase (Android) with v13 format...');
+        const purchaseRequest = {
+          request: {
+            google: {
+              skus: [sku],
+              subscriptionOffers: [{ sku, offerToken: token }],
+            },
+          },
+          type: 'subs',
+        };
+        console.log('[IAP] Purchase request payload:', JSON.stringify(purchaseRequest));
+        await RNIap.requestPurchase(purchaseRequest);
+        console.log('[IAP] requestPurchase() returned — Google Play sheet should be showing');
       } else {
-        await RNIap.requestSubscription({ sku });
+        console.log('[IAP] Calling requestPurchase (iOS)...');
+        await RNIap.requestPurchase({
+          request: {
+            apple: { sku },
+          },
+          type: 'subs',
+        });
       }
       return { status: 'pending_verification' };
     }
     
     // Fallback: Stripe checkout via browser
+    console.log('[IAP] Using STRIPE FALLBACK');
     if (plan === 'organizer') {
       const data = await api.post('/organizer/subscription/checkout');
       if (data.url) await Linking.openURL(data.url);
       return data;
     }
     const data = await api.post('/subscription/checkout', { plan, platform: Platform.OS });
-    if (data.url) {
-      await Linking.openURL(data.url);
-    }
+    if (data.url) await Linking.openURL(data.url);
     return data;
   },
 
   // Restore purchases (required by both App Store and Play Store policies)
   async restorePurchases() {
+    console.log('[IAP] restorePurchases() called');
     if (this.isNativeIAPAvailable && this._initialized) {
       try {
         const purchases = await RNIap.getAvailablePurchases();
+        console.log('[IAP] Available purchases:', purchases?.length);
         if (purchases && purchases.length > 0) {
-          // Verify the latest purchase with our server
           const latestPurchase = purchases[purchases.length - 1];
+          const productId = latestPurchase.productId || latestPurchase.id;
           if (Platform.OS === 'android') {
             await api.post('/subscription/verify-google', {
               purchaseToken: latestPurchase.purchaseToken,
-              productId: latestPurchase.productId,
+              productId: productId,
               packageName: latestPurchase.packageNameAndroid
             });
           } else {
             await api.post('/subscription/verify-apple', {
-              receiptData: latestPurchase.transactionReceipt,
-              productId: latestPurchase.productId
+              receiptData: latestPurchase.transactionReceipt || latestPurchase.dataAndroid,
+              productId: productId
             });
           }
           return true;
         }
         return false;
       } catch (err) {
-        console.error('Restore purchases error:', err);
+        console.error('[IAP] Restore error:', err.message);
         return false;
       }
     }
-    // Fallback: check server status
     try {
       const data = await api.post('/subscription/restore');
       return data.restored;
@@ -570,6 +714,9 @@ const BillingService = {
       this._errorListener.remove();
       this._errorListener = null;
     }
+    this._onPurchaseSuccess = null;
+    this._onPurchaseError = null;
+    this._offerTokens = {};
     if (this.isNativeIAPAvailable && this._initialized) {
       RNIap.endConnection();
       this._initialized = false;
@@ -606,7 +753,10 @@ const AuthProvider = ({ children }) => {
   useEffect(() => { 
     fetchUser(); 
     // Initialize in-app purchases
-    BillingService.initialize().catch(err => console.warn('IAP init:', err.message));
+    console.log('[IAP] Triggering BillingService.initialize()...');
+    BillingService.initialize().then(result => {
+      console.log('[IAP] Init completed:', result, '| native:', BillingService.isNativeIAPAvailable, '| init:', BillingService._initialized);
+    }).catch(err => console.warn('[IAP] Init failed:', err.message));
     return () => { BillingService.cleanup(); };
   }, [fetchUser]);
 
@@ -3912,6 +4062,41 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
   const PLAN_RANK = { free: 0, trial: 0, basic: 1, pro: 2, elite: 3, promo: 4, lifetime: 5 };
   const currentRank = PLAN_RANK[currentPlan] || 0;
   
+  // Pre-fetch subscriptions when modal opens to cache offerTokens
+  useEffect(() => {
+    if (visible && BillingService.isNativeIAPAvailable && BillingService._initialized) {
+      console.log('[IAP] Modal visible — pre-fetching subscriptions');
+      BillingService.getSubscriptions().then(subs => {
+        console.log('[IAP] Pre-fetch done.', subs?.length, 'plans. Tokens cached:', JSON.stringify(Object.keys(BillingService._offerTokens)));
+      }).catch(err => console.warn('[IAP] Pre-fetch failed:', err.message));
+    }
+  }, [visible]);
+
+  // Wire up purchase callbacks when modal is visible
+  useEffect(() => {
+    if (!visible) return;
+    
+    BillingService._onPurchaseSuccess = (plan) => {
+      console.log('[IAP] Purchase SUCCESS callback. Plan:', plan);
+      setLoading(false);
+      setSelectedPlan(null);
+      toast.success('Subscription activated successfully!');
+      if (onSubscribe) onSubscribe();
+      onClose();
+    };
+    BillingService._onPurchaseError = (errorMessage) => {
+      console.log('[IAP] Purchase ERROR callback:', errorMessage);
+      setLoading(false);
+      setSelectedPlan(null);
+      if (errorMessage) toast.error(errorMessage);
+    };
+    
+    return () => {
+      BillingService._onPurchaseSuccess = null;
+      BillingService._onPurchaseError = null;
+    };
+  }, [visible]); // Only depend on visible — not onSubscribe/onClose to prevent re-render spam
+  
   const getPlanAction = (planKey) => {
     if (currentPlan === planKey) return 'current';
     if (subscription?.pendingPlanChange === planKey) return 'pending';
@@ -3921,41 +4106,58 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
 
   const handlePlanAction = async (planKey) => {
     const action = getPlanAction(planKey);
+    console.log('[IAP] handlePlanAction:', planKey, '| action:', action, '| SKU:', SUBSCRIPTION_SKUS[planKey]);
     setLoading(true);
     setSelectedPlan(planKey);
     try {
       if (action === 'downgrade') {
-        // Downgrade via server — keep current features until renewal
         const data = await api.post('/subscription/change-plan', { plan: planKey });
         if (data.success) {
           toast.success(data.message);
           if (onSubscribe) onSubscribe();
+          setLoading(false);
+          setSelectedPlan(null);
         } else if (data.needsCheckout) {
-          // Fallback to IAP checkout
           await BillingService.purchaseSubscription(SUBSCRIPTION_SKUS[planKey], planKey);
-          toast.success('Subscription updated');
-          if (onSubscribe) onSubscribe();
+          // For native IAP: loading/reset handled by _onPurchaseSuccess/_onPurchaseError callbacks
+          if (!BillingService.isNativeIAPAvailable || !BillingService._initialized) {
+            toast.success('Subscription updated');
+            if (onSubscribe) onSubscribe();
+            setLoading(false);
+            setSelectedPlan(null);
+          }
         }
       } else if (action === 'upgrade' && ['active', 'grace_period'].includes(subscription?.status)) {
-        // In-place upgrade via server
         const data = await api.post('/subscription/change-plan', { plan: planKey });
         if (data.success) {
           toast.success(data.message);
           if (onSubscribe) onSubscribe();
+          setLoading(false);
+          setSelectedPlan(null);
         } else if (data.needsCheckout) {
           await BillingService.purchaseSubscription(SUBSCRIPTION_SKUS[planKey], planKey);
-          toast.success('Redirecting to checkout...');
-          if (onSubscribe) onSubscribe();
+          if (!BillingService.isNativeIAPAvailable || !BillingService._initialized) {
+            toast.success('Redirecting to checkout...');
+            if (onSubscribe) onSubscribe();
+            setLoading(false);
+            setSelectedPlan(null);
+          }
         }
       } else {
         // New subscription — go through IAP
+        console.log('[IAP] New subscription path — calling purchaseSubscription');
         await BillingService.purchaseSubscription(SUBSCRIPTION_SKUS[planKey], planKey);
-        toast.success('Redirecting to checkout...');
-        if (onSubscribe) onSubscribe();
+        // For native IAP: loading/reset handled by callbacks
+        if (!BillingService.isNativeIAPAvailable || !BillingService._initialized) {
+          toast.success('Redirecting to checkout...');
+          if (onSubscribe) onSubscribe();
+          setLoading(false);
+          setSelectedPlan(null);
+        }
       }
     } catch (error) {
+      console.error('[IAP] handlePlanAction error:', error.message);
       toast.error(error.message);
-    } finally {
       setLoading(false);
       setSelectedPlan(null);
     }
@@ -4052,6 +4254,8 @@ const SubscriptionModal = ({ visible, onClose, currentPlan, onSubscribe }) => {
                         title={btnLabel} 
                         variant={action === 'downgrade' ? 'outline' : undefined}
                         loading={loading && selectedPlan === key}
+                        onPress={() => handlePlanAction(key)}
+                        disabled={loading}
                         style={{ marginTop: 12 }}
                       />
                       {action === 'downgrade' && (
