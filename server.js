@@ -47,7 +47,7 @@ const FROM_NAME = process.env.FROM_NAME || 'PermitWise';
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5000';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 // Google Play receipt validation
-const GOOGLE_PLAY_PACKAGE_NAME = process.env.GOOGLE_PLAY_PACKAGE_NAME || 'com.permitwise.app';
+const GOOGLE_PLAY_PACKAGE_NAME = process.env.GOOGLE_PLAY_PACKAGE_NAME || 'com.umbraglobal.permitwise';
 // Google service account credentials - supports JSON string in env var or file path
 const GOOGLE_SERVICE_ACCOUNT_KEY = process.env.GOOGLE_SERVICE_ACCOUNT_KEY; // JSON string
 const GOOGLE_SERVICE_ACCOUNT_KEY_FILE = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE; // or file path
@@ -1141,6 +1141,18 @@ const isSubscriptionActive = (subscription) => {
 const isAdminGrantedAndProtected = (subscription) => {
   if (!subscription) return false;
   return subscription.promoGrantedBy === 'admin' && ['active', 'lifetime', 'promo'].includes(subscription.status);
+};
+
+// Helper: Safe date conversion — handles Stripe timestamps (seconds), ISO strings, or undefined/null
+// Prevents "Invalid Date" CastError when Stripe sends unexpected values
+const safeDate = (value, fallback = new Date()) => {
+  if (!value && value !== 0) return fallback;
+  if (typeof value === 'number') {
+    const d = new Date(value * 1000);
+    return isNaN(d.getTime()) ? fallback : d;
+  }
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? fallback : d;
 };
 
 // Helper: Get subscription status details for API responses
@@ -5976,8 +5988,8 @@ app.post('/api/subscription/confirm-payment', authMiddleware, requireRole('owner
           status: 'active',
           plan,
           features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
-          currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-          currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+          currentPeriodStart: safeDate(stripeSubscription.current_period_start),
+          currentPeriodEnd: safeDate(stripeSubscription.current_period_end),
           pendingPlanChange: null, pendingPlanChangeDate: null,
           gracePeriodEndsAt: null, lastPaymentFailedAt: null, paymentFailureCount: 0,
           updatedAt: new Date()
@@ -6096,8 +6108,8 @@ app.post('/api/organizer/subscription/confirm-payment', authMiddleware, async (r
         { stripeSubscriptionId: subscriptionId },
         {
           status: 'active',
-          currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-          currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+          currentPeriodStart: safeDate(stripeSubscription.current_period_start),
+          currentPeriodEnd: safeDate(stripeSubscription.current_period_end),
           updatedAt: new Date()
         }
       );
@@ -6455,10 +6467,18 @@ app.post('/api/subscription/verify-google', authMiddleware, async (req, res) => 
     // --- IAP validation toggle ---
     if (!GOOGLE_PLAY_VALIDATION_ENABLED) {
       console.warn(`[IAP BYPASS] Google Play validation SKIPPED (GOOGLE_PLAY_VALIDATION_ENABLED=false). Trusting client for product=${productId}`);
-      const subscription = isOrganizer
-        ? await activateOrganizerIAPSubscription(req.userId, platformData)
-        : await activateIAPSubscription(req.user.vendorBusinessId, req.userId, plan, platformData);
-      return res.json({ subscription, message: 'Subscription activated (validation bypassed)' });
+      console.log(`[IAP BYPASS] userId=${req.userId}, vendorBusinessId=${req.user.vendorBusinessId}, isOrganizer=${isOrganizer}, plan=${plan}`);
+      try {
+        const subscription = isOrganizer
+          ? await activateOrganizerIAPSubscription(req.userId, platformData)
+          : await activateIAPSubscription(req.user.vendorBusinessId, req.userId, plan, platformData);
+        console.log(`[IAP BYPASS] Activation success: plan=${subscription.plan}, status=${subscription.status}`);
+        return res.json({ subscription, message: 'Subscription activated (validation bypassed)' });
+      } catch (activationErr) {
+        console.error(`[IAP BYPASS] Activation FAILED:`, activationErr.message);
+        console.error(`[IAP BYPASS] Stack:`, activationErr.stack);
+        return res.status(500).json({ error: 'Failed to activate subscription', detail: activationErr.message });
+      }
     }
 
     if (!androidPublisher) {
@@ -6509,13 +6529,15 @@ app.post('/api/subscription/verify-google', authMiddleware, async (req, res) => 
     res.json({ subscription, message: 'Subscription activated successfully' });
   } catch (error) {
     console.error('Google Play verification error:', error.message || error);
+    console.error('Google Play verification stack:', error.stack);
     if (error.code === 410) {
       return res.status(400).json({ error: 'Purchase token expired or already consumed' });
     }
     if (error.code === 404) {
       return res.status(400).json({ error: 'Purchase not found — it may have been refunded' });
     }
-    res.status(500).json({ error: 'Failed to verify Google Play purchase' });
+    // Return the actual error message for easier debugging
+    res.status(500).json({ error: 'Failed to verify Google Play purchase', detail: error.message });
   }
 });
 
@@ -7025,8 +7047,8 @@ app.post('/webhook', async (req, res) => {
               status: 'active',
               stripeCustomerId: session.customer,
               stripeSubscriptionId: session.subscription,
-              currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-              currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+              currentPeriodStart: safeDate(stripeSubscription.current_period_start),
+              currentPeriodEnd: safeDate(stripeSubscription.current_period_end),
               updatedAt: new Date()
             },
             { upsert: true, new: true }
@@ -7045,8 +7067,8 @@ app.post('/webhook', async (req, res) => {
               stripeCustomerId: session.customer,
               stripeSubscriptionId: session.subscription,
               stripePriceId: stripeSubscription.items.data[0].price.id,
-              currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-              currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+              currentPeriodStart: safeDate(stripeSubscription.current_period_start),
+              currentPeriodEnd: safeDate(stripeSubscription.current_period_end),
               features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
               pendingPlanChange: null,
               pendingPlanChangeDate: null,
@@ -7199,8 +7221,8 @@ app.post('/webhook', async (req, res) => {
           { stripeSubscriptionId: stripeSubscription.id },
           {
             status: ourStatus,
-            currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-            currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+            currentPeriodStart: safeDate(stripeSubscription.current_period_start),
+            currentPeriodEnd: safeDate(stripeSubscription.current_period_end),
             features: PLAN_FEATURES[plan] || PLAN_FEATURES.basic,
             updatedAt: new Date()
           }
@@ -7211,8 +7233,8 @@ app.post('/webhook', async (req, res) => {
             { stripeSubscriptionId: stripeSubscription.id },
             {
               status: ourStatus,
-              currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-              currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+              currentPeriodStart: safeDate(stripeSubscription.current_period_start),
+              currentPeriodEnd: safeDate(stripeSubscription.current_period_end),
               updatedAt: new Date()
             }
           );
